@@ -4,6 +4,35 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 2: terminal via tmux
+
+**Completed this session:**
+
+- `internal/store`: added `TerminalSession` CRUD (`AddTerminalSession`, `ListTerminalSessions`, `ListAllTerminalSessions`, `GetTerminalSession`, `RemoveTerminalSession`) — the `terminal_sessions` table existed as schema-only since step 1, now actually used.
+- `internal/term`: new package. `Manager.CreateSession` runs `tmux new-session -d -s wts-<id> -c <worktreePath>` and records it; `CloseSession` kills the tmux session and removes the row; `ListLiveTmuxSessionNames` (treats "no server running" as an empty set, not an error); `Reconcile` prunes DB rows whose tmux session is no longer live (never kills a live one); `Attach`/`Resize` wrap `creack/pty` for `tmux attach-session` + `pty.Setsize`.
+- `internal/api/terminals.go`: REST CRUD (`GET/POST .../terminals/`, `DELETE .../terminals/:id`) plus `GET /ws/terminals/:id`, a `gorilla/websocket` endpoint that attaches a pty to the tmux session and relays: binary ws messages = raw bytes into the pty, text ws messages = JSON control frames (currently just `{"type":"resize",...}`). `cmd/worktree-studio/main.go` now calls `term.Reconcile` at startup before the server starts accepting requests.
+- Frontend: `Terminal.tsx` (xterm.js + `@xterm/addon-fit`, binary-input/JSON-resize protocol matching the server), `WorktreeDetail.tsx` (new route `/repo/:repoId/worktree/:worktreeId` — terminal tabs, "+ New Terminal", tab close, and a "⧉ New tab" button that does `window.open(window.location.href)`, satisfying the multi-repo/multi-window ask without any shared client state). `WorktreeList.tsx` links each row to its detail page.
+- `docs/session-persistence.md` (new): the tmux rationale, wire protocol, manual restart-survival recipe, and a documented simplification vs. `PLAN.md`'s original sketch (one dedicated ws connection per terminal tab, not one multiplexed channel across tabs — there's no other consumer of a shared channel yet). `docs/architecture.md` and `docs/running-locally.md` updated for step 2 (tmux added as a prerequisite). `.claude/skills/worktree-studio/SKILL.md` got a new "Using terminals" section.
+
+**Verified working (real commands run, not just claimed):**
+
+- `go build ./...`, `go vet ./...`, `gofmt -l .` all clean. `go test ./...` — 22/22 passing (added `internal/term/term_test.go`: create/list/close, reconcile-drops-dead-sessions, reconcile-keeps-live-sessions, attach+resize+real-command-via-pty, using real `tmux`/pty, skipped gracefully if `tmux` isn't on `PATH`).
+- `npm run build` in `web/` succeeds with the new terminal UI (xterm.js bundle included; only warning is bundle-size, expected for an internal tool).
+- Built a small throwaway Go websocket test client (no `websocat` available) and drove a real running server end-to-end: registered the `adelaide` repo, created a worktree, created a terminal (confirmed `tmux list-sessions` shows `wts-<id>`), sent a command over the ws connection, confirmed the output (matching `tmux capture-pane` exactly) and the correct working directory.
+- **The actual persistence claim**, verified for real: created a terminal, ran a command in it, `pkill`ed the Go server process, confirmed via `tmux list-sessions` the tmux session was still alive with the server gone, restarted the Go server, confirmed `GET .../terminals/` still listed the session, reattached over a fresh ws connection and saw the pre-restart scrollback plus successfully ran a new command (`POST_RESTART_MARKER`) — full round-trip proof the server restart didn't touch the running shell.
+- Re-verified against the real production server (built binary + real embedded frontend, not `go run`): confirmed the served JS bundle actually contains the new terminal code (`New Terminal`, `ws/terminals`, `xterm-` strings present), SPA fallback works for the new `/repo/:id/worktree/:id` route, and ran the same create-terminal → ws command → cleanup flow against it successfully.
+- Audit log gained correct `terminal.create`/`terminal.close` lines with `terminal_id`/`worktree_id`/`tmux_session_name`/`tab_label` fields.
+- Honest limitation: no browser automation tool was connected this session, so the frontend was verified via clean `tsc`+`vite build`, bundle content inspection, and the real backend wire protocol — not an actual click-through in a rendered browser. The React/xterm wiring follows the same patterns already proven working in step 1's `RepoPicker`/`Workspace`, but a visual/interactive pass is still worth doing next time a browser tool is available.
+- Test tmux sessions, worktrees, and repos created during verification were all cleaned up (`tmux list-sessions | grep wts-` empty at the end); no server process left running.
+
+**Not built (explicitly out of scope for this step):** spotlight sync, worktree status dashboard, Monaco editor, git-diff/comment-to-agent.
+
+**Process note:** the first attempt at this step accidentally landed steps `internal/store` + `go.mod` + `internal/term` in one combined commit despite the just-added commit-checkpoint policy in `PLAN.md` — caught immediately via `git show --stat HEAD`, undone with `git reset --soft HEAD~1`, and re-split into three properly-scoped commits before continuing. Worth double-checking `git status` right after any `git add` that follows an earlier one in the same session.
+
+**Next up:** Step 3 — spotlight sync (manifest + staging + atomic swap + lock, triggered on worktree creation, manual re-sync button). Open question to resolve first: confirm this machine's/adelaide repo's `.yarnrc.yml` `nodeLinker` setting (`node-modules` vs `pnp`) before finalizing the exact allow-list of what gets synced.
+
+---
+
 ## 2026-08-06 — Step 1: project init + skeleton + worktree CRUD + audit log + skill stub
 
 **Completed this session:**

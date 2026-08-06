@@ -5,6 +5,7 @@
 - Go 1.21+ (module uses `modernc.org/sqlite`, a pure-Go driver — no cgo/sqlite3 headers needed).
 - Node.js + npm (for the Vite/React frontend).
 - `git` on `PATH` (all worktree operations shell out to the real `git` binary).
+- `tmux` on `PATH` (terminal tabs are tmux sessions under the hood — see `docs/session-persistence.md`; `brew install tmux` on macOS).
 
 ## Production-style: one binary
 
@@ -42,6 +43,7 @@ Open `http://localhost:5173/` — API calls to `/api/...` are proxied to the Go 
 - SQLite registry: `~/.worktree-studio/studio.db`
 - Audit log (JSONL, append-only): `~/.worktree-studio/audit.log.jsonl`
 - Created worktrees live under: `~/.worktree-studio/worktrees/<repoId>/<worktree-name>/`
+- Terminal sessions are tmux sessions named `wts-<terminalId>` — not a file on disk, but visible via `tmux list-sessions`.
 
 None of the above are created by the repo itself — the server creates `~/.worktree-studio/` and its subdirectories on first run if missing.
 

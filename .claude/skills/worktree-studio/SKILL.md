@@ -7,8 +7,7 @@ description: How to run and use worktree-studio, a local Go+React tool for manag
 
 `worktree-studio` is a small local web tool for managing `git worktree`s across one or more repos: register a repo once, then create/remove worktrees through a dashboard instead of hand-running `git worktree add/remove`. It's meant to be driven by both humans and agents.
 
-**Status as of this section (step 1 of `PLAN.md`): only repo registration and worktree create/remove exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
-- No terminal / tmux sessions (planned: step 2)
+**Status as of this section (steps 1–2 of `PLAN.md`): repo registration, worktree create/remove, and tmux-backed terminals exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
 - No spotlight sync of `node_modules`/`.env`/build caches into new worktrees (planned: step 3) — a freshly created worktree has **only** what `git worktree add` gives it; you still need to run your own install/build step in it for now
 - No worktree status dashboard (dirty/ahead-behind badges) (planned: step 4)
 - No Monaco file editor (planned: step 5)
@@ -93,4 +92,34 @@ Other useful local state:
 
 `rm -rf ~/.worktree-studio` resets all registry/audit state (does not remove worktrees already created on disk — use `git worktree remove` or the UI for those first).
 
-<!-- Each later build step (terminal/tmux, spotlight sync, dashboard, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+## Using terminals
+
+Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktree/:worktreeId`), which shows terminal tabs for that worktree. "+ New Terminal" starts a real shell rooted in that worktree's directory — run anything in it, including `claude` itself; there's no special agent framing, it's just a shell.
+
+Via the API:
+
+```bash
+# create a terminal
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/ \
+  -H "Content-Type: application/json" -d '{"tab_label": "main"}'
+
+# list terminals for a worktree
+curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/
+
+# close one (kills the shell inside it)
+curl -X DELETE http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/<terminalId>
+```
+
+Each terminal is actually a **tmux session** (named `wts-<terminalId>`) that the server attaches to — not a bare process the server owns directly. The load-bearing consequence: **restarting worktree-studio's server does not kill anything running in a terminal**. A long build, a `claude` session, whatever — it keeps running, and reattaching (reload the tab, or just leave it open through a restart) picks the session back up with scrollback intact. See `docs/session-persistence.md` for the full explanation and a manual restart-survival test you can run yourself.
+
+If you need to poke at a terminal's underlying tmux session directly (e.g. to debug something the UI isn't showing correctly), it's a completely normal tmux session:
+
+```bash
+tmux list-sessions | grep wts-
+tmux attach -t wts-<terminalId>       # attach from your own real terminal, alongside worktree-studio's ws client
+tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents without attaching
+```
+
+The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
+
+<!-- Each later build step (spotlight sync, dashboard, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
