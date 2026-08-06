@@ -28,6 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // ignore non-JSON error bodies
     }
+    if (res.status === 409) throw new ConflictError(message);
     throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
@@ -62,8 +63,17 @@ export function createWorktree(repoId: string, name: string): Promise<Worktree> 
   });
 }
 
-export function deleteWorktree(repoId: string, worktreeId: string): Promise<void> {
-  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}`, {
+export function deleteWorktree(
+  repoId: string,
+  worktreeId: string,
+  force = false
+): Promise<void> {
+  const qs = force ? "?force=true" : "";
+  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}${qs}`, {
     method: "DELETE",
   });
 }
+
+/** Thrown by request() when the server responds 409 Conflict (used here to
+ * mean: worktree has uncommitted changes, retry with force to discard them). */
+export class ConflictError extends Error {}

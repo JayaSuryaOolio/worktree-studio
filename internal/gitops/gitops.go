@@ -7,10 +7,17 @@ package gitops
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 )
+
+// ErrWorktreeDirty is returned by RemoveWorktree when force is false and git
+// refuses to remove the worktree because it has uncommitted changes and/or
+// untracked files. Callers can check for this with errors.Is and offer the
+// user a way to retry with force.
+var ErrWorktreeDirty = errors.New("worktree has uncommitted changes or untracked files")
 
 // IsGitRepo reports whether path is the top level of a real git working
 // tree (i.e. `git rev-parse --is-inside-work-tree` succeeds there).
@@ -78,16 +85,44 @@ func AddWorktree(repoPath, worktreePath, branch string) error {
 	return nil
 }
 
-// RemoveWorktree runs `git worktree remove --force <worktreePath>` from
-// within repoPath.
-func RemoveWorktree(repoPath, worktreePath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
+// RemoveWorktree runs `git worktree remove <worktreePath>` from within
+// repoPath. Without force, git itself refuses to remove a worktree that has
+// uncommitted changes or untracked files, and that refusal is surfaced as
+// ErrWorktreeDirty (wrapped, so errors.Is works) rather than a generic
+// error, so callers can offer the user an explicit "remove anyway" retry
+// with force=true instead of silently discarding their work. With force,
+// --force is passed and git removes the worktree unconditionally.
+func RemoveWorktree(repoPath, worktreePath string, force bool) error {
+	args := []string{"-C", repoPath, "worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, worktreePath)
+
+	cmd := exec.Command("git", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git worktree remove %s: %w: %s", worktreePath, err, strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		if !force && isDirtyWorktreeError(msg) {
+			return fmt.Errorf("%w: %s", ErrWorktreeDirty, msg)
+		}
+		return fmt.Errorf("git worktree remove %s: %w: %s", worktreePath, err, msg)
 	}
 	return nil
+}
+
+// isDirtyWorktreeError reports whether git's stderr from a failed (non-
+// forced) `worktree remove` indicates the refusal was due to the worktree
+// being dirty (as opposed to some other failure, e.g. the path not being a
+// worktree at all). Matches git's actual message wording ("... is dirty,
+// use --force to delete it" / "... contains modified or untracked files,
+// use --force to delete it").
+func isDirtyWorktreeError(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	return strings.Contains(lower, "is dirty") ||
+		strings.Contains(lower, "contains modified or untracked files") ||
+		strings.Contains(lower, "use --force")
 }
 
 // StatusResult is the parsed output of `git status --porcelain=2 --branch`.

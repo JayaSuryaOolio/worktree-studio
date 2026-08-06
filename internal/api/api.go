@@ -85,6 +85,10 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
+	if !filepath.IsAbs(path) {
+		writeError(w, http.StatusBadRequest, "path must be absolute")
+		return
+	}
 
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
@@ -265,7 +269,15 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := gitops.RemoveWorktree(repo.Path, wt.Path); err != nil {
+	force := r.URL.Query().Get("force") == "true"
+	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
+		if errors.Is(err, gitops.ErrWorktreeDirty) {
+			// Not a server error: the user needs to make a call (retry with
+			// force=true to discard changes, or go clean things up first),
+			// so surface it as a 409 rather than a 500.
+			writeError(w, http.StatusConflict, "worktree has uncommitted changes or untracked files; retry with ?force=true to remove it anyway and discard them")
+			return
+		}
 		s.Log.Error("git worktree remove", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to remove git worktree: "+err.Error())
 		return

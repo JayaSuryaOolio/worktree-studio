@@ -17,6 +17,13 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    emptyOutDir: true,
+    // NOT emptyOutDir: true — that would delete the checked-in
+    // web/dist/.gitkeep placeholder on every build (main.go's
+    // mountFrontend/go:embed comments rely on web/dist existing, with or
+    // without a real build, so `go build ./...` works on a fresh checkout
+    // before the frontend is ever built). .gitignore's `web/dist/*` +
+    // `!web/dist/.gitkeep` already keeps built assets out of git, so Vite
+    // doesn't need to clean the directory itself.
+    emptyOutDir: false,
   },
 });

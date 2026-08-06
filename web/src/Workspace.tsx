@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
+  ConflictError,
   createWorktree,
   deleteWorktree,
   listWorktrees,
@@ -34,11 +35,35 @@ export default function Workspace() {
 
   async function handleDelete(wt: Worktree) {
     if (!repoId) return;
-    if (!confirm(`Remove worktree "${wt.name}" (branch ${wt.branch})?`)) return;
+    if (
+      !confirm(
+        `Remove worktree "${wt.name}" (branch ${wt.branch})? Any uncommitted changes in it will be lost.`
+      )
+    )
+      return;
     try {
       await deleteWorktree(repoId, wt.id);
       refresh();
     } catch (err) {
+      if (err instanceof ConflictError) {
+        // The backend refused because the worktree has uncommitted changes
+        // or untracked files — git's own safety check. Give the user an
+        // explicit second chance to discard them, rather than silently
+        // force-removing (or silently failing) the first time around.
+        if (
+          confirm(
+            `Worktree "${wt.name}" has uncommitted changes or untracked files.\n\nRemove it anyway? This will permanently discard those changes.`
+          )
+        ) {
+          try {
+            await deleteWorktree(repoId, wt.id, true);
+            refresh();
+          } catch (retryErr) {
+            setError((retryErr as Error).message);
+          }
+        }
+        return;
+      }
       setError((err as Error).message);
     }
   }
