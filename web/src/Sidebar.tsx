@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Link, useMatch, useNavigate } from "react-router-dom";
-import { createWorktree, Repo } from "./api";
-import AddRepoDialog from "./AddRepoDialog";
-import NewWorktreeDialog from "./NewWorktreeDialog";
+import { Link, useMatch } from "react-router-dom";
 import { useRepoContext } from "./RepoContext";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
 import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
+
+interface Props {
+  onAddRepo: () => void;
+  onNewWorktree: (repoId: string) => void;
+}
 
 // The persistent left sidebar: every registered repo, with its worktrees
 // nested directly underneath — the actual point of this component — so
@@ -16,24 +18,20 @@ import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlig
 //
 // TODO (future, not this pass): nest repos under a "project" grouping —
 // for now a flat list of repos is enough.
-export default function Sidebar() {
+export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   const {
     repos,
     reposLoading,
-    refreshRepos,
     worktreesByRepo,
     worktreesLoading,
     refreshWorktrees,
     gitStatus,
     spotlightStatus,
   } = useRepoContext();
-  const navigate = useNavigate();
 
   const worktreeMatch = useMatch("/repo/:repoId/worktree/:worktreeId");
   const activeWorktreeId = worktreeMatch?.params.worktreeId ?? null;
 
-  const [addRepoOpen, setAddRepoOpen] = useState(false);
-  const [newWorktreeRepoId, setNewWorktreeRepoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   return (
@@ -52,7 +50,7 @@ export default function Sidebar() {
             className="icon-button"
             aria-label="Add repo"
             title="Add repo"
-            onClick={() => setAddRepoOpen(true)}
+            onClick={onAddRepo}
           >
             +
           </button>
@@ -75,7 +73,7 @@ export default function Sidebar() {
                     className="icon-button"
                     aria-label={`New worktree in ${r.name}`}
                     title="New worktree"
-                    onClick={() => setNewWorktreeRepoId(r.id)}
+                    onClick={() => onNewWorktree(r.id)}
                   >
                     +
                   </button>
@@ -138,28 +136,6 @@ export default function Sidebar() {
       </div>
 
       {error && <p className="error sidebar-error">{error}</p>}
-
-      {addRepoOpen && (
-        <AddRepoDialog
-          onCreated={(repo: Repo) => {
-            refreshRepos();
-            navigate(`/repo/${repo.id}`);
-          }}
-          onClose={() => setAddRepoOpen(false)}
-        />
-      )}
-
-      {newWorktreeRepoId && (
-        <NewWorktreeDialog
-          repoId={newWorktreeRepoId}
-          onCreate={async (name) => {
-            const wt = await createWorktree(newWorktreeRepoId, name);
-            refreshWorktrees();
-            navigate(`/repo/${newWorktreeRepoId}/worktree/${wt.id}`);
-          }}
-          onClose={() => setNewWorktreeRepoId(null)}
-        />
-      )}
     </nav>
   );
 }

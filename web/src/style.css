@@ -439,3 +439,73 @@ code {
 .actions-menu-list button.danger {
   color: #c0392b;
 }
+
+/* Command palette (cmdk) — structural only for now, real Command Deck
+   styling lands in the next pass. */
+
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #0008;
+}
+
+.command-palette-content {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  width: min(34rem, 90vw);
+  max-height: 60vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #1c2128;
+  color: #e6edf3;
+  border: 1px solid #8884;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px #0008;
+}
+
+.command-palette [cmdk-input] {
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-bottom: 1px solid #8884;
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+
+.command-palette [cmdk-list] {
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+
+.command-palette [cmdk-group-heading] {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  padding: 0.4rem 0.6rem 0.2rem;
+}
+
+.command-palette [cmdk-item] {
+  padding: 0.5rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.command-palette [cmdk-item][data-selected="true"] {
+  background: #8882;
+}
+
+.command-palette [cmdk-empty] {
+  padding: 1rem;
+  text-align: center;
+  opacity: 0.6;
+  font-size: 0.9rem;
+}

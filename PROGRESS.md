@@ -4,6 +4,25 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 7.2: command palette (Cmd+K)
+
+**Completed:**
+
+- `cmdk` added (headless command-menu primitive — no default styling, same "wrap the proven primitive" call already made for dockview/tmux/spotlight/git).
+- `CommandPalette.tsx`: global `Cmd/Ctrl+K` listener, fuzzy-searches repos + their worktrees, actions for "+ Add repo" and "+ New worktree in `<repo>`". Scoped deliberately narrow — jump/create only, not arbitrary command execution.
+- Refactored `Layout.tsx`/`Sidebar.tsx`: add-repo and new-worktree modal state moved up from `Sidebar.tsx` into `Layout.tsx`'s `LayoutShell`, since both the sidebar's own "+" buttons and the new command palette need to open the *same* dialog instance rather than each owning a duplicate copy.
+- Structural-only CSS for the palette (real Command Deck styling is next).
+
+**Verified:**
+
+- `bun run build` clean, backend untouched (`go build`/`go test` clean — noting one cosmetic non-issue: `go list ./...`/`go test ./...` now also picks up a bundled Go port shipped inside the `flatted` npm package's own `node_modules` transitively pulled in by `cmdk` — builds fine, adds to the reported package count, gitignored, doesn't affect correctness, not worth engineering around).
+- Real component tests (`CommandPalette.test.tsx`, mocking `api.ts`): closed by default, opens on `Cmd+K`/`Ctrl+K`, selecting a worktree navigates to it and closes the palette, selecting "+ New worktree in X" calls the right callback with the right repo id and closes. Needed two jsdom polyfills in `vitest.setup.ts` (`ResizeObserver`, `Element.prototype.scrollIntoView`) since cmdk uses both internally and jsdom implements neither — documented inline, not silently patched.
+- 10/10 frontend tests passing, all previously-passing tests unaffected by the `Sidebar`/`Layout` refactor.
+
+**Next:** Step 7.3 — Command Deck visual design pass.
+
+---
+
 ## 2026-08-07 — Real-usage bug report: worktree creation failing, orphaned state
 
 User reported the actual app (not a test) failing to create a worktree named `oc-5678-2`: first attempt showed "failed to save worktree record," retrying showed "failed to create git worktree: ... a branch named 'oc-5678-2' already exists." Also flagged: a server I'd started during earlier verification steps was still running in the background with no visible logs or way to stop it.

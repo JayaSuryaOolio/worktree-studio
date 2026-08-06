@@ -157,4 +157,12 @@ curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/status
 
 `has_upstream` is `false` for most freshly created worktrees — `git worktree add -b <branch>` doesn't set up an upstream by itself, so `ahead`/`behind` being `0` in that case doesn't mean "in sync," it means "not tracking anything to compare against." The UI only shows the ahead/behind badge when `has_upstream` is true and there's an actual difference — check `has_upstream` yourself if scripting against this, don't just look at whether ahead/behind are zero.
 
-<!-- Each later build step (Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+## UI overhaul: sidebar, command palette, kebab actions
+
+The UI is now built around a persistent left sidebar (not the flat pages described earlier in this file) — every registered repo is listed with its worktrees nested directly underneath, auto-loading whenever the selected repo changes (including a fresh browser tab opened straight at a worktree URL). All per-worktree operational actions (start/stop spotlight, delete) live behind each row's "⋮" kebab menu, not separate always-visible buttons.
+
+**Command palette**: press `Cmd+K` (or `Ctrl+K`) from anywhere in the app to open a fuzzy-searchable palette — jump to any repo or worktree, or trigger "+ Add repo" / "+ New worktree in `<repo>`" without leaving the page you're on. This app is deliberately an SPA in the literal sense: no page-transition navigations for new capability, just modals, dropdowns, and this palette.
+
+Adding a repo or a worktree is a modal now, not a page — reachable via the sidebar's "+" buttons or the command palette, not a separate route.
+
+<!-- Each later build step (Command Deck visual pass, dockview terminal arrangement + persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
