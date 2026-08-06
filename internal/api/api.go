@@ -18,12 +18,14 @@ import (
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/gitops"
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/term"
 )
 
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
 	Store        *store.Store
 	Audit        *audit.Logger
+	Term         *term.Manager
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
 }
@@ -38,9 +40,20 @@ func (s *Server) Routes(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
 			r.Post("/", s.handleCreateWorktree)
 			r.Get("/new-name-suggestion", s.handleNewNameSuggestion)
-			r.Delete("/{worktreeID}", s.handleDeleteWorktree)
+
+			r.Route("/{worktreeID}", func(r chi.Router) {
+				r.Delete("/", s.handleDeleteWorktree)
+
+				r.Route("/terminals", func(r chi.Router) {
+					r.Get("/", s.handleListTerminals)
+					r.Post("/", s.handleCreateTerminal)
+					r.Delete("/{terminalID}", s.handleDeleteTerminal)
+				})
+			})
 		})
 	})
+
+	r.Get("/ws/terminals/{terminalID}", s.handleTerminalWS)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

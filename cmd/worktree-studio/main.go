@@ -16,6 +16,7 @@ import (
 	"worktree-studio/internal/api"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/term"
 	webembed "worktree-studio/web"
 )
 
@@ -48,9 +49,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	if dropped, err := term.Reconcile(st); err != nil {
+		logger.Warn("reconcile terminal sessions against live tmux sessions", "err", err)
+	} else if dropped > 0 {
+		logger.Info("pruned stale terminal session rows (tmux session no longer live)", "count", dropped)
+	}
+
 	srv := &api.Server{
 		Store:        st,
 		Audit:        al,
+		Term:         &term.Manager{Store: st, Audit: al},
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
 	}
