@@ -42,6 +42,20 @@ func Open(path string) (*Store, error) {
 	// SQLite handles one writer at a time; keep it simple for this local tool.
 	db.SetMaxOpenConns(1)
 
+	// SQLite does NOT enforce foreign keys (including every ON DELETE
+	// CASCADE below) unless this pragma is set on the connection — off by
+	// default for backwards-compatibility reasons dating back decades.
+	// Found the hard way: verified empirically that a parent-row delete
+	// left a child row behind despite its ON DELETE CASCADE declaration,
+	// with this pragma unset. Since SetMaxOpenConns(1) above means there's
+	// exactly one persistent connection for this Store's whole lifetime,
+	// setting it once here is enough — it doesn't need to be reapplied per
+	// query.
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable foreign_keys pragma: %w", err)
+	}
+
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
@@ -88,6 +102,17 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
 	worktree_id        TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
 	tmux_session_name  TEXT NOT NULL,
 	tab_label          TEXT NOT NULL
+);
+
+-- One saved dockview layout per worktree (its terminal panel arrangement:
+-- which panels, tiled how, which tabs). Upserted wholesale on every save,
+-- never partially updated, so a single TEXT blob is the right shape here —
+-- this isn't relational data, it's an opaque JSON document dockview itself
+-- produces and consumes via toJSON()/fromJSON().
+CREATE TABLE IF NOT EXISTS worktree_layouts (
+	worktree_id  TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
+	layout_json  TEXT NOT NULL,
+	updated_at   TEXT NOT NULL
 );
 `
 	_, err := s.db.Exec(schema)
@@ -273,5 +298,27 @@ func (s *Store) GetTerminalSession(id string) (TerminalSession, error) {
 // RemoveTerminalSession deletes a terminal session row by id.
 func (s *Store) RemoveTerminalSession(id string) error {
 	_, err := s.db.Exec(`DELETE FROM terminal_sessions WHERE id = ?`, id)
+	return err
+}
+
+// GetWorktreeLayout returns the saved dockview layout JSON for a worktree.
+// Returns sql.ErrNoRows if nothing has been saved yet (e.g. first-ever
+// open of that worktree's terminal view).
+func (s *Store) GetWorktreeLayout(worktreeID string) (string, error) {
+	var layoutJSON string
+	err := s.db.QueryRow(
+		`SELECT layout_json FROM worktree_layouts WHERE worktree_id = ?`, worktreeID,
+	).Scan(&layoutJSON)
+	return layoutJSON, err
+}
+
+// SaveWorktreeLayout upserts the saved dockview layout JSON for a
+// worktree, stamping updated_at to now.
+func (s *Store) SaveWorktreeLayout(worktreeID, layoutJSON string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO worktree_layouts (worktree_id, layout_json, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(worktree_id) DO UPDATE SET layout_json = excluded.layout_json, updated_at = excluded.updated_at`,
+		worktreeID, layoutJSON, time.Now().UTC().Format(time.RFC3339),
+	)
 	return err
 }

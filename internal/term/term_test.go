@@ -17,6 +17,13 @@ func requireTmux(t *testing.T) {
 	}
 }
 
+// newTestStore returns a store with a real repo+worktree row already
+// inserted (id "wt1", matching every CreateSession call in this file) —
+// terminal_sessions.worktree_id has a foreign key against worktrees(id),
+// now actually enforced (see store's PRAGMA foreign_keys fix), so a
+// terminal session can no longer reference a worktree id that doesn't
+// exist. Before that fix this omission silently worked; now it correctly
+// doesn't.
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -24,6 +31,13 @@ func newTestStore(t *testing.T) *store.Store {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
+
+	if err := st.AddRepo(store.Repo{ID: "r1", Name: "test", Path: t.TempDir()}); err != nil {
+		t.Fatalf("seed repo: %v", err)
+	}
+	if err := st.AddWorktree(store.Worktree{ID: "wt1", RepoID: "r1", Name: "wt1", Branch: "wt1", Path: t.TempDir()}); err != nil {
+		t.Fatalf("seed worktree: %v", err)
+	}
 	return st
 }
 
