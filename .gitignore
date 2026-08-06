@@ -1,0 +1,26 @@
+# Go
+/worktree-studio
+/cmd/worktree-studio/worktree-studio
+*.exe
+*.test
+*.out
+
+# Frontend
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+web/*.tsbuildinfo
+
+# SQLite data (runtime state, not source)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
