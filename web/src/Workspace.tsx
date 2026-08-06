@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { createWorktree } from "./api";
 import { useRepoContext } from "./RepoContext";
 import WorktreeList from "./WorktreeList";
@@ -29,11 +29,6 @@ export default function Workspace() {
 
   return (
     <div className="container">
-      <p>
-        <Link className="repo-link" to="/">
-          ← all repos
-        </Link>
-      </p>
       <h1>Worktrees</h1>
       <button onClick={() => setDialogOpen(true)}>+ New worktree</button>
 

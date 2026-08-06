@@ -39,6 +39,16 @@ bun run dev       # http://localhost:5173, proxies /api/* to :8787 (see web/vite
 
 Open `http://localhost:5173/` — API calls to `/api/...` are proxied to the Go server.
 
+## Frontend component tests
+
+```bash
+cd web && bun run test
+```
+
+Uses Vitest + `@testing-library/react` against jsdom (config: `web/vitest.config.ts`). This exists specifically to catch real interaction bugs — event propagation into a parent element, a modal that doesn't actually render its content — by executing the real components, since there's no browser-automation tool available in every environment this project gets worked in. Test files are `*.test.tsx` next to the component they cover, and are excluded from the production `tsc -b` build (see `web/tsconfig.json`'s `exclude`) — they don't need to type-check against the same strictness as shipped code, and `vitest run` doesn't go through `tsc -b` at all.
+
+**Known limitation**: jsdom does not compute layout or paint, so these tests can confirm the right DOM exists and the right event handlers actually ran, but cannot catch a purely-CSS-caused invisibility bug (e.g. text rendering the same color as its background). Treat a passing test suite as "the interaction logic is correct," not "this looks right" — a real visual check (in a browser, or by asking whoever's driving the session to look) is still the only way to confirm actual appearance.
+
 ## Data locations
 
 - SQLite registry: `~/.worktree-studio/studio.db`

@@ -92,6 +92,7 @@ form {
 .dialog-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 1000;
   background: #0008;
   display: flex;
   align-items: center;
@@ -99,8 +100,15 @@ form {
 }
 
 .dialog {
-  background: canvas;
-  color: canvastext;
+  /* Explicit color/background rather than the canvas/canvastext system
+     keywords — those are supposed to track light/dark automatically, but
+     depending on browser/version support they can silently resolve to a
+     background that matches the backdrop, making the dialog's content
+     look like it never rendered (just the backdrop overlay visible). A
+     concrete dark surface color removes that whole class of risk and
+     matches this app's existing dark chrome regardless of OS theme. */
+  background: #1c2128;
+  color: #e6edf3;
   border: 1px solid #8884;
   border-radius: 8px;
   padding: 1.5rem;
@@ -262,10 +270,10 @@ code {
   padding: 0 0.4rem;
   line-height: 1.4;
   border-radius: 3px;
-  border: 1px solid #8884;
+  border: none;
   background: transparent;
   font-size: 0.85rem;
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
 .icon-button:hover {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   createTerminal,
   deleteTerminal,
@@ -60,11 +60,6 @@ export default function WorktreeDetail() {
 
   return (
     <div className="container worktree-detail">
-      <p>
-        <Link className="repo-link" to={`/repo/${repoId}`}>
-          ← worktrees
-        </Link>
-      </p>
       <div className="terminal-toolbar">
         <div className="terminal-tabs">
           {terminals.map((ts) => (

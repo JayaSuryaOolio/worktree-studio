@@ -45,9 +45,20 @@ export default function WorktreeActionsMenu({
     <div
       className="actions-menu"
       ref={rootRef}
-      // The sidebar renders this inside a <Link> for the row itself —
-      // stop clicks here from bubbling up into that link's navigation.
-      onClick={(e) => e.stopPropagation()}
+      // The sidebar renders this inside a <Link> for the row itself.
+      // stopPropagation alone is NOT enough: react-router's <Link> does
+      // its client-side-navigation preventDefault() inside ITS OWN onClick
+      // handler on the <a> — stopping propagation here means that handler
+      // never runs at all, so the browser falls through to the anchor's
+      // native default action (a real full-page navigation to href, i.e.
+      // exactly the "clicking the menu reloads the page" bug). Calling
+      // preventDefault() ourselves, from anywhere in the bubble path,
+      // suppresses that default action regardless of whether the Link's
+      // own handler ever ran.
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
     >
       <button
         type="button"
