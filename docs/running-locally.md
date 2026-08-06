@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Go 1.21+ (module uses `modernc.org/sqlite`, a pure-Go driver — no cgo/sqlite3 headers needed).
-- Node.js + npm (for the Vite/React frontend).
+- [Bun](https://bun.sh) (for the Vite/React frontend — used as the package manager/runner instead of npm; `bun install`/`bun run` in place of `npm install`/`npm run`).
 - `git` on `PATH` (all worktree operations shell out to the real `git` binary).
 - `tmux` on `PATH` (terminal tabs are tmux sessions under the hood — see `docs/session-persistence.md`; `brew install tmux` on macOS).
 
@@ -12,7 +12,7 @@
 Build the frontend first, then the Go binary embeds it via `go:embed`:
 
 ```bash
-cd web && npm install && npm run build   # writes web/dist/
+cd web && bun install && bun run build   # writes web/dist/
 cd ..
 go build -o worktree-studio ./cmd/worktree-studio
 ./worktree-studio
@@ -20,7 +20,7 @@ go build -o worktree-studio ./cmd/worktree-studio
 
 Server listens on `:8787` by default (override with `WORKTREE_STUDIO_ADDR=:9000 ./worktree-studio`). Open `http://localhost:8787/`.
 
-If you run `go build` **before** ever building the frontend, it still succeeds — `web/dist/` ships with a placeholder file so the `go:embed` directive always has something to embed, and the server serves a small "run `npm run build`" page instead of crashing. This lets a fresh checkout compile immediately; you only need the frontend built to get the real UI.
+If you run `go build` **before** ever building the frontend, it still succeeds — `web/dist/` ships with a placeholder file so the `go:embed` directive always has something to embed, and the server serves a small "run `bun run build`" page instead of crashing. This lets a fresh checkout compile immediately; you only need the frontend built to get the real UI.
 
 ## Development: hot-reloading frontend
 
@@ -32,8 +32,8 @@ go run ./cmd/worktree-studio
 
 # terminal 2
 cd web
-npm install
-npm run dev       # http://localhost:5173, proxies /api/* to :8787 (see web/vite.config.ts)
+bun install
+bun run dev       # http://localhost:5173, proxies /api/* to :8787 (see web/vite.config.ts)
 ```
 
 Open `http://localhost:5173/` — API calls to `/api/...` are proxied to the Go server.

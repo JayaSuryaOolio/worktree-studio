@@ -21,7 +21,7 @@ go run ./cmd/worktree-studio          # dev, or:
 go build -o worktree-studio ./cmd/worktree-studio && ./worktree-studio   # built binary
 ```
 
-Listens on `http://localhost:8787` by default (`WORKTREE_STUDIO_ADDR` env var overrides). The frontend must be built at least once for the real UI to render (`cd web && npm install && npm run build`) — see `docs/running-locally.md`. Until then the server still starts fine and serves a placeholder page telling you to build the frontend.
+Listens on `http://localhost:8787` by default (`WORKTREE_STUDIO_ADDR` env var overrides). The frontend must be built at least once for the real UI to render (`cd web && bun install && bun run build`) — see `docs/running-locally.md`. Until then the server still starts fine and serves a placeholder page telling you to build the frontend.
 
 ## Registering a repo
 

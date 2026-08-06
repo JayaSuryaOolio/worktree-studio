@@ -95,7 +95,7 @@ func mountFrontend(r chi.Router, logger *slog.Logger) {
 	}
 
 	if _, err := fs.Stat(sub, "index.html"); err != nil {
-		logger.Warn("web/dist has no built frontend yet (run: cd web && npm install && npm run build), serving placeholder")
+		logger.Warn("web/dist has no built frontend yet (run: cd web && bun install && bun run build), serving placeholder")
 		r.NotFound(placeholderHandler)
 		return
 	}
@@ -129,8 +129,8 @@ const placeholderHTML = `<!doctype html>
 <h1>worktree-studio</h1>
 <p>The API server is running, but the frontend hasn't been built yet.</p>
 <p>Run:</p>
-<pre style="background:#eee; padding: 1rem;">cd web &amp;&amp; npm install &amp;&amp; npm run build</pre>
-<p>then restart this server, or run <code>npm run dev</code> in <code>web/</code> for a hot-reloading dev server proxying to this API.</p>
+<pre style="background:#eee; padding: 1rem;">cd web &amp;&amp; bun install &amp;&amp; bun run build</pre>
+<p>then restart this server, or run <code>bun run dev</code> in <code>web/</code> for a hot-reloading dev server proxying to this API.</p>
 </body>
 </html>`
 
