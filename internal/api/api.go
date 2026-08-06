@@ -43,6 +43,7 @@ func (s *Server) Routes(r chi.Router) {
 
 			r.Route("/{worktreeID}", func(r chi.Router) {
 				r.Delete("/", s.handleDeleteWorktree)
+				r.Get("/status", s.handleWorktreeStatus)
 
 				r.Route("/terminals", func(r chi.Router) {
 					r.Get("/", s.handleListTerminals)
