@@ -61,17 +61,20 @@ No `specs/` convention applies here (that's a pos-3-specific convention) — `do
 - New-worktree flow: server generates a random adjective-noun name (small embedded wordlist, no external dep needed) and returns it to prefill the create dialog's text input; user can edit before submitting. The (possibly edited) name is used as both the branch name and worktree directory name (slugified).
 - `git worktree add/remove/list --porcelain` and `git status --porcelain=2 --branch` are invoked via `os/exec` — shelling out to the real `git` binary is simpler and more correct than any Go git library for this. Status polling runs on an interval (e.g. every few seconds) and results are pushed to clients over the ws channel, not computed per-keystroke.
 
-### 2. Spotlight sync (`internal/spotlight`) — corruption-proof, one-directional
-Reuses the constraint already learned the hard way (see memory: rsync `--delete` + gitignore pitfall — dir-merge filters don't protect destination-only gitignored dirs, must use `--exclude-from` instead).
+### 2. Spotlight (`internal/spotlight`) — wraps the existing `spotlight` CLI, doesn't reimplement it
 
-- **Direction**: always main-repo → worktree, never the reverse (a worktree's local edits must never leak back).
-- **What's synced**: allow-listed heavy/derived paths only — `node_modules` (root + per-workspace, if Yarn nodeLinker is `node-modules`) or `.yarn/cache` + `.pnp.cjs` (if `nodeLinker: pnp` — check `.yarnrc.yml` at build time and branch on it), plus `.turbo/` cache and any `.env*` files. Tracked source files are never touched — the worktree's checkout already has those correctly via normal git worktree behavior.
-- **Corruption-proofing**:
-  1. Sync into a fresh temp staging dir under the worktree's parent (`<worktree>.spotlight-tmp-<ts>`), not directly into the live target.
-  2. On success, atomically swap via `fs.rename` (same filesystem, so it's a single inode-pointer update, not a copy) — a crash mid-sync leaves the old state intact, never a half-written one.
-  3. Per-worktree lock file (`.spotlight.lock`) held for the duration of a sync to prevent two syncs racing.
-  4. Manifest file (`.spotlight-manifest.json`) records source commit + `yarn.lock` hash + synced-dir list + timestamp. Re-sync is skipped automatically unless `yarn.lock` changed since the manifest was written; a manual "Re-sync" button in the UI forces it regardless.
-  5. `rsync -a --checksum --exclude-from=<allowlist-derived-excludes>` rather than a bare `--delete` + dir-merge filter, per the known pitfall. `rsync` invoked via `os/exec`, same "shell out to the proven tool" philosophy as git.
+**Corrected design** (this superseded an earlier, backwards sketch — see "Design correction" note below): spotlight does **not** copy dependency artifacts from the main repo into a worktree. It mirrors the **worktree's source files into the main repo's root checkout**, continuously, so path-bound tools (and the root's already-installed `node_modules`/build output) always reflect whichever worktree is "in focus" — you build/run from the root path, which never needs its own separate install per worktree.
+
+This already exists as a standalone tool at `github.com/JayaSuryaOolio/spotlight`, installed locally at `~/.local/bin/spotlight` (zsh script, `fswatch` + `rsync`). worktree-studio's job is to **wrap it, not reimplement it** — same "best available working solution" philosophy as git/tmux:
+
+- `spotlight start` (run with cwd = the worktree path): resolves the worktree's root repo via `git rev-parse --show-toplevel` / `git rev-parse --git-common-dir`, refuses if the root has uncommitted changes (safety check — never clobber unsaved root work), does one `rsync -a --delete --exclude='.git' --exclude-from=<flattened-gitignore>` sync, then keeps re-syncing on every `fswatch` event. Only one worktree can mirror into a given root at a time; starting a different worktree for the same root auto-stops the previous one.
+- `spotlight stop [root]`: kills the watcher, then `git checkout -- .` + `git clean -fd` to restore the root to a clean state.
+- `spotlight list`: every repo root with an active mirror, and which worktree it's mirroring from.
+- **Corruption-proofing already built into the tool** (not re-derived here): the flattened-`.gitignore`-into-`--exclude-from` fix (per-directory `--filter=':- .gitignore'` does not reliably protect destination-only gitignored dirs like `node_modules` from `--delete` — confirmed on both openrsync and rsync 3.4.4), the dirty-root refusal, and clean teardown via `git checkout`+`git clean`.
+- `internal/spotlight` in Go is a thin `os/exec` wrapper: `Start(worktreePath) (root string, err error)`, `Stop(root string) error`, `List() ([]MirrorStatus, error)` — runs the installed binary (resolved via `exec.LookPath("spotlight")`, falling back to `~/.local/bin/spotlight`), sets `cmd.Dir` to the worktree path for `start`, parses `list`'s tabular output. Every start/stop call is audit-logged (`spotlight.start` / `spotlight.stop`).
+- UI: a "Spotlight" toggle per worktree row (`WorktreeList.tsx`/`WorktreeDetail.tsx`) — Start/Stop, showing whether *this* worktree is the one currently mirrored into its repo's root (only one can be, per the tool's own design).
+
+**Design correction, recorded for the record**: the original sketch above (superseded) had spotlight syncing `node_modules`/`.env`/`.turbo` **from** the root **into** each worktree, with a manifest/staging/atomic-swap scheme. That was wrong — written before checking whether prior art existed. The user pointed at the real, already-built tool mid-step-3, and it does the opposite: worktree → root, source files only, so the *root's* existing install/build state is what everything runs against. The old approach also silently assumed the answer to this file's now-removed "resolve `.yarnrc.yml` `nodeLinker`" open question mattered — it doesn't, under the corrected design, since no dependency artifacts are copied at all.
 
 ### 3. Terminal, backed by tmux for persistence (`internal/term`, `web/src/Terminal.tsx`)
 - Each terminal tab = one **tmux session** (`tmux new-session -d -s wts-<worktreeId>-<tabId> -c <worktreePath>`), not a bare PTY the Go process owns directly. The Go server attaches to it via `creack/pty` running `tmux attach -t <name>` and streams that over the ws channel.
@@ -111,7 +114,7 @@ Every step below ends with a matching update to `docs/` (architecture.md gets th
 
 1. **Project init + skeleton + worktree CRUD + audit log foundation + skill stub**: create `~/work/worktree-studio/`, `git init`, `go mod init`, initial commit with `.gitignore`/README. Then Go module structure, SQLite store, gitops wrappers, `internal/audit` JSONL logger wired into every mutating handler from the start, chi router + API, Vite+React shell embedded via `go:embed`, repo picker, worktree list with create/remove (including the random-name-prefill dialog). Verify by registering the pos-3/adelaide repo as a managed repo and creating/removing a real worktree of it through the UI, confirming `git worktree list` matches AND confirming matching lines land in `~/.worktree-studio/audit.log.jsonl`. Write `docs/architecture.md`, `docs/running-locally.md`, and stub `.claude/skills/worktree-studio/SKILL.md` covering what exists so far.
 2. **Terminal via tmux**: tmux session-per-tab, `creack/pty` attach, ws relay, xterm.js client, "+ New tab" button. Verify by running `git status`/`yarn --version`/an actual `claude` session inside it, then **kill and restart the Go server** and confirm the tab reconnects to the same tmux session with scrollback/running process intact. Write `docs/session-persistence.md`.
-3. **Spotlight sync**: manifest + staging + atomic swap + lock, triggered on worktree creation, manual re-sync button. Verify: create a worktree, confirm `node_modules`/`.env` appear without running `yarn install`, edit `yarn.lock` in main repo, confirm re-sync picks it up; kill the process mid-sync (SIGKILL) and confirm the worktree is left in its last-good state, not half-copied. Write `docs/spotlight-sync.md`.
+3. **Spotlight** (corrected design — see section 2 above): `internal/spotlight` wraps the existing installed `spotlight` CLI (`start`/`stop`/`list`) via `os/exec`; REST endpoints + a toggle in the UI. Verify: start spotlight for a worktree, confirm the root repo's files actually change to match the worktree (and `spotlight list` shows it), edit a file in the worktree and confirm the root picks it up live, stop it and confirm the root is restored to a clean `git status`, and confirm starting a second worktree for the same repo auto-stops the first. Write `docs/spotlight-sync.md`.
 4. **Worktree monitoring dashboard**: git-status polling pushed over ws, dirty/ahead-behind/spotlight-status badges in `WorktreeList.tsx`.
 5. **Monaco editor**: file tree, open/save, external-change watch via fsnotify.
 6. **TODO — Git diff view in Monaco + comment-to-agent**: diff editor view per file (Monaco diff editor against `git show HEAD:<path>`), inline review comments stored in SQLite, "send to agent" action that pipes formatted comments into the worktree's tmux session as input. Depends on steps 2 and 5 being done. Verify: make a local edit in a worktree, open the diff view, add a comment on a changed line, send it, confirm the text arrives in that worktree's terminal session, and confirm a `diff.comment_sent` line lands in the audit log.
@@ -130,12 +133,9 @@ Explicitly deferred (not v1): Agent SDK integration (terminal-as-CLI is enough t
 
 ## Dependencies to verify are available before starting
 
-`tmux` must be installed on the machine running the server (check with `tmux -V`) — it's the load-bearing "best available working solution" for persistence; if it's missing, install it first rather than working around its absence.
+- `tmux` must be installed on the machine running the server (check with `tmux -V`) — it's the load-bearing "best available working solution" for persistence; if it's missing, install it first rather than working around its absence.
+- `spotlight` (the standalone CLI, `github.com/JayaSuryaOolio/spotlight`) plus its own `fswatch`/`rsync` dependencies must be installed for step 3 — check with `command -v spotlight`.
 
 ## Status
 
-`~/work/worktree-studio/` exists with `git init` done, but nothing committed yet — only this `PLAN.md` is present. Two subagent dispatch attempts for step 1 failed for tooling reasons (one stayed in read-only plan mode, one lacked Bash permission) — no project code has been written yet. Next action: implement step 1 (now including the audit log foundation and skill stub) directly in this session, working from this directory.
-
-## Open question to resolve during step 3
-
-Confirm this repo's `.yarnrc.yml` `nodeLinker` setting (`node-modules` vs `pnp`) before finalizing the exact spotlight allow-list — determines whether we sync `node_modules` directories or `.yarn/cache` + `.pnp.cjs`.
+See `PROGRESS.md` for the current session-by-session status — it's the up-to-date live log; this section isn't kept current.
