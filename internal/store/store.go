@@ -198,3 +198,80 @@ func (s *Store) RemoveWorktree(id string) error {
 	_, err := s.db.Exec(`DELETE FROM worktrees WHERE id = ?`, id)
 	return err
 }
+
+// TerminalSession is a terminal tab backed by a tmux session, scoped to a
+// worktree. The tmux session itself outlives the worktree-studio server
+// process, which is what makes a server restart safe to reattach after.
+type TerminalSession struct {
+	ID              string `json:"id"`
+	WorktreeID      string `json:"worktree_id"`
+	TmuxSessionName string `json:"tmux_session_name"`
+	TabLabel        string `json:"tab_label"`
+}
+
+// AddTerminalSession inserts a new terminal session row.
+func (s *Store) AddTerminalSession(t TerminalSession) error {
+	_, err := s.db.Exec(
+		`INSERT INTO terminal_sessions (id, worktree_id, tmux_session_name, tab_label) VALUES (?, ?, ?, ?)`,
+		t.ID, t.WorktreeID, t.TmuxSessionName, t.TabLabel,
+	)
+	return err
+}
+
+// ListTerminalSessions returns all terminal sessions for a given worktree.
+func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, error) {
+	rows, err := s.db.Query(
+		`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions WHERE worktree_id = ?`,
+		worktreeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TerminalSession
+	for rows.Next() {
+		var t TerminalSession
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ListAllTerminalSessions returns every terminal session row, used at
+// server startup to reconcile against tmux's actual live sessions.
+func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
+	rows, err := s.db.Query(`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TerminalSession
+	for rows.Next() {
+		var t TerminalSession
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// GetTerminalSession fetches a single terminal session by id. Returns
+// sql.ErrNoRows if not found.
+func (s *Store) GetTerminalSession(id string) (TerminalSession, error) {
+	var t TerminalSession
+	err := s.db.QueryRow(
+		`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions WHERE id = ?`, id,
+	).Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel)
+	return t, err
+}
+
+// RemoveTerminalSession deletes a terminal session row by id.
+func (s *Store) RemoveTerminalSession(id string) error {
+	_, err := s.db.Exec(`DELETE FROM terminal_sessions WHERE id = ?`, id)
+	return err
+}
