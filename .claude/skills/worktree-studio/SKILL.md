@@ -65,6 +65,10 @@ curl -X DELETE http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>
 
 This runs `git worktree remove --force <path>` and deletes the registry row. It does not touch the branch itself (only the worktree checkout).
 
+## Debugging: server logs
+
+The server logs to stdout/stderr (structured, via `log/slog`) — always run it in a foreground terminal you can see, not backgrounded/detached, so you have the logs and a way to Ctrl-C it. If a request fails ("failed to create git worktree", "failed to save worktree record", etc.), the corresponding `s.Log.Error(...)` line with the real underlying error is right there in that terminal — check it before guessing. If you suspect an orphaned/forgotten instance is running (e.g. an error you can't explain, or the UI behaving as if state exists that you don't recognize): `lsof -iTCP -sTCP:LISTEN | grep 8787` finds it by port; `ps -p <pid> -o command,lstart` shows what it actually is and when it started before you kill it.
+
 ## Debugging: the audit log
 
 Every mutating action (repo add, worktree create, worktree remove, and every mutating action added in later steps) writes one JSON line to:

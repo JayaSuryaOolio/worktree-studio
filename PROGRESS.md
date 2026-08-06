@@ -4,6 +4,31 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Real-usage bug report: worktree creation failing, orphaned state
+
+User reported the actual app (not a test) failing to create a worktree named `oc-5678-2`: first attempt showed "failed to save worktree record," retrying showed "failed to create git worktree: ... a branch named 'oc-5678-2' already exists." Also flagged: a server I'd started during earlier verification steps was still running in the background with no visible logs or way to stop it.
+
+**Root cause, in order:**
+1. During step 2/3 verification, I ran a test server with `HOME=/tmp/wts-home` backgrounded via my own tooling, then later ran `rm -rf /tmp/wts-home` as part of cleanup — **without checking that server was still running**. That deleted its SQLite data directory out from under a live process.
+2. The user then used that same (stray, forgotten-about) server for real work. `git worktree add` succeeded (filesystem operation, unaffected), but the subsequent DB write failed (the data directory it needed no longer existed) — surfaced as "failed to save worktree record."
+3. **The real bug**: `handleCreateWorktree` had no rollback for this case. The successfully-created git worktree + branch were left behind with no DB record. Every retry with the same name then failed at the git layer ("branch already exists") — a dead end with no recovery path short of manual git surgery.
+4. Separately, `git worktree remove` (used for cleanup elsewhere in the code) does **not** delete the branch it was created with — a real git behavior, not a bug, but it meant a naive rollback attempt would have only half-worked.
+
+**Fixed:**
+- `internal/gitops.DeleteBranch` (new): `git branch -D`, documented as the other half of undoing `AddWorktree`.
+- `handleCreateWorktree` now rolls back both the worktree checkout AND the branch if `store.AddWorktree` fails, so a transient store failure (this specific cause, or disk-full/DB-locked in general) no longer leaves poisoned state blocking retries.
+- Regression test (`TestCreateWorktreeRollsBackGitOnStoreFailure`) forces the store write to fail deterministically via a real `UNIQUE(path)` collision (not a mock) and asserts both the worktree directory and the branch are actually gone afterward — this is the test that caught the "remove doesn't delete the branch" gap; it failed on the first rollback attempt (worktree dir gone, branch still there) before `DeleteBranch` was added.
+- New `TestDeleteBranch`-equivalent coverage added inline in `TestAddListRemoveWorktree` (`internal/gitops`), proving the branch really does survive `RemoveWorktree` alone.
+- Cleaned up the actual damage: killed the stray server (PID had `PPID 1`, reparented/orphaned — started `2026-08-07 00:50:44`, five-plus hours before this was caught), and removed the two orphaned `oc-5678`/`oc-5678-2` branches and worktrees from the **real** `adelaide` repo (confirmed first: zero commits ahead of `main`, no uncommitted changes — pure test artifacts, nothing lost).
+
+**Process fix — how to avoid repeating this:**
+- `docs/running-locally.md` and the skill file now say explicitly: **run the server in your own foreground terminal**, not backgrounded/detached, specifically so you always have its logs and a plain Ctrl-C to stop it. Also documented how to find/kill an orphaned instance by port if one ever turns up anyway (`lsof -iTCP -sTCP:LISTEN | grep 8787`).
+- For me, specifically: before any `rm -rf` on a directory a background process might still be using, check `lsof`/`ps` for live users of that path first — I did this reflexively for git-tracked repo state (per the standing safety instructions) but not for my own throwaway test scaffolding, which is exactly what bit here.
+
+**Verified:** `go build`/`go vet`/`gofmt`/`go test` all clean (34/34, up from 33 — one new regression test, one extended existing test). Did not re-verify through a live server this time since the fix is narrowly scoped and already has a real regression test proving the exact failure mode; the next real session using the app is itself the remaining verification.
+
+---
+
 ## 2026-08-07 — Step 4: worktree monitoring dashboard (dirty / ahead-behind)
 
 **Design simplification, recorded here and in `PLAN.md`:** this step's original wording called for git-status "pushed over ws." Implemented as a plain 5-second `setInterval` REST poll instead (same pattern already used for spotlight status in step 3) — there's still no other consumer of a shared push channel anywhere in this codebase, so building one now would be speculative. Not a step that was skipped, just built the simpler way that already matches this project's established pattern.

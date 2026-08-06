@@ -50,6 +50,10 @@ None of the above are created by the repo itself — the server creates `~/.work
 
 ## Debugging
 
+**Server logs go to stdout/stderr, not a file** — the server logs structured lines (via Go's `log/slog`) for every request (method/path/status, via chi's request logger) and every handler-level error (`s.Log.Error(...)` calls throughout `internal/api`). If you started the server in your own foreground terminal (the normal way — see above), those logs are just... right there in that terminal. If you need to capture them, redirect explicitly: `./worktree-studio 2>&1 | tee server.log`.
+
+Run the server in your own terminal, in the foreground, so you can see its logs directly and stop it with a plain Ctrl-C when you're done. Backgrounding it (`&`, `nohup`, or having something else launch it detached) means you lose both of those — if something goes wrong, you have no logs to check and no easy way to tell it's even still running or stop it. If you ever do end up with an orphaned instance you can't otherwise reach: `lsof -iTCP -sTCP:LISTEN | grep 8787` finds it by port, `kill <pid>` stops it.
+
 ```bash
 # tail the audit log while poking the UI
 tail -f ~/.worktree-studio/audit.log.jsonl
