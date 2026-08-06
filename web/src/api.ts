@@ -22,6 +22,14 @@ export interface TerminalSession {
   tab_label: string;
 }
 
+export interface WorktreeStatus {
+  branch: string;
+  dirty: boolean;
+  has_upstream: boolean;
+  ahead: number;
+  behind: number;
+}
+
 export interface SpotlightStatus {
   available: boolean;
   active: boolean;
@@ -121,6 +129,15 @@ export function deleteTerminal(
   return request<void>(
     `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/${terminalId}`,
     { method: "DELETE" }
+  );
+}
+
+export function getWorktreeStatus(
+  repoId: string,
+  worktreeId: string
+): Promise<WorktreeStatus> {
+  return request<WorktreeStatus>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/status`
   );
 }
 

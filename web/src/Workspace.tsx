@@ -5,19 +5,28 @@ import {
   createWorktree,
   deleteWorktree,
   getSpotlightStatus,
+  getWorktreeStatus,
   listWorktrees,
   SpotlightStatus,
   startSpotlight,
   stopSpotlight,
   Worktree,
+  WorktreeStatus,
 } from "./api";
 import WorktreeList from "./WorktreeList";
 import NewWorktreeDialog from "./NewWorktreeDialog";
+
+// How often to re-poll git/spotlight status for the monitoring dashboard.
+// A REST-polling loop rather than a ws push, per docs/architecture.md's
+// documented simplification — no other consumer of a shared status-push
+// channel exists yet, so a plain interval is the simplest thing that works.
+const STATUS_POLL_INTERVAL_MS = 5000;
 
 export default function Workspace() {
   const { repoId } = useParams<{ repoId: string }>();
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [spotlight, setSpotlight] = useState<Record<string, SpotlightStatus>>({});
+  const [gitStatus, setGitStatus] = useState<Record<string, WorktreeStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -33,18 +42,45 @@ export default function Workspace() {
     ).then((entries) => setSpotlight(Object.fromEntries(entries)));
   }
 
+  function refreshGitStatus(wts: Worktree[]) {
+    if (!repoId) return;
+    Promise.all(
+      wts.map((wt) =>
+        getWorktreeStatus(repoId, wt.id)
+          .then((s) => [wt.id, s] as const)
+          .catch(() => null)
+      )
+    ).then((entries) =>
+      setGitStatus(Object.fromEntries(entries.filter((e): e is [string, WorktreeStatus] => e !== null)))
+    );
+  }
+
   function refresh() {
     if (!repoId) return;
     listWorktrees(repoId)
       .then((wts) => {
         setWorktrees(wts);
         refreshSpotlight(wts);
+        refreshGitStatus(wts);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
 
   useEffect(refresh, [repoId]);
+
+  // Poll both status kinds on an interval so dirty/ahead-behind/spotlight
+  // badges stay current without a manual refresh — doesn't touch the
+  // worktree list itself, so switching tabs/terminals elsewhere on the
+  // page isn't disrupted by this.
+  useEffect(() => {
+    if (!repoId || worktrees.length === 0) return;
+    const id = setInterval(() => {
+      refreshSpotlight(worktrees);
+      refreshGitStatus(worktrees);
+    }, STATUS_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [repoId, worktrees]);
 
   async function handleSpotlightStart(wt: Worktree) {
     if (!repoId) return;
@@ -134,6 +170,7 @@ export default function Workspace() {
           spotlight={spotlight}
           onSpotlightStart={handleSpotlightStart}
           onSpotlightStop={handleSpotlightStop}
+          gitStatus={gitStatus}
         />
       )}
       {error && <p className="error">{error}</p>}

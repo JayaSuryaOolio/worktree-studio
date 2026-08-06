@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { SpotlightStatus, Worktree } from "./api";
+import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 
 interface Props {
   worktrees: Worktree[];
@@ -7,6 +7,32 @@ interface Props {
   spotlight: Record<string, SpotlightStatus>;
   onSpotlightStart: (wt: Worktree) => void;
   onSpotlightStop: (wt: Worktree) => void;
+  gitStatus: Record<string, WorktreeStatus>;
+}
+
+function GitStatusCell({ status }: { status: WorktreeStatus | undefined }) {
+  if (!status) {
+    return <span className="muted">…</span>;
+  }
+  return (
+    <span className="git-status-badges">
+      {status.dirty ? (
+        <span className="badge badge-dirty" title="Uncommitted changes or untracked files">
+          ● dirty
+        </span>
+      ) : (
+        <span className="badge badge-clean" title="No uncommitted changes">
+          clean
+        </span>
+      )}
+      {status.has_upstream && (status.ahead > 0 || status.behind > 0) && (
+        <span className="badge" title={`${status.ahead} commit(s) ahead, ${status.behind} behind its upstream`}>
+          {status.ahead > 0 && `↑${status.ahead}`}
+          {status.behind > 0 && `↓${status.behind}`}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function SpotlightCell({
@@ -47,6 +73,7 @@ export default function WorktreeList({
   spotlight,
   onSpotlightStart,
   onSpotlightStop,
+  gitStatus,
 }: Props) {
   if (worktrees.length === 0) {
     return <p>No worktrees yet for this repo.</p>;
@@ -59,6 +86,7 @@ export default function WorktreeList({
           <th>Branch</th>
           <th>Path</th>
           <th>Created</th>
+          <th>Status</th>
           <th>Spotlight</th>
           <th></th>
         </tr>
@@ -71,6 +99,9 @@ export default function WorktreeList({
               <code>{wt.path}</code>
             </td>
             <td>{new Date(wt.created_at).toLocaleString()}</td>
+            <td>
+              <GitStatusCell status={gitStatus[wt.id]} />
+            </td>
             <td>
               <SpotlightCell
                 status={spotlight[wt.id]}
