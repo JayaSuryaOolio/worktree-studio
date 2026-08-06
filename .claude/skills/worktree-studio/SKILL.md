@@ -165,4 +165,6 @@ The UI is now built around a persistent left sidebar (not the flat pages describ
 
 Adding a repo or a worktree is a modal now, not a page — reachable via the sidebar's "+" buttons or the command palette, not a separate route.
 
-<!-- Each later build step (Command Deck visual pass, dockview terminal arrangement + persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+**Visual design**: the app has one theme, "Command Deck" (dark, mission-control-styled — see `docs/design.md` for the full token system and rationale). Worktree rows in the sidebar are styled as flight strips: a colored left-edge tab shows dirty (red) / clean (green), status figures and branch names render in monospace like telemetry, page titles use a display face. There's no theme switcher — that's a recorded `PLAN.md` TODO, not built.
+
+<!-- Each later build step (dockview terminal arrangement + persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->

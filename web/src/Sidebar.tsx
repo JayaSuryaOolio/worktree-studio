@@ -85,8 +85,15 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                     const spot = spotlightStatus[wt.id];
                     return (
                       <li key={wt.id}>
+                        {/* "Flight strip" row — see docs/design.md. The
+                            left-edge accent color is driven explicitly by
+                            data-dirty (not by sniffing a decorative dot's
+                            presence via :has()), so it's one obvious
+                            thing to grep for if the mapping ever needs to
+                            change. */}
                         <Link
                           to={`/repo/${r.id}/worktree/${wt.id}`}
+                          data-dirty={status ? String(status.dirty) : undefined}
                           className={
                             wt.id === activeWorktreeId
                               ? "sidebar-worktree active"
@@ -95,11 +102,14 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                         >
                           <span className="sidebar-worktree-branch">{wt.branch}</span>
                           <span className="sidebar-worktree-meta">
-                            {status && (
+                            {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
                               <span
-                                className={status.dirty ? "sidebar-dot sidebar-dot-dirty" : "sidebar-dot sidebar-dot-clean"}
-                                title={status.dirty ? "Dirty" : "Clean"}
-                              />
+                                className="sidebar-ticks"
+                                title={`${status.ahead} ahead, ${status.behind} behind upstream`}
+                              >
+                                {status.ahead > 0 && `↑${status.ahead}`}
+                                {status.behind > 0 && `↓${status.behind}`}
+                              </span>
                             )}
                             {spot?.active && (
                               <span className="sidebar-dot sidebar-dot-spotlight" title="Spotlight active" />

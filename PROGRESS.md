@@ -4,6 +4,26 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 7.3: Command Deck visual design pass
+
+**Completed:**
+
+- `web/src/style.css` rewritten around a real token system (CSS custom properties in `:root`): named color tokens (`--bg`, `--bg-elevated`, `--border`, `--text`, `--text-dim`, `--amber`, `--cyan`, `--green`, `--red`, plus `-dim` variants for focus rings/selected backgrounds) and a 3-tier type system (`--font-display` Space Grotesk for page/section titles, `--font-ui` Inter for chrome, `--font-mono` the existing terminal stack extended to every data-shaped element — branch names, paths, status figures, table cells, sidebar rows, command palette items).
+- Sidebar worktree rows restyled as the signature element: **flight strips** (ATC paper strips for tracking simultaneous in-progress flights) — a colored left-edge tab (red=dirty, green=clean, amber=currently-open) instead of a decorative dot, ahead/behind rendered as small tick marks. `Sidebar.tsx` sets an explicit `data-dirty="true"|"false"` attribute per row (read by CSS) rather than having CSS infer status from a child dot's class — deliberately explicit, one grep away if the mapping ever needs to change.
+- `docs/design.md` (new): the token table, the "why this direction" self-critique against generic near-black+one-neon-accent defaults, and where the flight-strip status color actually comes from in code.
+- `web/index.html` loads Space Grotesk/Inter from the Google Fonts CDN with real system-font fallbacks listed first in every font-stack — offline means slightly-less-on-brand headings, not broken text.
+- Restyled every existing surface against the new tokens: dialogs, buttons, inputs, badges, the kebab menu, the command palette (previously all hardcoded grays/canvas-keywords).
+
+**Verified:**
+
+- `bun run build` / `bun run test` clean (10/10, unaffected by a pure-CSS pass as expected). Backend untouched (`go build`/`go test` clean).
+- Confirmed against a real running server + real served bundle (not just local build output): the CSS asset actually contains `--amber`, `--bg-elevated`, etc., and `Space Grotesk` both in the CSS and as the actual Google Fonts link tag in the served `index.html`.
+- Still can't verify actual visual appearance without a browser (this session has none) — the honest limit stated in `docs/running-locally.md`'s testing section applies here too. A real look is still worth doing before calling this pass fully done.
+
+**Next:** Step 7.4 — dockview terminal arrangement (New tab / Split right / Split down dropdown, resizable splits).
+
+---
+
 ## 2026-08-07 — Step 7.2: command palette (Cmd+K)
 
 **Completed:**
