@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Worktree } from "./api";
 
 interface Props {
@@ -29,6 +30,7 @@ export default function WorktreeList({ worktrees, onDelete }: Props) {
             </td>
             <td>{new Date(wt.created_at).toLocaleString()}</td>
             <td>
+              <Link to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>Open</Link>{" "}
               <button className="danger" onClick={() => onDelete(wt)}>
                 Delete
               </button>

@@ -15,6 +15,13 @@ export interface Worktree {
   created_at: string;
 }
 
+export interface TerminalSession {
+  id: string;
+  worktree_id: string;
+  tmux_session_name: string;
+  tab_label: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -77,3 +84,42 @@ export function deleteWorktree(
 /** Thrown by request() when the server responds 409 Conflict (used here to
  * mean: worktree has uncommitted changes, retry with force to discard them). */
 export class ConflictError extends Error {}
+
+export function listTerminals(
+  repoId: string,
+  worktreeId: string
+): Promise<TerminalSession[]> {
+  return request<TerminalSession[]>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/`
+  );
+}
+
+export function createTerminal(
+  repoId: string,
+  worktreeId: string,
+  tabLabel?: string
+): Promise<TerminalSession> {
+  return request<TerminalSession>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/`,
+    { method: "POST", body: JSON.stringify({ tab_label: tabLabel }) }
+  );
+}
+
+export function deleteTerminal(
+  repoId: string,
+  worktreeId: string,
+  terminalId: string
+): Promise<void> {
+  return request<void>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/${terminalId}`,
+    { method: "DELETE" }
+  );
+}
+
+/** Builds the websocket URL for a terminal session, relative to the current
+ * page so it works both from `vite dev` (proxied) and the production Go
+ * server (served directly) without needing separate config. */
+export function terminalWsUrl(terminalId: string): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/terminals/${terminalId}`;
+}

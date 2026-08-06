@@ -125,3 +125,61 @@ code {
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
 }
+
+.worktree-detail {
+  max-width: none;
+  height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #8884;
+  padding-bottom: 0.5rem;
+}
+
+.terminal-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.terminal-tabs .tab {
+  background: transparent;
+  border: 1px solid #8884;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+
+.terminal-tabs .tab.active {
+  background: #8882;
+  font-weight: 600;
+}
+
+.tab-close {
+  margin-left: 0.4rem;
+  opacity: 0.6;
+}
+
+.tab-close:hover {
+  opacity: 1;
+}
+
+.terminal-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.terminal-area {
+  flex: 1;
+  min-height: 0;
+  background: #111;
+  border-radius: 4px;
+  padding: 0.5rem;
+}
+
+.terminal-pane {
+  height: 100%;
+}
