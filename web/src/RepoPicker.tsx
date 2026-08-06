@@ -1,69 +1,45 @@
-import { useEffect, useState, FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { addRepo, listRepos, Repo } from "./api";
+import { useState, FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { addRepo } from "./api";
+import { useRepoContext } from "./RepoContext";
 
+// The registered-repos list itself now lives in the sidebar (always
+// visible, auto-loaded via RepoContext) — this page is just the "add a
+// repo" form plus a welcome/empty state. Navigates straight to the new
+// repo's workspace on success, since there's no separate list here to
+// click through anymore.
 export default function RepoPicker() {
-  const [repos, setRepos] = useState<Repo[]>([]);
+  const { repos, refreshRepos } = useRepoContext();
+  const navigate = useNavigate();
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  function refresh() {
-    listRepos()
-      .then(setRepos)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(refresh, []);
+  const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setSubmitting(true);
     try {
-      await addRepo(name, path);
+      const repo = await addRepo(name, path);
       setPath("");
       setName("");
-      refresh();
+      refreshRepos();
+      navigate(`/repo/${repo.id}`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
     <div className="container">
       <h1>worktree-studio</h1>
-      <p>Register a repo by its local path, then manage its worktrees.</p>
-
-      <h2>Registered repos</h2>
-      {loading ? (
-        <p>Loading…</p>
-      ) : repos.length === 0 ? (
-        <p>No repos registered yet.</p>
+      {repos.length === 0 ? (
+        <p>Register a repo by its local path to get started.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Path</th>
-            </tr>
-          </thead>
-          <tbody>
-            {repos.map((r) => (
-              <tr key={r.id}>
-                <td>
-                  <Link className="repo-link" to={`/repo/${r.id}`}>
-                    {r.name}
-                  </Link>
-                </td>
-                <td>
-                  <code>{r.path}</code>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <p>Pick a repo from the sidebar, or register another one below.</p>
       )}
 
       <h2>Add a repo</h2>
@@ -81,7 +57,9 @@ export default function RepoPicker() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <button type="submit">Add repo</button>
+        <button type="submit" disabled={submitting}>
+          {submitting ? "Adding…" : "Add repo"}
+        </button>
       </form>
       {error && <p className="error">{error}</p>}
     </div>

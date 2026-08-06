@@ -1,100 +1,43 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ConflictError,
   createWorktree,
   deleteWorktree,
-  getSpotlightStatus,
-  getWorktreeStatus,
-  listWorktrees,
-  SpotlightStatus,
   startSpotlight,
   stopSpotlight,
   Worktree,
-  WorktreeStatus,
 } from "./api";
+import { useRepoContext } from "./RepoContext";
 import WorktreeList from "./WorktreeList";
 import NewWorktreeDialog from "./NewWorktreeDialog";
 
-// How often to re-poll git/spotlight status for the monitoring dashboard.
-// A REST-polling loop rather than a ws push, per docs/architecture.md's
-// documented simplification — no other consumer of a shared status-push
-// channel exists yet, so a plain interval is the simplest thing that works.
-const STATUS_POLL_INTERVAL_MS = 5000;
-
 export default function Workspace() {
   const { repoId } = useParams<{ repoId: string }>();
-  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
-  const [spotlight, setSpotlight] = useState<Record<string, SpotlightStatus>>({});
-  const [gitStatus, setGitStatus] = useState<Record<string, WorktreeStatus>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    worktrees,
+    worktreesLoading,
+    worktreesError,
+    refreshWorktrees,
+    gitStatus,
+    spotlightStatus,
+  } = useRepoContext();
+  const [actionError, setActionError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  function refreshSpotlight(wts: Worktree[]) {
-    if (!repoId) return;
-    Promise.all(
-      wts.map((wt) =>
-        getSpotlightStatus(repoId, wt.id)
-          .then((s) => [wt.id, s] as const)
-          .catch(() => [wt.id, { available: false, active: false }] as const)
-      )
-    ).then((entries) => setSpotlight(Object.fromEntries(entries)));
-  }
-
-  function refreshGitStatus(wts: Worktree[]) {
-    if (!repoId) return;
-    Promise.all(
-      wts.map((wt) =>
-        getWorktreeStatus(repoId, wt.id)
-          .then((s) => [wt.id, s] as const)
-          .catch(() => null)
-      )
-    ).then((entries) =>
-      setGitStatus(Object.fromEntries(entries.filter((e): e is [string, WorktreeStatus] => e !== null)))
-    );
-  }
-
-  function refresh() {
-    if (!repoId) return;
-    listWorktrees(repoId)
-      .then((wts) => {
-        setWorktrees(wts);
-        refreshSpotlight(wts);
-        refreshGitStatus(wts);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(refresh, [repoId]);
-
-  // Poll both status kinds on an interval so dirty/ahead-behind/spotlight
-  // badges stay current without a manual refresh — doesn't touch the
-  // worktree list itself, so switching tabs/terminals elsewhere on the
-  // page isn't disrupted by this.
-  useEffect(() => {
-    if (!repoId || worktrees.length === 0) return;
-    const id = setInterval(() => {
-      refreshSpotlight(worktrees);
-      refreshGitStatus(worktrees);
-    }, STATUS_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [repoId, worktrees]);
 
   async function handleSpotlightStart(wt: Worktree) {
     if (!repoId) return;
     try {
       await startSpotlight(repoId, wt.id);
-      refreshSpotlight(worktrees);
+      refreshWorktrees();
     } catch (err) {
       if (err instanceof ConflictError) {
-        setError(
+        setActionError(
           `Can't start spotlight for "${wt.name}": the repo's root checkout has uncommitted changes. Commit or stash them first.`
         );
         return;
       }
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     }
   }
 
@@ -102,16 +45,16 @@ export default function Workspace() {
     if (!repoId) return;
     try {
       await stopSpotlight(repoId, wt.id);
-      refreshSpotlight(worktrees);
+      refreshWorktrees();
     } catch (err) {
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     }
   }
 
   async function handleCreate(name: string) {
     if (!repoId) return;
     await createWorktree(repoId, name);
-    refresh();
+    refreshWorktrees();
   }
 
   async function handleDelete(wt: Worktree) {
@@ -124,7 +67,7 @@ export default function Workspace() {
       return;
     try {
       await deleteWorktree(repoId, wt.id);
-      refresh();
+      refreshWorktrees();
     } catch (err) {
       if (err instanceof ConflictError) {
         // The backend refused because the worktree has uncommitted changes
@@ -138,14 +81,14 @@ export default function Workspace() {
         ) {
           try {
             await deleteWorktree(repoId, wt.id, true);
-            refresh();
+            refreshWorktrees();
           } catch (retryErr) {
-            setError((retryErr as Error).message);
+            setActionError((retryErr as Error).message);
           }
         }
         return;
       }
-      setError((err as Error).message);
+      setActionError((err as Error).message);
     }
   }
 
@@ -161,19 +104,21 @@ export default function Workspace() {
       <h1>Worktrees</h1>
       <button onClick={() => setDialogOpen(true)}>+ New worktree</button>
 
-      {loading ? (
+      {worktreesLoading ? (
         <p>Loading…</p>
       ) : (
         <WorktreeList
           worktrees={worktrees}
           onDelete={handleDelete}
-          spotlight={spotlight}
+          spotlight={spotlightStatus}
           onSpotlightStart={handleSpotlightStart}
           onSpotlightStop={handleSpotlightStop}
           gitStatus={gitStatus}
         />
       )}
-      {error && <p className="error">{error}</p>}
+      {(worktreesError || actionError) && (
+        <p className="error">{worktreesError || actionError}</p>
+      )}
 
       {dialogOpen && (
         <NewWorktreeDialog
