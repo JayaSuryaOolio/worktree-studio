@@ -17,5 +17,10 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     globals: true,
+    // Reset vi.fn() mocks between every test automatically — without this,
+    // call counts/implementations leak across tests within the same file
+    // (bit us once already: a call-count assertion failed because an
+    // earlier test's calls were still counted).
+    clearMocks: true,
   },
 });
