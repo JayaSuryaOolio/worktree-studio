@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -127,14 +128,15 @@ func isDirtyWorktreeError(stderr string) bool {
 
 // StatusResult is the parsed output of `git status --porcelain=2 --branch`.
 type StatusResult struct {
-	Branch string
-	Dirty  bool
-	Raw    string
+	Branch      string
+	Dirty       bool
+	HasUpstream bool // false if the branch has no configured upstream (e.g. a freshly created worktree's branch that's never been pushed) — Ahead/Behind are meaningless without one
+	Ahead       int
+	Behind      int
+	Raw         string
 }
 
 // Status runs `git status --porcelain=2 --branch` against worktreePath.
-// Not yet wired into any handler (that lands in the monitoring-dashboard
-// step), but provided now per PLAN.md's step-1 scope for internal/gitops.
 func Status(worktreePath string) (StatusResult, error) {
 	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain=2", "--branch")
 	out, err := cmd.Output()
@@ -144,9 +146,19 @@ func Status(worktreePath string) (StatusResult, error) {
 
 	res := StatusResult{Raw: string(out)}
 	for _, line := range strings.Split(res.Raw, "\n") {
-		if strings.HasPrefix(line, "# branch.head ") {
+		switch {
+		case strings.HasPrefix(line, "# branch.head "):
 			res.Branch = strings.TrimPrefix(line, "# branch.head ")
-		} else if line != "" && !strings.HasPrefix(line, "#") {
+		case strings.HasPrefix(line, "# branch.ab "):
+			// e.g. "# branch.ab +2 -1" — ahead 2, behind 1. Only present
+			// when the branch has a configured upstream at all.
+			res.HasUpstream = true
+			fields := strings.Fields(strings.TrimPrefix(line, "# branch.ab "))
+			if len(fields) == 2 {
+				res.Ahead, _ = strconv.Atoi(strings.TrimPrefix(fields[0], "+"))
+				res.Behind, _ = strconv.Atoi(strings.TrimPrefix(fields[1], "-"))
+			}
+		case line != "" && !strings.HasPrefix(line, "#"):
 			res.Dirty = true
 		}
 	}

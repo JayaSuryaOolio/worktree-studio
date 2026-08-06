@@ -149,3 +149,69 @@ func TestStatus(t *testing.T) {
 		t.Errorf("Status with an untracked file: Dirty = false, want true")
 	}
 }
+
+func TestStatusNoUpstream(t *testing.T) {
+	repo := newTestRepo(t)
+
+	res, err := Status(repo)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if res.HasUpstream {
+		t.Errorf("freshly created repo's branch has no upstream configured: HasUpstream = true, want false")
+	}
+	if res.Ahead != 0 || res.Behind != 0 {
+		t.Errorf("Ahead/Behind without an upstream = %d/%d, want 0/0", res.Ahead, res.Behind)
+	}
+}
+
+func TestStatusAheadBehind(t *testing.T) {
+	repo := newTestRepo(t)
+
+	clone := t.TempDir()
+	// Clone into an existing empty dir via `git clone . <dir>` — the
+	// default sibling-directory form refuses when the target already
+	// exists (as t.TempDir() ensures), so clone into it explicitly.
+	cmd := exec.Command("git", "clone", "-q", repo, clone)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+	run := func(dir string, args ...string) {
+		c := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		c.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// The clone commits locally (ahead of origin/main by 1)...
+	if err := os.WriteFile(filepath.Join(clone, "clone.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(clone, "add", ".")
+	run(clone, "commit", "-q", "-m", "ahead commit")
+
+	// ...while the original repo (the clone's "origin") also gains a commit
+	// the clone doesn't have yet, so after fetching, the clone is both
+	// ahead AND behind.
+	if err := os.WriteFile(filepath.Join(repo, "origin.txt"), []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(repo, "add", ".")
+	run(repo, "commit", "-q", "-m", "origin-side commit")
+	run(clone, "fetch", "-q")
+
+	res, err := Status(clone)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !res.HasUpstream {
+		t.Fatal("expected the clone's branch to have an upstream configured")
+	}
+	if res.Ahead != 1 || res.Behind != 1 {
+		t.Errorf("Ahead/Behind = %d/%d, want 1/1", res.Ahead, res.Behind)
+	}
+}
