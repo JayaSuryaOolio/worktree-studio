@@ -1,13 +1,14 @@
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
+import WorktreeActionsMenu from "./WorktreeActionsMenu";
+import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
 interface Props {
   worktrees: Worktree[];
-  onDelete: (wt: Worktree) => void;
   spotlight: Record<string, SpotlightStatus>;
-  onSpotlightStart: (wt: Worktree) => void;
-  onSpotlightStop: (wt: Worktree) => void;
   gitStatus: Record<string, WorktreeStatus>;
+  onActionDone: () => void;
+  onActionError: (message: string) => void;
 }
 
 function GitStatusCell({ status }: { status: WorktreeStatus | undefined }) {
@@ -35,46 +36,28 @@ function GitStatusCell({ status }: { status: WorktreeStatus | undefined }) {
   );
 }
 
-function SpotlightCell({
-  status,
-  onStart,
-  onStop,
-}: {
-  status: SpotlightStatus | undefined;
-  onStart: () => void;
-  onStop: () => void;
-}) {
+function SpotlightStatusBadge({ status }: { status: SpotlightStatus | undefined }) {
   if (!status || !status.available) {
     return <span className="muted">unavailable</span>;
   }
   if (status.active) {
-    return (
-      <button title="Stop mirroring this worktree into the repo root" onClick={onStop}>
-        ● in focus — Stop
-      </button>
-    );
+    return <span className="badge" title="Mirroring this worktree into the repo root">● in focus</span>;
   }
-  if (status.active_worktree_path) {
-    return (
-      <button
-        title="Another worktree is currently mirrored into this repo's root; starting will take over"
-        onClick={onStart}
-      >
-        Start (will replace active mirror)
-      </button>
-    );
-  }
-  return <button onClick={onStart}>Start</button>;
+  return <span className="muted">inactive</span>;
 }
 
+// All per-worktree actions (open, spotlight start/stop, delete) live
+// behind each row's kebab menu (WorktreeActionsMenu) — the Status/
+// Spotlight columns here are informational badges only, not buttons.
 export default function WorktreeList({
   worktrees,
-  onDelete,
   spotlight,
-  onSpotlightStart,
-  onSpotlightStop,
   gitStatus,
+  onActionDone,
+  onActionError,
 }: Props) {
+  const navigate = useNavigate();
+
   if (worktrees.length === 0) {
     return <p>No worktrees yet for this repo.</p>;
   }
@@ -103,17 +86,23 @@ export default function WorktreeList({
               <GitStatusCell status={gitStatus[wt.id]} />
             </td>
             <td>
-              <SpotlightCell
-                status={spotlight[wt.id]}
-                onStart={() => onSpotlightStart(wt)}
-                onStop={() => onSpotlightStop(wt)}
-              />
+              <SpotlightStatusBadge status={spotlight[wt.id]} />
             </td>
             <td>
-              <Link to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>Open</Link>{" "}
-              <button className="danger" onClick={() => onDelete(wt)}>
-                Delete
-              </button>
+              <WorktreeActionsMenu
+                wt={wt}
+                spotlightStatus={spotlight[wt.id]}
+                onOpen={() => navigate(`/repo/${wt.repo_id}/worktree/${wt.id}`)}
+                onSpotlightStart={() =>
+                  startSpotlightWithFriendlyError(wt, { onDone: onActionDone, onError: onActionError })
+                }
+                onSpotlightStop={() =>
+                  stopSpotlightSafe(wt, { onDone: onActionDone, onError: onActionError })
+                }
+                onDelete={() =>
+                  deleteWorktreeWithConfirm(wt, { onDone: onActionDone, onError: onActionError })
+                }
+              />
             </td>
           </tr>
         ))}

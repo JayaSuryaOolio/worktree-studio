@@ -32,11 +32,16 @@ interface RepoContextValue {
 
   selectedRepoId: string | null;
 
-  worktrees: Worktree[];
+  // Every registered repo's worktrees, keyed by repo id — the sidebar
+  // nests each repo's worktrees under it, so it needs all of them, not
+  // just the currently-selected repo's.
+  worktreesByRepo: Record<string, Worktree[]>;
   worktreesLoading: boolean;
   worktreesError: string | null;
   refreshWorktrees: () => void;
 
+  // Keyed by worktree id (globally unique), regardless of which repo it
+  // belongs to — a flat map is enough since ids never collide across repos.
   gitStatus: Record<string, WorktreeStatus>;
   spotlightStatus: Record<string, SpotlightStatus>;
 }
@@ -63,7 +68,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   const [reposLoading, setReposLoading] = useState(true);
   const [reposError, setReposError] = useState<string | null>(null);
 
-  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [worktreesByRepo, setWorktreesByRepo] = useState<Record<string, Worktree[]>>({});
   const [worktreesLoading, setWorktreesLoading] = useState(false);
   const [worktreesError, setWorktreesError] = useState<string | null>(null);
 
@@ -83,57 +88,70 @@ export function RepoProvider({ children }: { children: ReactNode }) {
 
   useEffect(refreshRepos, []);
 
-  function refreshStatuses(wts: Worktree[], repoId: string) {
+  // wt.repo_id is always present on a Worktree, so status calls don't need
+  // a separately-threaded repoId — this is what lets refreshStatuses work
+  // uniformly across every repo's worktrees at once.
+  function refreshStatuses(wts: Worktree[]) {
     Promise.all(
       wts.map((wt) =>
-        getWorktreeStatus(repoId, wt.id)
+        getWorktreeStatus(wt.repo_id, wt.id)
           .then((s) => [wt.id, s] as const)
           .catch(() => null)
       )
     ).then((entries) =>
-      setGitStatus(
-        Object.fromEntries(entries.filter((e): e is [string, WorktreeStatus] => e !== null))
-      )
+      setGitStatus((prev) => ({
+        ...prev,
+        ...Object.fromEntries(entries.filter((e): e is [string, WorktreeStatus] => e !== null)),
+      }))
     );
     Promise.all(
       wts.map((wt) =>
-        getSpotlightStatus(repoId, wt.id)
+        getSpotlightStatus(wt.repo_id, wt.id)
           .then((s) => [wt.id, s] as const)
           .catch(() => [wt.id, { available: false, active: false }] as const)
       )
-    ).then((entries) => setSpotlightStatus(Object.fromEntries(entries)));
+    ).then((entries) => setSpotlightStatus((prev) => ({ ...prev, ...Object.fromEntries(entries) })));
   }
 
   function refreshWorktrees() {
-    if (!selectedRepoId) {
-      setWorktrees([]);
-      setGitStatus({});
-      setSpotlightStatus({});
+    if (repos.length === 0) {
+      setWorktreesByRepo({});
       return;
     }
     setWorktreesLoading(true);
-    listWorktrees(selectedRepoId)
-      .then((wts) => {
-        setWorktrees(wts);
+    Promise.all(
+      repos.map((r) =>
+        listWorktrees(r.id)
+          .then((wts) => [r.id, wts] as const)
+          .catch(() => [r.id, []] as const)
+      )
+    )
+      .then((entries) => {
+        setWorktreesByRepo(Object.fromEntries(entries));
         setWorktreesError(null);
-        refreshStatuses(wts, selectedRepoId);
+        refreshStatuses(entries.flatMap(([, wts]) => wts));
       })
       .catch((err) => setWorktreesError(err.message))
       .finally(() => setWorktreesLoading(false));
   }
 
+  // Re-fetch every repo's worktrees whenever the set of repos changes
+  // (registering a new one, or the initial load finishing).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(refreshWorktrees, [selectedRepoId]);
+  useEffect(refreshWorktrees, [repos]);
+
+  const allWorktrees = Object.values(worktreesByRepo).flat();
 
   // Poll status on an interval so dirty/ahead-behind/spotlight badges stay
   // current in both the sidebar and Workspace without a manual refresh —
-  // doesn't re-fetch the worktree list itself, so an in-progress dialog or
-  // terminal elsewhere isn't disrupted by this.
+  // doesn't re-fetch the worktree lists themselves, so an in-progress
+  // dialog or terminal elsewhere isn't disrupted by this.
   useEffect(() => {
-    if (!selectedRepoId || worktrees.length === 0) return;
-    const id = setInterval(() => refreshStatuses(worktrees, selectedRepoId), STATUS_POLL_INTERVAL_MS);
+    if (allWorktrees.length === 0) return;
+    const id = setInterval(() => refreshStatuses(allWorktrees), STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [selectedRepoId, worktrees]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worktreesByRepo]);
 
   const value: RepoContextValue = {
     repos,
@@ -141,7 +159,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     reposError,
     refreshRepos,
     selectedRepoId,
-    worktrees,
+    worktreesByRepo,
     worktreesLoading,
     worktreesError,
     refreshWorktrees,

@@ -248,11 +248,60 @@ code {
 }
 
 .sidebar-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   opacity: 0.6;
   margin-bottom: 0.4rem;
+}
+
+.icon-button {
+  padding: 0 0.4rem;
+  line-height: 1.4;
+  border-radius: 3px;
+  border: 1px solid #8884;
+  background: transparent;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.icon-button:hover {
+  opacity: 1;
+  background: #8882;
+}
+
+.sidebar-repo-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sidebar-repo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+
+.sidebar-repo-row .icon-button {
+  opacity: 0;
+}
+
+.sidebar-repo-group:hover .sidebar-repo-row .icon-button {
+  opacity: 0.8;
+}
+
+.sidebar-repo-group .sidebar-worktree-list {
+  margin-left: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid #8883;
+  margin-top: 0.15rem;
 }
 
 .sidebar-empty {
@@ -323,4 +372,62 @@ code {
 
 .sidebar-dot-spotlight {
   background: #4fb6c7;
+}
+
+.sidebar-error {
+  margin: 0.5rem 1rem;
+  font-size: 0.8rem;
+}
+
+/* Kebab action menu — shared by Sidebar.tsx and WorktreeList.tsx */
+
+.actions-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.actions-menu-trigger {
+  padding: 0 0.35rem;
+  line-height: 1.4;
+  border: none;
+  background: transparent;
+  opacity: 0.7;
+}
+
+.actions-menu-trigger:hover {
+  opacity: 1;
+  background: #8882;
+}
+
+.actions-menu-list {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  min-width: 12rem;
+  background: canvas;
+  color: canvastext;
+  border: 1px solid #8884;
+  border-radius: 6px;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 12px #0004;
+}
+
+.actions-menu-list button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.actions-menu-list button:hover {
+  background: #8882;
+}
+
+.actions-menu-list button.danger {
+  color: #c0392b;
 }
