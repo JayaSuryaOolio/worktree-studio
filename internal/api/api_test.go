@@ -16,6 +16,7 @@ import (
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/term"
 )
 
 // requireGit skips the test if git isn't on PATH.
@@ -76,6 +77,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 	srv := &Server{
 		Store:        st,
 		Audit:        al,
+		Term:         &term.Manager{Store: st, Audit: al},
 		WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"),
 		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError + 1})),
 	}
@@ -232,6 +234,60 @@ func TestFullWorktreeLifecycle(t *testing.T) {
 	}
 	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
 		t.Errorf("worktree dir %q still exists after delete: err=%v", wt.Path, err)
+	}
+}
+
+// TestDeleteWorktreeClosesItsTerminalSessions is a regression test for a
+// real bug found by hand while testing step 7.4 (dockview terminal
+// arrangement): deleting a worktree never closed its terminal sessions —
+// the terminal_sessions DB row disappears via ON DELETE CASCADE when the
+// worktree row goes, but nothing ever killed the actual tmux session
+// behind it, leaving a permanently orphaned OS process with no DB trace
+// pointing back to it at all.
+func TestDeleteWorktreeClosesItsTerminalSessions(t *testing.T) {
+	requireGit(t)
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found on PATH")
+	}
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/", map[string]string{"tab_label": "shell"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create terminal: status = %d, want 201", resp.StatusCode)
+	}
+	var termSession store.TerminalSession
+	decodeInto(t, resp, &termSession)
+
+	liveBefore, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	if err != nil {
+		t.Fatalf("tmux list-sessions: %v", err)
+	}
+	if !strings.Contains(string(liveBefore), termSession.TmuxSessionName) {
+		t.Fatalf("expected tmux session %q to be live before delete, got:\n%s", termSession.TmuxSessionName, liveBefore)
+	}
+
+	resp = doJSON(t, http.MethodDelete, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete worktree: status = %d, want 200", resp.StatusCode)
+	}
+
+	liveAfter, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	// tmux exits non-zero ("no server running") once its last session is
+	// gone — that's success here, not a real error.
+	if err != nil && !strings.Contains(string(liveAfter), termSession.TmuxSessionName) {
+		return
+	}
+	if strings.Contains(string(liveAfter), termSession.TmuxSessionName) {
+		t.Fatalf("expected tmux session %q to be killed by the worktree delete, but it's still live:\n%s", termSession.TmuxSessionName, liveAfter)
 	}
 }
 

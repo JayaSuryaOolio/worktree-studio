@@ -312,6 +312,27 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Close any terminal sessions for this worktree before removing it —
+	// otherwise the tmux session (a real OS process) becomes a permanent
+	// orphan: the terminal_sessions DB row disappears via this worktree's
+	// ON DELETE CASCADE below regardless, but nothing besides this call
+	// ever kills the actual tmux session behind it. Found by hand while
+	// testing step 7.4 (a stray tmux session survived a worktree delete
+	// with no trace in the DB pointing back to it).
+	sessions, err := s.Store.ListTerminalSessions(wt.ID)
+	if err != nil {
+		s.Log.Error("list terminal sessions before worktree delete", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up terminal sessions")
+		return
+	}
+	for _, ts := range sessions {
+		if err := s.Term.CloseSession(ts); err != nil {
+			s.Log.Error("close terminal session before worktree delete", "err", err, "terminal_id", ts.ID)
+			writeError(w, http.StatusInternalServerError, "failed to close terminal session "+ts.ID+" before deleting the worktree: "+err.Error())
+			return
+		}
+	}
+
 	force := r.URL.Query().Get("force") == "true"
 	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
 		if errors.Is(err, gitops.ErrWorktreeDirty) {
