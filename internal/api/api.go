@@ -56,6 +56,9 @@ func (s *Server) Routes(r chi.Router) {
 					r.Post("/start", s.handleSpotlightStart)
 					r.Post("/stop", s.handleSpotlightStop)
 				})
+
+				r.Get("/layout", s.handleGetLayout)
+				r.Put("/layout", s.handleSaveLayout)
 			})
 		})
 	})
