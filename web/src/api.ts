@@ -174,3 +174,30 @@ export function terminalWsUrl(terminalId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/terminals/${terminalId}`;
 }
+
+/** Returns the saved dockview layout for a worktree, or `null` if nothing
+ * has been saved yet (a 404, which is the normal/expected first-open
+ * state here — not routed through request()'s generic error handling,
+ * since a missing layout isn't an error condition for this call). */
+export async function getWorktreeLayout(
+  repoId: string,
+  worktreeId: string
+): Promise<unknown | null> {
+  const res = await fetch(`/api/repos/${repoId}/worktrees/${worktreeId}/layout`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export function saveWorktreeLayout(
+  repoId: string,
+  worktreeId: string,
+  layout: unknown
+): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/layout`, {
+    method: "PUT",
+    body: JSON.stringify(layout),
+  });
+}

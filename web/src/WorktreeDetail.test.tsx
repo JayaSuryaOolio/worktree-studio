@@ -18,9 +18,11 @@ vi.mock("./api", () => ({
   listTerminals: vi.fn(),
   createTerminal: vi.fn(),
   deleteTerminal: vi.fn(),
+  getWorktreeLayout: vi.fn(),
+  saveWorktreeLayout: vi.fn(),
 }));
 
-import { createTerminal, listTerminals } from "./api";
+import { createTerminal, getWorktreeLayout, listTerminals, saveWorktreeLayout } from "./api";
 
 function renderPage() {
   return render(
@@ -43,6 +45,8 @@ beforeEach(() => {
     tmux_session_name: `wts-t${nextId}`,
     tab_label: "shell",
   }));
+  vi.mocked(getWorktreeLayout).mockResolvedValue(null);
+  vi.mocked(saveWorktreeLayout).mockResolvedValue(undefined);
 });
 
 describe("WorktreeDetail", () => {
@@ -81,4 +85,47 @@ describe("WorktreeDetail", () => {
 
     expect(createTerminal).toHaveBeenCalledTimes(2);
   });
+
+  it("fetches the saved layout for this worktree on mount", async () => {
+    renderPage();
+    await screen.findByTestId("terminal-t1");
+    await waitFor(() => expect(getWorktreeLayout).toHaveBeenCalledWith("r1", "w1"));
+  });
+
+  it(
+    "saves the layout (debounced) after a real dockview layout change",
+    async () => {
+      // Real timers, not fake ones — vi.useFakeTimers() interacts badly
+      // with testing-library's internal polling (findBy/waitFor use real
+      // setTimeout under the hood too), so faking time here risked
+      // deadlocking the test rather than actually speeding it up. A 600ms
+      // real wait for one test is a fine price for exercising the real
+      // debounce path end-to-end instead of mocking it away.
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByTestId("terminal-t1");
+      await waitFor(() => expect(getWorktreeLayout).toHaveBeenCalled());
+
+      await user.click(screen.getByRole("button", { name: /new terminal/i }));
+      await user.click(screen.getByRole("button", { name: "New tab" }));
+      await screen.findByTestId("terminal-t2");
+
+      // Nothing saved yet — still inside the debounce window.
+      expect(saveWorktreeLayout).not.toHaveBeenCalled();
+
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await waitFor(() => expect(saveWorktreeLayout).toHaveBeenCalled());
+
+      const lastCall = vi.mocked(saveWorktreeLayout).mock.calls.at(-1);
+      expect(lastCall?.[0]).toBe("r1");
+      expect(lastCall?.[1]).toBe("w1");
+      // The third argument is dockview's own real toJSON() output (not a
+      // fixture) — assert it's shaped like a real serialized layout
+      // rather than pinning its exact contents, which would make this
+      // test brittle against dockview's own internal schema.
+      expect(lastCall?.[2]).toHaveProperty("panels");
+      expect(lastCall?.[2]).toHaveProperty("grid");
+    },
+    10000
+  );
 });
