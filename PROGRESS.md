@@ -4,6 +4,29 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 7.4: dockview terminal arrangement
+
+**Completed:**
+
+- `dockview` + `dockview-react` added (MIT, zero runtime deps). `WorktreeDetail.tsx` replaced its manually-toggled tab strip with a `DockviewReact` host — one panel per terminal session, panel `id` == `TerminalSession.id`. `Terminal.tsx` itself needed **zero changes** — a panel is just a React component in the tree.
+- "+ New Terminal ▾" dropdown with three actions mapped directly to dockview's `addPanel({ position: { referencePanel, direction } })`: **New tab** (`within` — classic full-size tab switching), **Split right** (`right`), **Split down** (`below` — both real, simultaneously-visible, resizable tiles). No drag-to-float, no OS-level popout — the latter was considered and ruled out entirely, not deferred.
+- Closing a panel wires dockview's `onDidRemovePanel` to the existing `DELETE .../terminals/:id`.
+- Styled `.command-deck-dockview` by overriding dockview's `--dv-*` variables with Command Deck's own tokens, starting from the built-in "abyss" theme.
+- `docs/architecture.md` got a comprehensive refresh covering the whole overhaul so far (sidebar/context, command palette, dockview) in one pass rather than three separate micro-edits, since the old flat-page description was fully stale by this point.
+
+**A real bug found and fixed while testing this (not part of the planned scope, but directly related):** deleting a worktree never closed its terminal sessions. The `terminal_sessions` DB row disappears via `ON DELETE CASCADE` when the worktree row goes, but nothing else ever killed the actual tmux process behind it — leaking it forever with zero trace back to it in the database. Found by hand: created a test worktree+terminal, deleted the worktree through the API, then noticed via `tmux list-sessions` that the session was still alive. `handleDeleteWorktree` now closes every terminal session for a worktree (real `tmux kill-session` via `internal/term.Manager.CloseSession`) before removing it. Regression test (`TestDeleteWorktreeClosesItsTerminalSessions`) creates a real terminal, confirms its tmux session is live, deletes the worktree, confirms the tmux session is actually gone — not just the DB row. This also surfaced that `internal/api`'s test helper never set the `Server.Term` field at all (no terminal-endpoint Go tests existed before this one) — fixed as part of adding the regression test.
+
+**Verified:**
+
+- `go build`/`go vet`/`gofmt`/`go test` all clean — **35/35** (one new regression test). `bun run build`/`bun run test` clean — **13/13** (three new `WorktreeDetail.test.tsx` cases, mocking `./Terminal` and `./api` so the test is about panel/dropdown orchestration, not xterm/websocket internals).
+- Real server + real bundle check: registered a repo, created a worktree and a terminal through the actual running API, confirmed the tmux session existed, confirmed the served JS bundle contains `dockview-theme-abyss`/`command-deck-dockview`.
+- **While doing that verification, found two tmux sessions I did NOT create** — `wts-fa6adebbc09de5d9` and `wts-fcc1e1d9369a775b`, both rooted in `~/.worktree-studio/worktrees/.../urban-otter`, one running an actual Claude Code process. These belong to the user's own real, active work (matches their earlier screenshot) — inspected before touching anything, recognized they weren't mine, left them alone, and only cleaned up my own `/tmp`-rooted test session. Exactly the class of mistake the earlier "orphaned server" incident was about, caught this time by checking first.
+- Cannot verify actual visual appearance, drag behavior, or resize-by-dragging without a browser (this session has none) — the frontend test suite proves the dropdown-driven placement logic is wired correctly (real DOM assertions), not that it looks or feels right. Still worth a real look before calling this step fully done.
+
+**Next:** Step 7.5 — terminal layout persistence (`worktree_layouts` table + `GET/PUT .../layout`, frontend load/save with debounce). Last step of the UI overhaul; user asked to review at the end of this one.
+
+---
+
 ## 2026-08-07 — Step 7.3: Command Deck visual design pass
 
 **Completed:**

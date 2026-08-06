@@ -98,7 +98,12 @@ Other useful local state:
 
 ## Using terminals
 
-Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktree/:worktreeId`), which shows terminal tabs for that worktree. "+ New Terminal" starts a real shell rooted in that worktree's directory — run anything in it, including `claude` itself; there's no special agent framing, it's just a shell.
+Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktree/:worktreeId`). Terminals are arranged via **dockview**, not a plain tab strip — "+ New Terminal ▾" opens a dropdown with three placement actions:
+
+- **New tab** — adds it as a tab within the currently active group; selecting that tab shows it full-size, other tabs in the same group hidden (classic single-visible-at-a-time behavior).
+- **Split right** / **Split down** — adds it as a new tile shown *simultaneously* alongside the existing one. Drag the boundary between tiles to resize them (dockview's native split-view behavior).
+
+Each starts a real shell rooted in that worktree's directory — run anything in it, including `claude` itself; there's no special agent framing, it's just a shell. There is deliberately **no OS-level popout** into a separate browser window — that was considered and explicitly ruled out, not deferred.
 
 Via the API:
 
@@ -167,4 +172,6 @@ Adding a repo or a worktree is a modal now, not a page — reachable via the sid
 
 **Visual design**: the app has one theme, "Command Deck" (dark, mission-control-styled — see `docs/design.md` for the full token system and rationale). Worktree rows in the sidebar are styled as flight strips: a colored left-edge tab shows dirty (red) / clean (green), status figures and branch names render in monospace like telemetry, page titles use a display face. There's no theme switcher — that's a recorded `PLAN.md` TODO, not built.
 
-<!-- Each later build step (dockview terminal arrangement + persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+**Deleting a worktree also closes its terminal sessions now** (real tmux kill, not just a DB row disappearing via cascade) — found and fixed while building the dockview arrangement above; before this fix, a deleted worktree's tmux sessions leaked forever with no trace in the DB pointing back to them.
+
+<!-- Each later build step (terminal layout persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
