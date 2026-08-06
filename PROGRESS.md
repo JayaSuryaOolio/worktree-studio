@@ -4,6 +4,37 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Frontend tooling switched to bun; Step 3: spotlight (design corrected mid-step)
+
+**Tooling change:** switched `web/` from npm to [bun](https://bun.sh) — `bun install`/`bun run` in place of `npm install`/`npm run` everywhere (README, docs, skill, `main.go`'s placeholder page). `web/package-lock.json` replaced with `web/bun.lock`. No app code changes, same Vite/React/TS scripts, just run through a different tool.
+
+**Important mid-step correction — read this before touching spotlight code:** `PLAN.md`'s original step 3 sketch (written before checking for prior art) had spotlight copying `node_modules`/`.env`/`.turbo` *from* the root repo *into* each worktree, with a manifest/staging/atomic-swap scheme. **That was backwards and has been replaced.** The user pointed at an already-built, already-installed tool (`github.com/JayaSuryaOolio/spotlight`, at `~/.local/bin/spotlight`) that does the opposite: it mirrors a **worktree's source files into the repo's root checkout**, continuously (fswatch+rsync), so you build/run from the root — which already has deps installed — while it reflects whichever worktree is in focus. `PLAN.md` section 2 now documents the corrected design; the old sketch is preserved there as a labeled "design correction" note, not deleted, so future-you can see what changed and why.
+
+**Completed this session:**
+
+- `internal/spotlight` (new package): thin `os/exec` wrapper — `Start`/`Stop`/`List`/`StatusForRoot` — around the installed `spotlight` CLI. Does **not** reimplement any sync/mirroring logic; the corruption-proofing (flattened-`.gitignore`-into-`--exclude-from`, dirty-root refusal, clean teardown via `git checkout`+`git clean`) all already lives in that external tool.
+- `internal/api/spotlight.go`: `GET/POST /api/repos/:repoId/worktrees/:worktreeId/spotlight/{,start,stop}`. Status distinguishes "no mirror," "this worktree is the active mirror," and "a different worktree of this repo is the active mirror" (via a symlink-tolerant path comparison). A dirty root surfaces as `409` verbatim from the CLI's own refusal, not retried or forced. Both start/stop are audit-logged (`spotlight.start`/`spotlight.stop`); a refused start is not (nothing happened).
+- Frontend: a "Spotlight" column in `WorktreeList.tsx` — Start/Stop per row, "will replace active mirror" wording when a sibling worktree is already active, an inline error message on the 409 dirty-root case.
+- Docs: new `docs/spotlight-sync.md` (what the tool does, the integration surface, the macOS path-symlink bug found and fixed, manual verification steps, known limitations). `docs/architecture.md` and `docs/running-locally.md` updated (spotlight CLI + fswatch added as an optional prerequisite). `.claude/skills/worktree-studio/SKILL.md` gained a "Using Spotlight" section.
+
+**Verified working (real commands run, not just claimed):**
+
+- `go build ./...`, `go vet ./...`, `gofmt -l .` clean. `go test ./...` — 29/29 passing (5 new tests in `internal/spotlight` against real throwaway git repos: initial mirror, live-edit propagation, clean teardown, dirty-root refusal, switching-worktree-stops-previous; 2 new tests in `internal/api` exercising the same flow through real HTTP).
+- **Real bug found and fixed mid-verification**: `StatusForRoot` did a raw string compare of paths, which silently failed against genuinely active mirrors whenever `/tmp` or `/var` are themselves symlinks into `/private` (true on macOS) — `t.TempDir()` paths and the CLI's own resolved paths for the *same directory* never string-equal. Fixed with `filepath.EvalSymlinks` on both sides before comparing; also needed a short startup delay in the live-edit test since `fswatch`'s watcher isn't instantly ready the moment `spotlight start` returns.
+- Ran the full flow against the **real, running server** with the **real, built frontend bundle** (not just Go tests): registered a synthetic throwaway repo, created a worktree through the API, started spotlight, confirmed a file written in the worktree actually appeared in the root checkout, confirmed `GET .../spotlight/` reported `active: true`, stopped it, confirmed the root was restored to a clean `git status` and the mirrored file was gone.
+- **Also verified against the real `adelaide` repo** (not just a synthetic one): registered it, created a worktree, called `spotlight/start` — got a real `409`, because `adelaide`'s actual root checkout genuinely has an uncommitted `yarn.lock` change right now. Confirmed nothing in the real repo changed as a result (`git status --porcelain` unchanged before/after). This is exactly the safety behavior the tool exists to provide, demonstrated against real state rather than a contrived test.
+- All test worktrees, temp repos, and a temporary debug binary/module were cleaned up; no server process left running.
+
+**Not built (explicitly out of scope for this step):** worktree status dashboard, Monaco editor, git-diff/comment-to-agent.
+
+**Process notes:**
+- Before writing any spotlight code, checked disk space and discovered the *original* (wrong) node_modules-copying design would have needed ~11.5GB against 15GB free — this constraint evaporated once the design was corrected, since source-only mirroring of `adelaide`'s tracked files is only ~22MB. Worth remembering: check assumptions about *what* a feature does before sizing *how* to test it.
+- Followed the commit-checkpoint policy from `PLAN.md`/memory throughout this step (bun migration, `PLAN.md` correction, `internal/spotlight`, REST endpoints, frontend, docs — each its own commit) — no repeat of step 2's earlier accidental-combined-commit slip.
+
+**Next up:** Step 4 — worktree monitoring dashboard (git-status polling pushed over ws, dirty/ahead-behind/spotlight-status badges in `WorktreeList.tsx`). Spotlight's own status is already surfaced per-row; step 4 adds git dirty/ahead-behind on top of that.
+
+---
+
 ## 2026-08-07 — Step 2: terminal via tmux
 
 **Completed this session:**

@@ -6,6 +6,7 @@
 - [Bun](https://bun.sh) (for the Vite/React frontend — used as the package manager/runner instead of npm; `bun install`/`bun run` in place of `npm install`/`npm run`).
 - `git` on `PATH` (all worktree operations shell out to the real `git` binary).
 - `tmux` on `PATH` (terminal tabs are tmux sessions under the hood — see `docs/session-persistence.md`; `brew install tmux` on macOS).
+- The standalone `spotlight` CLI installed (`github.com/JayaSuryaOolio/spotlight`; installs to `~/.local/bin/spotlight` by default), plus its own `fswatch` dependency (`brew install fswatch` on macOS) — see `docs/spotlight-sync.md`. Optional in the sense that worktree-studio still runs fine without it, but spotlight's REST endpoints will report `{"available": false}` / return `503` until it's installed.
 
 ## Production-style: one binary
 

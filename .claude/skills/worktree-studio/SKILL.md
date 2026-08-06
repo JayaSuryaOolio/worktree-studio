@@ -7,11 +7,12 @@ description: How to run and use worktree-studio, a local Go+React tool for manag
 
 `worktree-studio` is a small local web tool for managing `git worktree`s across one or more repos: register a repo once, then create/remove worktrees through a dashboard instead of hand-running `git worktree add/remove`. It's meant to be driven by both humans and agents.
 
-**Status as of this section (steps 1–2 of `PLAN.md`): repo registration, worktree create/remove, and tmux-backed terminals exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
-- No spotlight sync of `node_modules`/`.env`/build caches into new worktrees (planned: step 3) — a freshly created worktree has **only** what `git worktree add` gives it; you still need to run your own install/build step in it for now
+**Status as of this section (steps 1–3 of `PLAN.md`): repo registration, worktree create/remove, tmux-backed terminals, and spotlight all exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
 - No worktree status dashboard (dirty/ahead-behind badges) (planned: step 4)
 - No Monaco file editor (planned: step 5)
 - No git diff view or "send comment to agent" flow (planned: step 6 / TODO)
+
+Also important: spotlight does **not** install dependencies into a worktree. A freshly created worktree has only what `git worktree add` gives it — if you need `node_modules` there directly (rather than running things from the mirrored root), you still run your own install/build step.
 
 ## Starting the server
 
@@ -122,4 +123,22 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
 
-<!-- Each later build step (spotlight sync, dashboard, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+## Using Spotlight
+
+Spotlight mirrors a worktree's source files into its repo's **root checkout** — continuously, while active — so you can build/run from the root path (which already has `node_modules`/build output installed) and have it always reflect whichever worktree is "in focus." It does **not** copy dependencies into the worktree itself; see the caveat at the top of this file.
+
+In the UI: the worktree list has a "Spotlight" column per row. "Start" begins mirroring that worktree into its repo's root; once active, the row shows "● in focus — Stop." If a *different* worktree of the same repo is already the active mirror, that row's button reads "Start (will replace active mirror)" — starting one automatically stops the other, matching the underlying tool's own one-at-a-time design.
+
+Via the API:
+
+```bash
+curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/spotlight/          # status
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/spotlight/start
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/spotlight/stop
+```
+
+`start` returns `409` if the repo's root checkout has uncommitted changes — that's the underlying `spotlight` CLI itself refusing, on purpose, so it never clobbers real work sitting in the root. Commit or stash there first, then retry. This is real, unforced behavior: it will happen for genuinely dirty repos, not just in tests.
+
+Requires the standalone `spotlight` CLI to actually be installed (`github.com/JayaSuryaOolio/spotlight`, plus its own `fswatch` dependency) — if it's missing, the status endpoint reports `{"available": false}` rather than erroring, and start/stop return `503`. See `docs/spotlight-sync.md` for the full design (including a correction: this used to be planned backwards before the real tool was found) and for debugging directly against the CLI (`spotlight list`, etc.) if something looks off.
+
+<!-- Each later build step (dashboard, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
