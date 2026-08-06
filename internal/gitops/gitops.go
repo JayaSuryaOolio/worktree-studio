@@ -86,6 +86,21 @@ func AddWorktree(repoPath, worktreePath, branch string) error {
 	return nil
 }
 
+// DeleteBranch runs `git branch -D <branch>` from within repoPath. Note
+// that RemoveWorktree does NOT delete the branch a worktree was created
+// with — `git worktree remove` only removes the checkout, leaving the
+// branch itself intact — so fully undoing an AddWorktree call requires
+// both RemoveWorktree and DeleteBranch.
+func DeleteBranch(repoPath, branch string) error {
+	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branch)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git branch -D %s: %w: %s", branch, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // RemoveWorktree runs `git worktree remove <worktreePath>` from within
 // repoPath. Without force, git itself refuses to remove a worktree that has
 // uncommitted changes or untracked files, and that refusal is surfaced as

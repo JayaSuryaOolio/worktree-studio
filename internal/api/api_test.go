@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -296,5 +297,67 @@ func TestDeleteWorktreeNotFound(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("DELETE missing worktree: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// TestCreateWorktreeRollsBackGitOnStoreFailure is a regression test for a
+// real bug found in production use: if `git worktree add` succeeds but the
+// subsequent store.AddWorktree fails for any reason (disk full, DB locked,
+// or — how this was actually first hit — the server's data directory
+// having been deleted out from under a still-running process), the
+// original code left an orphaned git worktree + branch behind with no DB
+// record of it. Every retry with the same name then failed at the git
+// layer ("a branch named ... already exists"), with no way to recover
+// short of manually running `git worktree remove`/`git branch -D`. Forces
+// the store write to fail deterministically via a UNIQUE(path) collision
+// (pre-inserting a row at the exact path the handler is about to compute)
+// rather than mocking anything, and asserts the git-level rollback
+// actually happened.
+func TestCreateWorktreeRollsBackGitOnStoreFailure(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	const name = "feature"
+	collisionPath := filepath.Join(srv.WorktreeRoot, repo.ID, name)
+	if err := srv.Store.AddWorktree(store.Worktree{
+		ID: "pre-existing", RepoID: repo.ID, Name: name, Branch: "unrelated-branch", Path: collisionPath,
+	}); err != nil {
+		t.Fatalf("seed colliding worktree row: %v", err)
+	}
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": name})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("create worktree with a colliding path: status = %d, want 500", resp.StatusCode)
+	}
+	var body map[string]string
+	decodeInto(t, resp, &body)
+	if !strings.Contains(body["error"], "rolled back") {
+		t.Fatalf("expected the error to mention the rollback, got: %q", body["error"])
+	}
+
+	// The real assertion: the git worktree add's side effects must be
+	// gone, not left dangling.
+	branchOut, err := exec.Command("git", "-C", repoPath, "branch", "--list", name).Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if strings.TrimSpace(string(branchOut)) != "" {
+		t.Errorf("branch %q should have been rolled back (deleted), but git branch --list found: %q", name, branchOut)
+	}
+	if _, err := os.Stat(collisionPath); !os.IsNotExist(err) {
+		t.Errorf("worktree directory %q should have been rolled back (removed), stat err = %v", collisionPath, err)
+	}
+	worktreeListOut, err := exec.Command("git", "-C", repoPath, "worktree", "list").Output()
+	if err != nil {
+		t.Fatalf("git worktree list: %v", err)
+	}
+	if strings.Contains(string(worktreeListOut), collisionPath) {
+		t.Errorf("git worktree list should no longer mention the rolled-back path, got:\n%s", worktreeListOut)
 	}
 }

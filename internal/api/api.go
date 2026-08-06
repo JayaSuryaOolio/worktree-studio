@@ -243,8 +243,31 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := s.Store.AddWorktree(wt); err != nil {
-		s.Log.Error("save worktree", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to save worktree record")
+		s.Log.Error("save worktree; rolling back the git worktree/branch just created", "err", err)
+		// Without this rollback, a transient store failure (disk full, a
+		// locked DB, or — the way this was actually first found — the
+		// server's data directory having been deleted out from under a
+		// still-running process) leaves an orphaned git worktree and
+		// branch that worktree-studio itself has no record of. Every
+		// subsequent retry with the same name then fails at the git layer
+		// ("a branch named ... already exists") with no way to recover
+		// short of manually running `git worktree remove`/`git branch -D`.
+		// Undoing `git worktree add -b <branch>` takes two calls: removing
+		// the worktree checkout does NOT delete the branch it created
+		// (that's just how git worktree remove works) — skipping the
+		// branch delete would leave "a branch named ... already exists"
+		// blocking every retry with the same name, which is exactly the
+		// dangling-state problem this rollback exists to prevent.
+		rmErr := gitops.RemoveWorktree(repo.Path, worktreePath, true)
+		brErr := gitops.DeleteBranch(repo.Path, branch)
+		if rmErr != nil || brErr != nil {
+			s.Log.Error("rollback of orphaned git worktree/branch failed", "worktree_err", rmErr, "branch_err", brErr, "path", worktreePath, "branch", branch)
+			writeError(w, http.StatusInternalServerError,
+				"failed to save worktree record, AND failed to fully roll back the git worktree/branch it had already created — "+
+					"manual cleanup needed: git worktree remove --force "+worktreePath+" && git -C "+repo.Path+" branch -D "+branch)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to save worktree record (the git worktree was rolled back, safe to retry): "+err.Error())
 		return
 	}
 

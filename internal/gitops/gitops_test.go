@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,30 @@ func TestAddListRemoveWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
 		t.Errorf("worktree dir still exists after remove: err=%v", err)
+	}
+
+	// RemoveWorktree does NOT delete the branch it was created with — this
+	// is real git behavior, not a bug, but it's the exact gap that once
+	// let a failed worktree-creation rollback leave a branch behind
+	// blocking retries (see internal/api's regression test for the full
+	// story). DeleteBranch is the other half of a full rollback.
+	branchOut, err := exec.Command("git", "-C", repo, "branch", "--list", "my-feature").Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if strings.TrimSpace(string(branchOut)) == "" {
+		t.Fatal("expected the branch to still exist after RemoveWorktree alone")
+	}
+
+	if err := DeleteBranch(repo, "my-feature"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+	branchOut, err = exec.Command("git", "-C", repo, "branch", "--list", "my-feature").Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if strings.TrimSpace(string(branchOut)) != "" {
+		t.Errorf("expected the branch to be gone after DeleteBranch, got: %q", branchOut)
 	}
 }
 
