@@ -7,8 +7,7 @@ description: How to run and use worktree-studio, a local Go+React tool for manag
 
 `worktree-studio` is a small local web tool for managing `git worktree`s across one or more repos: register a repo once, then create/remove worktrees through a dashboard instead of hand-running `git worktree add/remove`. It's meant to be driven by both humans and agents.
 
-**Status as of this section (steps 1–3 of `PLAN.md`): repo registration, worktree create/remove, tmux-backed terminals, and spotlight all exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
-- No worktree status dashboard (dirty/ahead-behind badges) (planned: step 4)
+**Status as of this section (steps 1–4 of `PLAN.md`): repo registration, worktree create/remove, tmux-backed terminals, spotlight, and the dirty/ahead-behind status dashboard all exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
 - No Monaco file editor (planned: step 5)
 - No git diff view or "send comment to agent" flow (planned: step 6 / TODO)
 
@@ -141,4 +140,17 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/spo
 
 Requires the standalone `spotlight` CLI to actually be installed (`github.com/JayaSuryaOolio/spotlight`, plus its own `fswatch` dependency) — if it's missing, the status endpoint reports `{"available": false}` rather than erroring, and start/stop return `503`. See `docs/spotlight-sync.md` for the full design (including a correction: this used to be planned backwards before the real tool was found) and for debugging directly against the CLI (`spotlight list`, etc.) if something looks off.
 
-<!-- Each later build step (dashboard, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+## Monitoring dashboard (dirty / ahead-behind)
+
+Every worktree row has a "Status" column showing whether it's dirty (uncommitted changes/untracked files) and, if its branch has a configured upstream and actually diverges from it, an ahead/behind indicator (e.g. `↑1↓1`). This refreshes automatically every 5 seconds (plain REST polling — there's no websocket push for this) — no manual refresh needed, but also don't expect sub-5-second freshness.
+
+Via the API directly:
+
+```bash
+curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/status
+# {"branch":"amber-ridge","dirty":false,"has_upstream":false,"ahead":0,"behind":0}
+```
+
+`has_upstream` is `false` for most freshly created worktrees — `git worktree add -b <branch>` doesn't set up an upstream by itself, so `ahead`/`behind` being `0` in that case doesn't mean "in sync," it means "not tracking anything to compare against." The UI only shows the ahead/behind badge when `has_upstream` is true and there's an actual difference — check `has_upstream` yourself if scripting against this, don't just look at whether ahead/behind are zero.
+
+<!-- Each later build step (Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->

@@ -4,6 +4,30 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 4: worktree monitoring dashboard (dirty / ahead-behind)
+
+**Design simplification, recorded here and in `PLAN.md`:** this step's original wording called for git-status "pushed over ws." Implemented as a plain 5-second `setInterval` REST poll instead (same pattern already used for spotlight status in step 3) — there's still no other consumer of a shared push channel anywhere in this codebase, so building one now would be speculative. Not a step that was skipped, just built the simpler way that already matches this project's established pattern.
+
+**Completed this session:**
+
+- `internal/gitops.StatusResult` extended with `HasUpstream bool`, `Ahead int`, `Behind int`, parsed from git's `# branch.ab +N -M` line (only present when the branch has a configured upstream at all — a freshly created worktree's branch typically doesn't, since `git worktree add -b <branch>` doesn't set one up).
+- `GET /api/repos/:repoId/worktrees/:worktreeId/status` (`internal/api/status.go`): returns `{branch, dirty, has_upstream, ahead, behind}`.
+- Frontend: `Workspace.tsx` polls both worktree-status and spotlight-status every 5s (`STATUS_POLL_INTERVAL_MS`), without disturbing the worktree list itself. `WorktreeList.tsx` gets a "Status" column — a dirty/clean badge, plus an ahead/behind indicator shown only when `has_upstream` is true and there's an actual difference (not just whenever ahead/behind happen to be present).
+- Docs: `docs/architecture.md` updated (steps 1–4 now), `.claude/skills/worktree-studio/SKILL.md` gained a "Monitoring dashboard" section explicitly warning that `has_upstream: false` means "not comparable," not "in sync." `PLAN.md` records the REST-vs-ws simplification inline.
+
+**Verified working (real commands run, not just claimed):**
+
+- `go build ./...`, `go vet ./...`, `gofmt -l .` clean. `go test ./...` — 33/33 passing (2 new ahead/behind parsing tests in `internal/gitops`, using a real clone that diverges from its origin in *both* directions simultaneously to prove ahead and behind aren't just aliases of each other; 2 new tests in `internal/api` for the status endpoint's clean→dirty transition and a 404 on a missing worktree).
+- Ran the full flow against a **real running server + real built frontend bundle**: created a fresh throwaway repo and worktree through the actual API, confirmed clean/no-upstream status, dirtied it and confirmed the badge would flip, then set up a genuine upstream-tracking relationship (`git branch --set-upstream-to`) and diverged both sides for real (one commit in the worktree, one commit on the "main" side) — confirmed the status endpoint reported exactly `ahead: 1, behind: 1`, not a guess or a mock.
+- Confirmed the served JS bundle actually contains the new dashboard code (`git-status-badges`, `badge-dirty`, `has_upstream` strings present).
+- All test repos/worktrees cleaned up, audit log showed the expected `repo.add`/`worktree.create`/`worktree.remove` lines, server process killed, no stray processes left.
+
+**Not built (explicitly out of scope for this step):** Monaco editor, git-diff/comment-to-agent.
+
+**Next up:** Step 5 — Monaco editor (file tree, open/save, external-change watch via `fsnotify`).
+
+---
+
 ## 2026-08-07 — Frontend tooling switched to bun; Step 3: spotlight (design corrected mid-step)
 
 **Tooling change:** switched `web/` from npm to [bun](https://bun.sh) — `bun install`/`bun run` in place of `npm install`/`npm run` everywhere (README, docs, skill, `main.go`'s placeholder page). `web/package-lock.json` replaced with `web/bun.lock`. No app code changes, same Vite/React/TS scripts, just run through a different tool.
