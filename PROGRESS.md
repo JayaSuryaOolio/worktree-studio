@@ -4,6 +4,32 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Step 7.5: terminal layout persistence (UI overhaul complete)
+
+Last sub-step of the step 7 UI overhaul — the whole thing (7.1–7.5: sidebar, command palette, Command Deck visuals, dockview arrangement, this persistence) is now done. User asked to review at the end of this step.
+
+**Completed:**
+
+- `worktree_layouts(worktree_id, layout_json, updated_at)` table + `GetWorktreeLayout`/`SaveWorktreeLayout` store methods, `GET/PUT /api/repos/:repoId/worktrees/:worktreeId/layout` (this project's first `PUT` route). The layout is treated as an opaque JSON blob — the server never inspects its shape, just stores/returns dockview's own `toJSON()`/`fromJSON()` output verbatim.
+- `WorktreeDetail.tsx`: on mount, fetches the saved layout (a `404` means none yet, not an error) and applies it via `dockviewApi.fromJSON()` once both dockview is ready and the fetch has resolved (order between those two isn't guaranteed — handled via a state variable for the api reference, not a ref, since refs don't retrigger effects); `seedPanels` then fills in any terminal that exists server-side but wasn't part of the saved layout. Every `onDidLayoutChange` debounces (500ms) a `PUT` of the current `toJSON()`.
+- **Known simplification, recorded not hidden**: a saved layout referencing a terminal id that no longer exists server-side is left to fail gracefully at the websocket layer (`Terminal.tsx`'s own connection-error message) rather than this code hand-pruning dockview's serialized grid structure to remove the dangling reference. A real but rare edge case (only reachable if a terminal was deleted through some path that didn't get a chance to save first) with a non-destructive fallback.
+
+**Two more real bugs found and fixed while doing this (not planned scope, found by hand):**
+
+1. **SQLite foreign keys were never enforced anywhere in this schema.** `PRAGMA foreign_keys = ON` was never set on the connection — off by default. Verified empirically with a throwaway script (insert parent+child, delete parent, child row survives) before fixing. Every `ON DELETE CASCADE` declared since step 1 (`worktrees`→`repos`, `terminal_sessions`→`worktrees`) had been silently decorative the whole time. Fixed in `store.Open`. This broke `internal/term`'s existing tests, which created terminal sessions referencing a worktree id that was never actually inserted — silently worked before, correctly rejected now; fixed by seeding a real parent row in that test's helper. New regression test proves cascade now genuinely fires for the real schema.
+2. (Carried from 7.4's fix, now doubly-confirmed correct): the explicit terminal-closing loop in `handleDeleteWorktree` was never relying on cascade to clean up the DB rows anyway (it calls `CloseSession` explicitly) — so bug #1 didn't silently break that fix, but it does mean the docs' earlier claim that "the DB row disappears via cascade regardless" was factually wrong at the time it was written. Corrected in `docs/architecture.md`.
+
+**Verified:**
+
+- `go build`/`go vet`/`gofmt`/`go test` all clean — **40/40** (5 new: 2 store tests for `worktree_layouts` + the FK-cascade regression, 3 API tests for the layout endpoint). `bun run build`/`bun run test` clean — **15/15** (2 new: layout-fetched-on-mount, and a real debounced-save test that exercises dockview's actual `toJSON()` output, not a fixture — asserts it's shaped like a real serialized layout rather than pinning exact contents, which would be brittle against dockview's own internal schema).
+- **The actual persistence claim, verified for real against a live server** (this project's standing bar, per the tmux-restart precedent from step 2): registered a repo/worktree, `PUT` a realistic layout, confirmed `GET` returns it byte-identical immediately, **killed and fully restarted the Go server process**, confirmed `GET` still returns the exact same bytes. Also confirmed the served JS bundle contains the `/layout` route string.
+- Test resources cleaned up; confirmed again (as in 7.4) that only the user's own real tmux sessions remain, not test artifacts.
+- Still cannot verify actual drag/resize *feel* or exact visual rendering without a browser — the tests and real-server checks prove the mechanics are wired correctly, not that using it feels right. Worth a real look.
+
+**Not built (still, unchanged from before this overhaul):** Monaco editor (step 5), git-diff/comment-to-agent (step 6/TODO). **Deferred as explicit TODOs:** theme switching. **Never, not deferred:** OS-level terminal popout.
+
+---
+
 ## 2026-08-07 — Step 7.4: dockview terminal arrangement
 
 **Completed:**

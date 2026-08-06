@@ -105,6 +105,8 @@ Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktre
 
 Each starts a real shell rooted in that worktree's directory — run anything in it, including `claude` itself; there's no special agent framing, it's just a shell. There is deliberately **no OS-level popout** into a separate browser window — that was considered and explicitly ruled out, not deferred.
 
+**The arrangement itself persists** — reload the page, or kill and restart the whole worktree-studio server, and the same split/tab layout comes back (verified both ways against a real server). It's saved server-side (`GET/PUT /api/repos/<repoId>/worktrees/<worktreeId>/layout`, debounced ~500ms after any drag/resize/tab-switch), not in browser storage — it'll follow you to a different browser or machine too.
+
 Via the API:
 
 ```bash
