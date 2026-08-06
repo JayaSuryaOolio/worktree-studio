@@ -22,6 +22,14 @@ export interface TerminalSession {
   tab_label: string;
 }
 
+export interface SpotlightStatus {
+  available: boolean;
+  active: boolean;
+  root?: string;
+  active_worktree_path?: string;
+  pid?: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -113,6 +121,32 @@ export function deleteTerminal(
   return request<void>(
     `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/${terminalId}`,
     { method: "DELETE" }
+  );
+}
+
+export function getSpotlightStatus(
+  repoId: string,
+  worktreeId: string
+): Promise<SpotlightStatus> {
+  return request<SpotlightStatus>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/spotlight/`
+  );
+}
+
+export function startSpotlight(
+  repoId: string,
+  worktreeId: string
+): Promise<{ root: string }> {
+  return request<{ root: string }>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/spotlight/start`,
+    { method: "POST" }
+  );
+}
+
+export function stopSpotlight(repoId: string, worktreeId: string): Promise<void> {
+  return request<void>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/spotlight/stop`,
+    { method: "POST" }
   );
 }
 

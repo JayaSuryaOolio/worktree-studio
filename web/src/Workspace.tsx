@@ -4,7 +4,11 @@ import {
   ConflictError,
   createWorktree,
   deleteWorktree,
+  getSpotlightStatus,
   listWorktrees,
+  SpotlightStatus,
+  startSpotlight,
+  stopSpotlight,
   Worktree,
 } from "./api";
 import WorktreeList from "./WorktreeList";
@@ -13,19 +17,60 @@ import NewWorktreeDialog from "./NewWorktreeDialog";
 export default function Workspace() {
   const { repoId } = useParams<{ repoId: string }>();
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [spotlight, setSpotlight] = useState<Record<string, SpotlightStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  function refreshSpotlight(wts: Worktree[]) {
+    if (!repoId) return;
+    Promise.all(
+      wts.map((wt) =>
+        getSpotlightStatus(repoId, wt.id)
+          .then((s) => [wt.id, s] as const)
+          .catch(() => [wt.id, { available: false, active: false }] as const)
+      )
+    ).then((entries) => setSpotlight(Object.fromEntries(entries)));
+  }
+
   function refresh() {
     if (!repoId) return;
     listWorktrees(repoId)
-      .then(setWorktrees)
+      .then((wts) => {
+        setWorktrees(wts);
+        refreshSpotlight(wts);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
 
   useEffect(refresh, [repoId]);
+
+  async function handleSpotlightStart(wt: Worktree) {
+    if (!repoId) return;
+    try {
+      await startSpotlight(repoId, wt.id);
+      refreshSpotlight(worktrees);
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        setError(
+          `Can't start spotlight for "${wt.name}": the repo's root checkout has uncommitted changes. Commit or stash them first.`
+        );
+        return;
+      }
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleSpotlightStop(wt: Worktree) {
+    if (!repoId) return;
+    try {
+      await stopSpotlight(repoId, wt.id);
+      refreshSpotlight(worktrees);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function handleCreate(name: string) {
     if (!repoId) return;
@@ -83,7 +128,13 @@ export default function Workspace() {
       {loading ? (
         <p>Loading…</p>
       ) : (
-        <WorktreeList worktrees={worktrees} onDelete={handleDelete} />
+        <WorktreeList
+          worktrees={worktrees}
+          onDelete={handleDelete}
+          spotlight={spotlight}
+          onSpotlightStart={handleSpotlightStart}
+          onSpotlightStop={handleSpotlightStop}
+        />
       )}
       {error && <p className="error">{error}</p>}
 

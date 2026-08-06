@@ -1,12 +1,53 @@
 import { Link } from "react-router-dom";
-import { Worktree } from "./api";
+import { SpotlightStatus, Worktree } from "./api";
 
 interface Props {
   worktrees: Worktree[];
   onDelete: (wt: Worktree) => void;
+  spotlight: Record<string, SpotlightStatus>;
+  onSpotlightStart: (wt: Worktree) => void;
+  onSpotlightStop: (wt: Worktree) => void;
 }
 
-export default function WorktreeList({ worktrees, onDelete }: Props) {
+function SpotlightCell({
+  status,
+  onStart,
+  onStop,
+}: {
+  status: SpotlightStatus | undefined;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  if (!status || !status.available) {
+    return <span className="muted">unavailable</span>;
+  }
+  if (status.active) {
+    return (
+      <button title="Stop mirroring this worktree into the repo root" onClick={onStop}>
+        ● in focus — Stop
+      </button>
+    );
+  }
+  if (status.active_worktree_path) {
+    return (
+      <button
+        title="Another worktree is currently mirrored into this repo's root; starting will take over"
+        onClick={onStart}
+      >
+        Start (will replace active mirror)
+      </button>
+    );
+  }
+  return <button onClick={onStart}>Start</button>;
+}
+
+export default function WorktreeList({
+  worktrees,
+  onDelete,
+  spotlight,
+  onSpotlightStart,
+  onSpotlightStop,
+}: Props) {
   if (worktrees.length === 0) {
     return <p>No worktrees yet for this repo.</p>;
   }
@@ -18,6 +59,7 @@ export default function WorktreeList({ worktrees, onDelete }: Props) {
           <th>Branch</th>
           <th>Path</th>
           <th>Created</th>
+          <th>Spotlight</th>
           <th></th>
         </tr>
       </thead>
@@ -29,6 +71,13 @@ export default function WorktreeList({ worktrees, onDelete }: Props) {
               <code>{wt.path}</code>
             </td>
             <td>{new Date(wt.created_at).toLocaleString()}</td>
+            <td>
+              <SpotlightCell
+                status={spotlight[wt.id]}
+                onStart={() => onSpotlightStart(wt)}
+                onStop={() => onSpotlightStop(wt)}
+              />
+            </td>
             <td>
               <Link to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>Open</Link>{" "}
               <button className="danger" onClick={() => onDelete(wt)}>

@@ -183,3 +183,8 @@ code {
 .terminal-pane {
   height: 100%;
 }
+
+.muted {
+  opacity: 0.6;
+  font-style: italic;
+}
