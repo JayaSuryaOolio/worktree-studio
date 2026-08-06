@@ -126,6 +126,7 @@ Explicitly deferred (not v1): Agent SDK integration (terminal-as-CLI is enough t
 - Model allocation: Sonnet 5 as the default implementation model; drop to Haiku 4.5 for small/mechanical sub-pieces (boilerplate CRUD handlers, doc-file updates) where full Sonnet reasoning isn't needed, to keep token spend efficient. Fable is reserved for planning/design-judgment work only, never for writing code.
 - Skills: invoke only skills clearly relevant to the concrete step in progress (e.g. `run` when it's time to actually launch and click through the app) — don't reach for research/brainstorming/domain-modeling skills on a plan this concrete.
 - Proceeding autonomously step-by-step per the build order above once this plan is approved; will surface blockers (e.g. missing `tmux`) rather than pausing for confirmation on routine sub-decisions already covered by this plan.
+- **Commit checkpoints**: commit at each meaningful checkpoint within a step, not just once at the end of a whole build-order step. At minimum: one commit for project/module scaffolding, one per internal package (or cohesive group of packages) once it compiles and has passing tests, one for the frontend piece it wires into, and a separate commit for any post-hoc fix pass. Step 1 landed as a single squashed commit (`2c2396f`) instead of this — don't repeat that; from step 2 onward, commit as each piece lands rather than batching the whole step into one commit at the end.
 
 ## Dependencies to verify are available before starting
 
