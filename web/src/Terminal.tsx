@@ -66,7 +66,13 @@ export default function Terminal({ terminalId }: Props) {
     // classifyTerminalKeyEvent's doc comment for why xterm.js needs this
     // wired up by hand rather than "just working." Returning false tells
     // xterm not to also process the keystroke itself (i.e. don't ALSO
-    // send Ctrl+C as a literal SIGINT byte when the user meant "copy").
+    // send Ctrl+C as a literal SIGINT byte when the user meant "copy") —
+    // but that alone does NOT call the browser's own preventDefault(), so
+    // for paste specifically we call it ourselves: xterm.js already has
+    // its own listener for the browser's native `paste` ClipboardEvent
+    // (which fires on Ctrl+V unless prevented), and without preventDefault
+    // here that would fire *in addition to* our explicit clipboard read
+    // below, pasting the clipboard twice.
     term.attachCustomKeyEventHandler((event) => {
       switch (classifyTerminalKeyEvent(event)) {
         case "copy": {
@@ -80,10 +86,14 @@ export default function Terminal({ terminalId }: Props) {
           return false;
         }
         case "paste":
+          event.preventDefault(); // see comment above — avoids a double-paste via xterm's own native `paste` listener
           navigator.clipboard?.readText().then((text) => term.paste(text)).catch(() => {
-            // Clipboard permission denied/unavailable — the browser's own
-            // native paste event (right-click / OS menu) still works,
-            // since that path doesn't go through this handler at all.
+            // Clipboard permission denied/unavailable. Deliberately no
+            // fallback to the native paste event here (we just prevented
+            // it) — a failed programmatic read is rare (this app runs on
+            // localhost, treated as a secure context, so the Clipboard
+            // API is available) and not worth the complexity of
+            // conditionally un-preventing default after the fact.
           });
           return false;
         default:
