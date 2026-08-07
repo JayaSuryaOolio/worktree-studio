@@ -33,7 +33,7 @@ function Harness() {
 beforeEach(() => {
   vi.mocked(listRepos).mockResolvedValue([{ id: "r1", name: "adelaide", path: "/tmp/adelaide" }]);
   vi.mocked(listWorktrees).mockResolvedValue([
-    { id: "w1", repo_id: "r1", name: "feature", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z" },
+    { id: "w1", repo_id: "r1", name: "feature", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active" },
   ]);
   vi.mocked(getWorktreeStatus).mockResolvedValue({ branch: "feature", dirty: false, has_upstream: false, ahead: 0, behind: 0 });
   vi.mocked(getSpotlightStatus).mockResolvedValue({ available: false, active: false });

@@ -11,6 +11,7 @@ const wt: Worktree = {
   branch: "feature",
   path: "/tmp/x",
   created_at: "2026-01-01T00:00:00Z",
+  status: "active",
 };
 
 // Regression test for a real reported bug: the sidebar renders this menu
@@ -36,7 +37,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
           onSpotlightStart={() => {}}
           onSpotlightStop={() => {}}
           onViewLog={() => {}}
-          onDelete={() => {}}
+          onArchive={() => {}}
         />
       </a>
     );
@@ -47,7 +48,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
   });
 
   it("prevents the ancestor anchor's native default navigation when a menu item is clicked", () => {
-    const onDelete = vi.fn();
+    const onArchive = vi.fn();
     render(
       <a href="/somewhere">
         <WorktreeActionsMenu
@@ -56,7 +57,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
           onSpotlightStart={() => {}}
           onSpotlightStop={() => {}}
           onViewLog={() => {}}
-          onDelete={onDelete}
+          onArchive={onArchive}
         />
       </a>
     );
@@ -67,7 +68,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
     act(() => {
       screen.getByRole("button", { name: /actions for feature/i }).click();
     });
-    const deleteItem = screen.getByRole("menuitem", { name: /delete/i });
+    const archiveItem = screen.getByRole("menuitem", { name: /archive/i });
 
     // Dispatch manually (rather than user-event) so we can inspect the
     // same event object's defaultPrevented immediately after dispatch —
@@ -79,10 +80,10 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
     // real bug, that an earlier version of this test fell into).
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     act(() => {
-      deleteItem.dispatchEvent(event);
+      archiveItem.dispatchEvent(event);
     });
 
-    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onArchive).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -96,18 +97,18 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
             spotlightStatus={{ available: true, active: false }}
             onSpotlightStart={() => {}}
             onSpotlightStop={() => {}}
-          onViewLog={() => {}}
-            onDelete={() => {}}
+            onViewLog={() => {}}
+            onArchive={() => {}}
           />
         </a>
         <button>outside</button>
       </div>
     );
     await user.click(screen.getByRole("button", { name: /actions for feature/i }));
-    expect(screen.getByRole("menuitem", { name: /delete/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /archive/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "outside" }));
-    expect(screen.queryByRole("menuitem", { name: /delete/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /archive/i })).not.toBeInTheDocument();
   });
 
   it("shows a spotlight start/stop item only when spotlight is available", async () => {
@@ -118,8 +119,8 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
         spotlightStatus={{ available: false, active: false }}
         onSpotlightStart={() => {}}
         onSpotlightStop={() => {}}
-          onViewLog={() => {}}
-        onDelete={() => {}}
+        onViewLog={() => {}}
+        onArchive={() => {}}
       />
     );
     await user.click(screen.getByRole("button", { name: /actions for feature/i }));
@@ -131,8 +132,8 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
         spotlightStatus={{ available: true, active: true }}
         onSpotlightStart={() => {}}
         onSpotlightStop={() => {}}
-          onViewLog={() => {}}
-        onDelete={() => {}}
+        onViewLog={() => {}}
+        onArchive={() => {}}
       />
     );
     expect(screen.getByRole("menuitem", { name: /stop spotlight/i })).toBeInTheDocument();

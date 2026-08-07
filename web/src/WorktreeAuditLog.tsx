@@ -15,10 +15,13 @@ interface Props {
 const EVENT_LABELS: Record<string, { icon: string; label: string }> = {
   "worktree.create": { icon: "🌱", label: "Worktree created" },
   "worktree.remove": { icon: "🗑️", label: "Worktree removed" },
+  "worktree.archive": { icon: "📦", label: "Worktree archived" },
+  "worktree.unarchive": { icon: "📤", label: "Worktree unarchived" },
   "terminal.create": { icon: "🖥️", label: "Terminal opened" },
   "terminal.close": { icon: "⏹️", label: "Terminal closed" },
   "spotlight.start": { icon: "🔦", label: "Spotlight started" },
   "spotlight.stop": { icon: "🔦", label: "Spotlight stopped" },
+  "claude.session.create": { icon: "🤖", label: "Claude session started" },
 };
 
 // A per-worktree checkpoint summary that's worth a glance at without
@@ -32,6 +35,10 @@ function summarize(entry: AuditLogEntry): string | null {
     case "terminal.create":
     case "terminal.close":
       return typeof entry.tab_label === "string" ? entry.tab_label : null;
+    case "claude.session.create":
+      return typeof entry.claude_session_id === "string"
+        ? `${entry.title ?? ""} (${entry.claude_session_id})`.trim()
+        : null;
     default:
       return null;
   }

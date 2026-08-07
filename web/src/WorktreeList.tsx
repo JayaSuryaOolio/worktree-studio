@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
 import WorktreeAuditLog from "./WorktreeAuditLog";
-import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
+import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
 interface Props {
   worktrees: Worktree[];
@@ -104,8 +104,8 @@ export default function WorktreeList({
                   stopSpotlightSafe(wt, { onDone: onActionDone, onError: onActionError })
                 }
                 onViewLog={() => setLogWorktree(wt)}
-                onDelete={() =>
-                  deleteWorktreeWithConfirm(wt, { onDone: onActionDone, onError: onActionError })
+                onArchive={() =>
+                  archiveWorktreeWithConfirm(wt, { onDone: onActionDone, onError: onActionError })
                 }
               />
             </td>

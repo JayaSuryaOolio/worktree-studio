@@ -19,6 +19,7 @@ const worktree = {
   branch: "feature",
   path: "/tmp/wt1",
   created_at: "2026-01-01T00:00:00Z",
+  status: "active" as const,
 };
 
 beforeEach(() => {
@@ -36,7 +37,19 @@ describe("createWorktreeWithClaudeTerminal", () => {
     const result = await createWorktreeWithClaudeTerminal("r1", "feature");
 
     expect(createWorktree).toHaveBeenCalledWith("r1", "feature");
-    expect(createTerminal).toHaveBeenCalledWith("r1", "wt1", "claude", "claude");
+    // The session id is a fresh crypto.randomUUID() each run, so match its
+    // shape rather than an exact string — what matters is that it's a real
+    // UUID, embedded in the command, and threaded through as the explicit
+    // claude_session_id/title fields (so the API can audit-log it
+    // independent of the terminal/tmux session's own lifecycle).
+    expect(createTerminal).toHaveBeenCalledWith(
+      "r1",
+      "wt1",
+      "claude",
+      expect.stringMatching(/^claude --session-id [0-9a-f-]{36} -n feature$/),
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+      "feature"
+    );
     expect(result).toEqual(worktree);
   });
 

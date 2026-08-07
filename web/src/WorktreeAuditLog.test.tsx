@@ -37,6 +37,32 @@ describe("WorktreeAuditLog", () => {
     expect(getWorktreeAuditLog).toHaveBeenCalledWith("r1", "w1");
   });
 
+  it("renders claude.session.create and archive/unarchive events with friendly labels", async () => {
+    vi.mocked(getWorktreeAuditLog).mockResolvedValue([
+      {
+        ts: "2026-01-03T00:00:00Z",
+        event: "worktree.archive",
+        worktree_id: "w1",
+        branch: "feature",
+      },
+      {
+        ts: "2026-01-02T00:00:00Z",
+        event: "claude.session.create",
+        worktree_id: "w1",
+        claude_session_id: "abc-123",
+        title: "feature",
+      },
+    ]);
+
+    render(<WorktreeAuditLog repoId="r1" worktreeId="w1" title="feature" onClose={() => {}} />);
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Worktree archived")).toBeInTheDocument();
+    expect(within(items[1]).getByText("Claude session started")).toBeInTheDocument();
+    expect(items[1].querySelector(".audit-log-summary")?.textContent).toMatch(/abc-123/);
+  });
+
   it("shows an empty state when there are no events", async () => {
     vi.mocked(getWorktreeAuditLog).mockResolvedValue([]);
     render(<WorktreeAuditLog repoId="r1" worktreeId="w1" title="feature" onClose={() => {}} />);

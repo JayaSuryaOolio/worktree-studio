@@ -8,7 +8,7 @@ interface Props {
   onSpotlightStart: () => void;
   onSpotlightStop: () => void;
   onViewLog: () => void;
-  onDelete: () => void;
+  onArchive: () => void;
 }
 
 // A per-worktree kebab menu — the single place every operational action on
@@ -22,7 +22,7 @@ export default function WorktreeActionsMenu({
   onSpotlightStart,
   onSpotlightStop,
   onViewLog,
-  onDelete,
+  onArchive,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,13 +94,8 @@ export default function WorktreeActionsMenu({
           <button type="button" role="menuitem" onClick={() => act(onViewLog)}>
             View worktree log
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="danger"
-            onClick={() => act(onDelete)}
-          >
-            Delete
+          <button type="button" role="menuitem" onClick={() => act(onArchive)}>
+            Archive
           </button>
         </div>
       )}

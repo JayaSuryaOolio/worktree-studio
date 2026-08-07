@@ -4,7 +4,7 @@ import { Worktree } from "./api";
 import { useRepoContext } from "./RepoContext";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
 import WorktreeAuditLog from "./WorktreeAuditLog";
-import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
+import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
 interface Props {
   onAddRepo: () => void;
@@ -126,8 +126,8 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                                 stopSpotlightSafe(wt, { onDone: refreshWorktrees, onError: setError })
                               }
                               onViewLog={() => setLogWorktree(wt)}
-                              onDelete={() =>
-                                deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+                              onArchive={() =>
+                                archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
                               }
                             />
                           </span>

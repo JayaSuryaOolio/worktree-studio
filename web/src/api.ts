@@ -6,6 +6,10 @@ export interface Repo {
   path: string;
 }
 
+// Not to be confused with WorktreeStatus below, which is git dirty/ahead-
+// behind info — this is the worktree's own lifecycle state.
+export type WorktreeLifecycle = "active" | "archived" | "deleted";
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -13,6 +17,7 @@ export interface Worktree {
   branch: string;
   path: string;
   created_at: string;
+  status: WorktreeLifecycle;
 }
 
 export interface TerminalSession {
@@ -120,12 +125,38 @@ export function createTerminal(
   repoId: string,
   worktreeId: string,
   tabLabel?: string,
-  initialCommand?: string
+  initialCommand?: string,
+  claudeSessionId?: string,
+  claudeSessionTitle?: string
 ): Promise<TerminalSession> {
   return request<TerminalSession>(
     `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/`,
-    { method: "POST", body: JSON.stringify({ tab_label: tabLabel, initial_command: initialCommand }) }
+    {
+      method: "POST",
+      body: JSON.stringify({
+        tab_label: tabLabel,
+        initial_command: initialCommand,
+        claude_session_id: claudeSessionId,
+        claude_session_title: claudeSessionTitle,
+      }),
+    }
   );
+}
+
+/** Archives a worktree: a pure visibility flag, hides it from the normal
+ * list. Does NOT touch git — the worktree/branch stay on disk, and any
+ * claude session recorded against it stays resumable. See unarchiveWorktree
+ * to reverse it, and deleteWorktree for the actual destructive removal. */
+export function archiveWorktree(repoId: string, worktreeId: string): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/archive`, {
+    method: "POST",
+  });
+}
+
+export function unarchiveWorktree(repoId: string, worktreeId: string): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/unarchive`, {
+    method: "POST",
+  });
 }
 
 export function deleteTerminal(
