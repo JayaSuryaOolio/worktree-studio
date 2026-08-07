@@ -28,6 +28,10 @@ type Server struct {
 	Term         *term.Manager
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
+	// SelfBaseURL is this server's own reachable base URL (e.g.
+	// "http://localhost:8787"), embedded into the installed claude hook
+	// script so it knows where to POST — see internal/claudehook/install.go.
+	SelfBaseURL string
 }
 
 // Routes mounts all API routes onto r.
@@ -67,6 +71,17 @@ func (s *Server) Routes(r chi.Router) {
 	})
 
 	r.Get("/ws/terminals/{terminalID}", s.handleTerminalWS)
+
+	r.Post("/api/claude-hook", s.handleClaudeHook)
+	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
+	r.Get("/api/worktrees/all", s.handleListAllWorktrees)
+
+	r.Route("/api/settings", func(r chi.Router) {
+		r.Get("/dependencies", s.handleGetDependencyStatus)
+		r.Post("/dependencies/claude-hook/install", s.handleInstallClaudeHook)
+		r.Post("/dependencies/claude-hook/uninstall", s.handleUninstallClaudeHook)
+		r.Post("/dependencies/skill/install", s.handleInstallSkill)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

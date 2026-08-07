@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -21,6 +22,17 @@ import (
 )
 
 const defaultAddr = ":8787"
+
+// addrPort extracts ":<port>" from a listen address like ":8787",
+// "0.0.0.0:9000", or "localhost:8787" — used to build a "http://localhost:
+// <port>" URL for the installed claude hook script, regardless of what
+// host `addr` itself binds to (the hook always runs on this same machine).
+func addrPort(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i != -1 {
+		return addr[i:]
+	}
+	return ":" + addr
+}
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -55,12 +67,21 @@ func main() {
 		logger.Info("pruned stale terminal session rows (tmux session no longer live)", "count", dropped)
 	}
 
+	addr := defaultAddr
+	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
+		addr = v
+	}
+
 	srv := &api.Server{
 		Store:        st,
 		Audit:        al,
 		Term:         &term.Manager{Store: st, Audit: al},
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
+		// The hook always runs on the same machine as the server (a
+		// script Claude Code invokes as a local subprocess), so localhost
+		// is correct regardless of what host `addr` itself binds to.
+		SelfBaseURL: "http://localhost" + addrPort(addr),
 	}
 
 	r := chi.NewRouter()
@@ -69,11 +90,6 @@ func main() {
 
 	srv.Routes(r)
 	mountFrontend(r, logger)
-
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
 
 	logger.Info("worktree-studio listening", "addr", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {
