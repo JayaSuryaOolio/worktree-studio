@@ -3,6 +3,7 @@ import { Link, useMatch } from "react-router-dom";
 import { Worktree } from "./api";
 import { useRepoContext } from "./RepoContext";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
+import SettingsModal from "./SettingsModal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
 import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
@@ -36,6 +37,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
 
   const [error, setError] = useState<string | null>(null);
   const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <nav className="sidebar" aria-label="Repos and worktrees">
@@ -43,6 +45,15 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
         <Link to="/" className="sidebar-brand">
           worktree-studio
         </Link>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          ⚙
+        </button>
       </div>
 
       <div className="sidebar-section">
@@ -158,6 +169,8 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
           onClose={() => setLogWorktree(null)}
         />
       )}
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </nav>
   );
 }
