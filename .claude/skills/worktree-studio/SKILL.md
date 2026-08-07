@@ -13,6 +13,32 @@ description: How to run and use worktree-studio, a local Go+React tool for manag
 
 Also important: spotlight does **not** install dependencies into a worktree. A freshly created worktree has only what `git worktree add` gives it — if you need `node_modules` there directly (rather than running things from the mirrored root), you still run your own install/build step.
 
+## Installing worktree-studio
+
+There's no installer script today — setup is a few manual commands, and this section exists so an agent can do first-time setup from the skill alone rather than having to separately discover `docs/running-locally.md`.
+
+**Prerequisites** (check before starting; installing them is out of scope for this skill — surface which are missing and stop rather than guessing at install commands for the user's OS):
+- Go 1.21+ (`go version`) — the module uses `modernc.org/sqlite`, a pure-Go driver, so no cgo/sqlite3 headers are needed.
+- [Bun](https://bun.sh) (`bun --version`) — used as the frontend package manager/runner instead of npm.
+- `git` on `PATH` (`git --version`) — every worktree operation shells out to the real binary.
+- `tmux` on `PATH` (`tmux -V`) — terminal tabs are real tmux sessions; see "Using terminals" below for why. Without it, terminal creation fails outright (not a soft-degrade like spotlight below).
+- Optional: the standalone `spotlight` CLI (`command -v spotlight`, `github.com/JayaSuryaOolio/spotlight`) plus its own `fswatch` dependency. worktree-studio runs fine without it — spotlight's endpoints just report `{"available": false}` / `503` until it's installed. See "Using Spotlight" below.
+
+**First-time setup:**
+
+```bash
+cd ~/work/worktree-studio         # or wherever this project's checkout lives
+cd web && bun install && bun run build && cd ..   # builds web/dist/, embedded into the Go binary
+go build -o worktree-studio ./cmd/worktree-studio
+./worktree-studio                 # foreground, so you can see logs and Ctrl-C it — see "Debugging: server logs" below
+```
+
+`go build ./...` alone (before the frontend is ever built) still succeeds — `web/dist/` ships a placeholder so the `go:embed` directive always has something, and the server serves a "run `bun run build`" page instead of crashing. You only need the frontend build for the real UI.
+
+Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or your existing registered repos, if `~/.worktree-studio/studio.db` already has data from a prior run — this state persists across restarts by design).
+
+There's currently no dependency-status report on install/startup (e.g. "tmux: ✓, spotlight: not found, this skill: ✓ installed") — that's a recorded `PLAN.md` TODO (a possible future `worktree-studio doctor` check), not built yet. For now, check each prerequisite above by hand if something isn't working as expected.
+
 ## Starting the server
 
 ```bash

@@ -74,7 +74,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		if initialCommand != "" {
 			fields["initial_command"] = initialCommand
 		}
-		_ = m.Audit.Log("terminal.create", fields)
+		_ = m.Audit.Log(audit.EventTerminalCreate, fields)
 	}
 	return ts, nil
 }
@@ -93,7 +93,7 @@ func (m *Manager) CloseSession(ts store.TerminalSession) error {
 		return fmt.Errorf("remove terminal session row: %w", err)
 	}
 	if m.Audit != nil {
-		_ = m.Audit.Log("terminal.close", map[string]any{
+		_ = m.Audit.Log(audit.EventTerminalClose, map[string]any{
 			"terminal_id": ts.ID, "worktree_id": ts.WorktreeID, "tmux_session_name": ts.TmuxSessionName,
 		})
 	}

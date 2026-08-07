@@ -150,7 +150,7 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog("repo.add", map[string]any{
+	s.auditLog(audit.EventRepoAdd, map[string]any{
 		"repo_id": repo.ID,
 		"name":    repo.Name,
 		"path":    repo.Path,
@@ -281,7 +281,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog("worktree.create", map[string]any{
+	s.auditLog(audit.EventWorktreeCreate, map[string]any{
 		"repo_id":     repo.ID,
 		"worktree_id": wt.ID,
 		"name":        wt.Name,
@@ -363,7 +363,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog("worktree.remove", map[string]any{
+	s.auditLog(audit.EventWorktreeRemove, map[string]any{
 		"repo_id":     repo.ID,
 		"worktree_id": wt.ID,
 		"name":        wt.Name,
@@ -376,7 +376,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 
 // auditLog logs an audit event, warning to the server log (but not failing
 // the request) if the audit write itself fails.
-func (s *Server) auditLog(event string, fields map[string]any) {
+func (s *Server) auditLog(event audit.Event, fields map[string]any) {
 	if s.Audit == nil {
 		return
 	}

@@ -4,6 +4,23 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Audit log hardening: typed event enum, design-principle docs, install docs
+
+Follow-up to the same-day audit-log/archive/claude-session work below, prompted by direct user feedback: "this auditlog module will have more complex logic coming, so keep its design and code robust," plus several concrete asks.
+
+**Done:**
+
+- **Typed event enum**: `internal/audit.Event` (`internal/audit/events.go`, new) replaces every bare string event name at every `Log`/`auditLog` call site across `internal/api` and `internal/term` (`audit.EventWorktreeCreate`, `audit.EventClaudeSessionCreate`, etc.). Mirrored on the frontend as `AuditEventType` (`web/src/auditEvents.ts`, new), with `WorktreeAuditLog.tsx`'s `EVENT_LABELS` map typed `Record<AuditEventType, ...>` — a Go-side event added without a matching frontend label is now a TypeScript compile error, not a silently-unstyled row. Confirmed `worktree.archive`/`worktree.unarchive` already existed from the same-day work below (user had asked "I hope there is an event for archiving as well").
+- **Design-principle docs** (`docs/architecture.md`, per direct request "both our db and auditlog should work together in future"): recorded explicitly that the SQLite store (current state) and the audit log (full history) are complementary, not duplicates — neither should be taught to derive the other (no "last event" cache column on `worktrees`, no deriving current status by scanning the log). Future cross-cutting features (settings-modal datagrid, interactive log buttons) should join across both at read time.
+- **New `PLAN.md` TODOs**, all per direct user request, none built this pass (all real design questions, not small features — see PLAN.md for the full reasoning on each): (1) making the audit log viewer interactive (a button per event type — "Resume" on a claude session, "Unarchive" on an archive event — explicitly enabled by today's enum work, since button dispatch wants a `switch` over `audit.Event`); (2) installing a real Claude Code hook (`SessionStart`/`SessionEnd`) so claude itself reports session lifecycle instead of worktree-studio inferring it from `--session-id` at launch — flagged several genuinely open design questions (per-worktree vs. global hook install, what the hook script actually calls) rather than guessing an implementation; (3) a `worktree-studio doctor`-style dependency/setup status check (tmux/spotlight/skill/hooks installed?) logged and shown to the user, since no installer exists today to hang this off of.
+- **Skill file gained an "Installing worktree-studio" section** (direct request: "our worktree-studio skill should contain steps to install too") — prerequisites with version-check commands, first-time build/run steps, and a verification curl, so an agent can bootstrap the whole project from the skill alone instead of needing to separately find `docs/running-locally.md`.
+
+**Verified:** `go build`/`go vet`/`gofmt`/`go test` clean — **53/53** (unchanged count; this pass was a naming/typing refactor plus docs, not new runtime behavior, and Go's untyped-string-constant rule meant existing test call sites using string literals for `Log(...)` kept compiling against the new `audit.Event` parameter type without any test edits needed). `bun run build`/`bun run test` clean — **22/22**. Did not re-verify against a live server this pass (no behavior change, just types/docs) — the prior entry's real-server verification already covers the runtime behavior this enum wraps.
+
+**Not built:** the three new TODOs above (interactive buttons, claude hooks, doctor check) — all recorded as open design questions, deliberately not attempted without further direction.
+
+---
+
 ## 2026-08-07 — Step 6 (partial): per-worktree audit log viewer, Archive replaces Delete, claude session tracking
 
 Picked up step 6 out of order (before Monaco/step 5), starting with the audit log viewer per direct request; mid-session the user added two more asks (claude session id/title logging for future resume, and replacing the kebab's "Delete" with "Archive") which are scoped into this same entry since they landed together.

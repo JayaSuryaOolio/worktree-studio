@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
 )
 
@@ -15,15 +16,15 @@ import (
 // from the normal list (handleListWorktrees) until a future settings-modal
 // view exists to browse them.
 func (s *Server) handleArchiveWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreeStatus(w, r, store.WorktreeStatusArchived, "worktree.archive")
+	s.setWorktreeStatus(w, r, store.WorktreeStatusArchived, audit.EventWorktreeArchive)
 }
 
 // handleUnarchiveWorktree reverses handleArchiveWorktree.
 func (s *Server) handleUnarchiveWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreeStatus(w, r, store.WorktreeStatusActive, "worktree.unarchive")
+	s.setWorktreeStatus(w, r, store.WorktreeStatusActive, audit.EventWorktreeUnarchive)
 }
 
-func (s *Server) setWorktreeStatus(w http.ResponseWriter, r *http.Request, status, event string) {
+func (s *Server) setWorktreeStatus(w http.ResponseWriter, r *http.Request, status string, event audit.Event) {
 	wt, ok := s.getRepoAndWorktree(w, r)
 	if !ok {
 		return

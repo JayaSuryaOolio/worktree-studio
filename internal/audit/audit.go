@@ -58,13 +58,13 @@ func NewDefault() (*Logger, error) {
 // Errors are returned so callers can decide whether to surface them, but a
 // failure to audit-log should generally not fail the underlying mutating
 // operation itself — callers typically log the error and continue.
-func (l *Logger) Log(event string, fields map[string]any) error {
+func (l *Logger) Log(event Event, fields map[string]any) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	entry := map[string]any{
 		"ts":    time.Now().UTC().Format(time.RFC3339Nano),
-		"event": event,
+		"event": string(event),
 	}
 	for k, v := range fields {
 		entry[k] = v

@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
+	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 )
@@ -106,7 +107,7 @@ func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ClaudeSessionID != "" {
-		s.auditLog("claude.session.create", map[string]any{
+		s.auditLog(audit.EventClaudeSessionCreate, map[string]any{
 			"repo_id":           wt.RepoID,
 			"worktree_id":       wt.ID,
 			"terminal_id":       ts.ID,

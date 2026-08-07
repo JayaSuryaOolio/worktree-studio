@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AuditLogEntry, getWorktreeAuditLog } from "./api";
+import { AuditEventType } from "./auditEvents";
 
 interface Props {
   repoId: string;
@@ -8,11 +9,18 @@ interface Props {
   onClose: () => void;
 }
 
-// Human-friendly label + icon per known event type. Anything not listed
-// here (including event types added by future steps, e.g. a diff
-// "send to agent" action) still renders fine via the fallback below —
-// this map is a presentation nicety, not a whitelist.
-const EVENT_LABELS: Record<string, { icon: string; label: string }> = {
+// Human-friendly label + icon per known event type. Keyed by AuditEventType
+// (Record<AuditEventType, ...> below) so adding a new audit.Event on the Go
+// side without updating auditEvents.ts/this map is a compile error here,
+// not a silently-unstyled row — but the lookup at render time still falls
+// back gracefully (see EVENT_LABELS[e.event] below) for any event this
+// frontend build genuinely doesn't know about yet (an older frontend build
+// talking to a newer backend, e.g. mid-deploy).
+const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
+  // Never actually shown here in practice (repo.add carries no
+  // worktree_id, so it can't match this view's filter) — included only so
+  // Record<AuditEventType, ...> stays exhaustive against auditEvents.ts.
+  "repo.add": { icon: "📁", label: "Repo registered" },
   "worktree.create": { icon: "🌱", label: "Worktree created" },
   "worktree.remove": { icon: "🗑️", label: "Worktree removed" },
   "worktree.archive": { icon: "📦", label: "Worktree archived" },
@@ -74,7 +82,14 @@ export default function WorktreeAuditLog({ repoId, worktreeId, title, onClose }:
         {!error && entries !== null && entries.length > 0 && (
           <ul className="audit-log-list">
             {entries.map((e, i) => {
-              const meta = EVENT_LABELS[e.event] ?? { icon: "•", label: e.event };
+              // e.event is `string` (see AuditLogEntry) since the log must
+              // render event types this frontend build doesn't know about
+              // yet — the cast is safe because of the `?? fallback` right
+              // after it, which is what actually handles that case.
+              const meta = (EVENT_LABELS as Record<string, { icon: string; label: string }>)[e.event] ?? {
+                icon: "•",
+                label: e.event,
+              };
               const summary = summarize(e);
               return (
                 <li key={i} className="audit-log-entry">

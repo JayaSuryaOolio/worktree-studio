@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"worktree-studio/internal/audit"
 	"worktree-studio/internal/spotlight"
 )
 
@@ -81,7 +82,7 @@ func (s *Server) handleSpotlightStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog("spotlight.start", map[string]any{
+	s.auditLog(audit.EventSpotlightStart, map[string]any{
 		"repo_id":     wt.RepoID,
 		"worktree_id": wt.ID,
 		"worktree":    wt.Path,
@@ -112,7 +113,7 @@ func (s *Server) handleSpotlightStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog("spotlight.stop", map[string]any{
+	s.auditLog(audit.EventSpotlightStop, map[string]any{
 		"repo_id":     wt.RepoID,
 		"worktree_id": wt.ID,
 		"worktree":    wt.Path,
