@@ -85,15 +85,14 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                     const spot = spotlightStatus[wt.id];
                     return (
                       <li key={wt.id}>
-                        {/* "Flight strip" row — see docs/design.md. The
-                            left-edge accent color is driven explicitly by
-                            data-dirty (not by sniffing a decorative dot's
-                            presence via :has()), so it's one obvious
-                            thing to grep for if the mapping ever needs to
-                            change. */}
+                        {/* "Flight strip" row — see docs/design.md. Only
+                            the currently-selected worktree gets a color
+                            (green); dirty/clean isn't encoded via the
+                            row's own border color anymore (see style.css
+                            for why — per direct feedback that was noise,
+                            not signal), just the ahead/behind ticks below. */}
                         <Link
                           to={`/repo/${r.id}/worktree/${wt.id}`}
-                          data-dirty={status ? String(status.dirty) : undefined}
                           className={
                             wt.id === activeWorktreeId
                               ? "sidebar-worktree active"

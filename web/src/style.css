@@ -20,7 +20,8 @@
   --amber-dim: #e8a33d33;
   --cyan: #4fb6c7; /* secondary accent: links, spotlight-active, info */
   --cyan-dim: #4fb6c733;
-  --green: #5fa777; /* status: clean / in-sync */
+  --green: #5fa777; /* status: clean / in-sync; also the sidebar's "currently selected worktree" accent */
+  --green-dim: #5fa77733;
   --red: #d9534f; /* status: dirty / error / conflict */
   --red-dim: #d9534f33;
 
@@ -439,11 +440,15 @@ code {
   color: var(--amber);
 }
 
-/* The signature element: a worktree row styled as an ATC flight strip —
-   a thin card with the branch name as the "callsign" and a colored
-   left-edge tab carrying its status, rather than a generic list item
-   with a decorative dot. Status is read from an explicit data attribute
-   (set in Sidebar.tsx), not sniffed from a child element's class. */
+/* The signature element: a worktree row styled as an ATC flight strip — a
+   thin card with the branch name as the "callsign". Per direct feedback,
+   the left-edge tab is NOT color-coded by dirty/clean status anymore
+   (red+green+amber-for-active on every row read as visual noise, not
+   signal) — every row is a neutral gray/white by default, and green is
+   reserved for exactly one meaning: this is the worktree you're currently
+   viewing. Dirty/clean and ahead-behind are still available (the ticks
+   next to the branch name, and the full Status column in Workspace's
+   table) — just not fighting for attention via the row's own border. */
 .sidebar-worktree {
   display: flex;
   align-items: center;
@@ -456,15 +461,7 @@ code {
   font-size: 0.85rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--text-dim);
-}
-
-.sidebar-worktree[data-dirty="true"] {
-  border-left-color: var(--red);
-}
-
-.sidebar-worktree[data-dirty="false"] {
-  border-left-color: var(--green);
+  border-left: 3px solid var(--border);
 }
 
 .sidebar-worktree:hover {
@@ -472,12 +469,12 @@ code {
 }
 
 .sidebar-worktree.active {
-  border-left-color: var(--amber);
-  box-shadow: inset 0 0 0 1px var(--amber-dim);
+  border-left-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green-dim);
 }
 
 .sidebar-worktree.active .sidebar-worktree-branch {
-  color: var(--amber);
+  color: var(--green);
   font-weight: 600;
 }
 
