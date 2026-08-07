@@ -1,13 +1,21 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { within } from "@testing-library/dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAuditLog from "./WorktreeAuditLog";
 
 vi.mock("./api", () => ({
   getWorktreeAuditLog: vi.fn(),
+  getClaudeSessionTitle: vi.fn(),
 }));
 
-import { getWorktreeAuditLog } from "./api";
+import { getClaudeSessionTitle, getWorktreeAuditLog } from "./api";
+
+beforeEach(() => {
+  // Default: no local transcript found for any session id, so summarize()
+  // falls back to the entry's own stored `title` field/bare id — tests
+  // that care about the live-fetched title override this per-test.
+  vi.mocked(getClaudeSessionTitle).mockResolvedValue(null);
+});
 
 describe("WorktreeAuditLog", () => {
   it("renders entries newest-first with friendly labels and a summary", async () => {
@@ -61,6 +69,28 @@ describe("WorktreeAuditLog", () => {
     expect(within(items[0]).getByText("Worktree archived")).toBeInTheDocument();
     expect(within(items[1]).getByText("Claude session started")).toBeInTheDocument();
     expect(items[1].querySelector(".audit-log-summary")?.textContent).toMatch(/abc-123/);
+  });
+
+  it("prefers a live-fetched transcript title over the stored title once it resolves", async () => {
+    vi.mocked(getWorktreeAuditLog).mockResolvedValue([
+      {
+        ts: "2026-01-02T00:00:00Z",
+        event: "claude.session.create",
+        worktree_id: "w1",
+        claude_session_id: "abc-123",
+        title: "feature",
+      },
+    ]);
+    vi.mocked(getClaudeSessionTitle).mockResolvedValue("fix the login bug please");
+
+    render(<WorktreeAuditLog repoId="r1" worktreeId="w1" title="feature" onClose={() => {}} />);
+
+    const item = (await screen.findAllByRole("listitem"))[0];
+    await screen.findByText(/fix the login bug please/);
+    expect(item.querySelector(".audit-log-summary")?.textContent).toBe(
+      " — fix the login bug please (abc-123)"
+    );
+    expect(getClaudeSessionTitle).toHaveBeenCalledWith("abc-123");
   });
 
   it("shows an empty state when there are no events", async () => {

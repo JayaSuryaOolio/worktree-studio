@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AuditLogEntry, getWorktreeAuditLog } from "./api";
+import { AuditLogEntry, getClaudeSessionTitle, getWorktreeAuditLog } from "./api";
 import { AuditEventType } from "./auditEvents";
 
 interface Props {
@@ -35,7 +35,14 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
 // A per-worktree checkpoint summary that's worth a glance at without
 // opening the raw-JSON details below (branch/path for creation, tab
 // label for terminals, etc.) — keeps the common case scannable.
-function summarize(entry: AuditLogEntry): string | null {
+//
+// realTitles maps claude_session_id -> a title fetched live from that
+// session's own local transcript (see fetchClaudeTitles below) — when
+// available, it's a much better label than the one this app itself
+// assigned at launch time (which the hook-driven path doesn't even set —
+// see internal/claudehook), since it's the session's actual first message
+// rather than just the worktree's name repeated back.
+function summarize(entry: AuditLogEntry, realTitles: Record<string, string | null>): string | null {
   switch (entry.event) {
     case "worktree.create":
     case "worktree.remove":
@@ -43,10 +50,13 @@ function summarize(entry: AuditLogEntry): string | null {
     case "terminal.create":
     case "terminal.close":
       return typeof entry.tab_label === "string" ? entry.tab_label : null;
-    case "claude.session.create":
-      return typeof entry.claude_session_id === "string"
-        ? `${entry.title ?? ""} (${entry.claude_session_id})`.trim()
-        : null;
+    case "claude.session.create": {
+      const id = entry.claude_session_id;
+      if (typeof id !== "string") return null;
+      const real = realTitles[id];
+      const label = real ?? (typeof entry.title === "string" ? entry.title : undefined);
+      return label ? `${label} (${id})` : id;
+    }
     default:
       return null;
   }
@@ -55,6 +65,7 @@ function summarize(entry: AuditLogEntry): string | null {
 export default function WorktreeAuditLog({ repoId, worktreeId, title, onClose }: Props) {
   const [entries, setEntries] = useState<AuditLogEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [realTitles, setRealTitles] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +80,31 @@ export default function WorktreeAuditLog({ repoId, worktreeId, title, onClose }:
       cancelled = true;
     };
   }, [repoId, worktreeId]);
+
+  useEffect(() => {
+    if (!entries) return;
+    let cancelled = false;
+    const ids = entries
+      .filter((e) => e.event === "claude.session.create")
+      .map((e) => e.claude_session_id)
+      .filter((id): id is string => typeof id === "string");
+    // Best-effort, one fetch per session id, silently ignoring failures —
+    // a missing/unreadable transcript just means this entry falls back to
+    // its stored `title` field (or the bare id), not an error worth
+    // surfacing in a log viewer.
+    for (const id of new Set(ids)) {
+      getClaudeSessionTitle(id)
+        .then((t) => {
+          if (!cancelled) setRealTitles((prev) => ({ ...prev, [id]: t }));
+        })
+        .catch(() => {
+          /* fall back to the stored title/bare id — see summarize() */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [entries]);
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -90,7 +126,7 @@ export default function WorktreeAuditLog({ repoId, worktreeId, title, onClose }:
                 icon: "•",
                 label: e.event,
               };
-              const summary = summarize(e);
+              const summary = summarize(e, realTitles);
               return (
                 <li key={i} className="audit-log-entry">
                   <span className="audit-log-icon" aria-hidden="true">
