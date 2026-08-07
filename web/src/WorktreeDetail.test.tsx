@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeDetail from "./WorktreeDetail";
 
@@ -128,4 +128,48 @@ describe("WorktreeDetail", () => {
     },
     10000
   );
+
+  // Regression test for a real user-reported bug ("all worktrees show the
+  // same terminals" / "terminals not switching"): react-router reuses the
+  // same WorktreeDetail component instance across navigations between two
+  // different worktree URLs (same route element, just new params) rather
+  // than unmounting it — so without an explicit remount, dockview's
+  // long-lived panel set from previously-visited worktrees just
+  // accumulated. Uses real client-side navigation (createMemoryRouter +
+  // router.navigate), not separate render() calls — those would trivially
+  // "pass" regardless of the bug, since each always creates a fresh tree.
+  //
+  // A single w1->w2 hop alone does NOT discriminate here: dockview's own
+  // default tab-visibility handling unmounts the now-inactive w1 panel's
+  // DOM even on the *buggy* code, so it looks fine by accident on the
+  // first hop. The bug only becomes visible on a round trip back to a
+  // *previously*-visited worktree — confirmed by hand: this exact
+  // assertion failed (showing "terminal-t2" while on /worktree/w1) against
+  // the pre-fix component, and passes against the fixed one.
+  it("shows the right worktree's terminal after navigating away and back (round trip)", async () => {
+    vi.mocked(listTerminals).mockImplementation(async (_repoId, worktreeId) => {
+      if (worktreeId === "w1") {
+        return [{ id: "t1", worktree_id: "w1", tmux_session_name: "wts-t1", tab_label: "shell" }];
+      }
+      if (worktreeId === "w2") {
+        return [{ id: "t2", worktree_id: "w2", tmux_session_name: "wts-t2", tab_label: "shell" }];
+      }
+      return [];
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/repo/:repoId/worktree/:worktreeId", element: <WorktreeDetail /> }],
+      { initialEntries: ["/repo/r1/worktree/w1"] }
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByTestId("terminal-t1");
+
+    router.navigate("/repo/r1/worktree/w2");
+    await screen.findByTestId("terminal-t2");
+
+    router.navigate("/repo/r1/worktree/w1");
+
+    expect(await screen.findByTestId("terminal-t1")).toBeInTheDocument();
+    expect(screen.queryByTestId("terminal-t2")).not.toBeInTheDocument();
+  });
 });
