@@ -79,3 +79,71 @@ func TestNewCreatesParentDirLazily(t *testing.T) {
 		t.Errorf("New should not create the log file itself before Log is called")
 	}
 }
+
+func TestReadAllOnMissingFileReturnsEmptyNotError(t *testing.T) {
+	l, err := New(filepath.Join(t.TempDir(), "never-written.log.jsonl"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	entries, err := l.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll on a never-written log: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("got %d entries, want 0", len(entries))
+	}
+}
+
+func TestReadAllReturnsWhatWasLogged(t *testing.T) {
+	l, err := New(filepath.Join(t.TempDir(), "audit.log.jsonl"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := l.Log("repo.add", map[string]any{"repo_id": "r1"}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	if err := l.Log("worktree.create", map[string]any{"repo_id": "r1", "worktree_id": "w1"}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	entries, err := l.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2: %+v", len(entries), entries)
+	}
+	if entries[0]["event"] != "repo.add" || entries[1]["event"] != "worktree.create" {
+		t.Errorf("entries out of order or wrong content: %+v", entries)
+	}
+}
+
+func TestReadAllSkipsMalformedLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log.jsonl")
+	l, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := l.Log("repo.add", map[string]any{"repo_id": "r1"}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("not valid json\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := l.Log("worktree.create", map[string]any{"worktree_id": "w1"}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	entries, err := l.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 (malformed line skipped): %+v", len(entries), entries)
+	}
+}

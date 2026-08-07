@@ -9,6 +9,7 @@
 package audit
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -84,4 +85,46 @@ func (l *Logger) Log(event string, fields map[string]any) error {
 		return fmt.Errorf("write audit log %s: %w", l.path, err)
 	}
 	return nil
+}
+
+// ReadAll parses every line of the log file into a map (each entry has at
+// least "ts" and "event" keys, plus whatever fields the caller logged). A
+// log file that doesn't exist yet (nothing has ever been logged) returns an
+// empty slice, not an error — matching Log's own lazy-creation behavior.
+// Malformed lines are skipped rather than failing the whole read, since a
+// single corrupt line (e.g. a partial write from a crash) shouldn't make
+// the rest of the log unreadable.
+func (l *Logger) ReadAll() ([]map[string]any, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	f, err := os.Open(l.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []map[string]any{}, nil
+		}
+		return nil, fmt.Errorf("open audit log %s: %w", l.path, err)
+	}
+	defer f.Close()
+
+	var entries []map[string]any
+	scanner := bufio.NewScanner(f)
+	// Audit lines can carry sizeable fields (e.g. a diff comment body in a
+	// future event type); raise the default 64KB token limit generously.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read audit log %s: %w", l.path, err)
+	}
+	return entries, nil
 }
