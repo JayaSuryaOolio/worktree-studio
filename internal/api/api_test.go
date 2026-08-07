@@ -210,6 +210,10 @@ func TestFullWorktreeLifecycle(t *testing.T) {
 	if wt.CreatedAt == "" {
 		t.Errorf("created worktree has empty CreatedAt (regression: this was a real bug in v1)")
 	}
+	if wt.Status != store.WorktreeStatusActive {
+		t.Errorf("created worktree Status = %q, want %q (same class of bug as the CreatedAt one above: "+
+			"the handler's local struct wasn't stamped before being returned, even though the DB defaults it)", wt.Status, store.WorktreeStatusActive)
+	}
 	if _, err := os.Stat(wt.Path); err != nil {
 		t.Errorf("worktree path %q does not exist on disk: %v", wt.Path, err)
 	}

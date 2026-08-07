@@ -53,17 +53,32 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/ \
 
 This runs `git worktree add -b amber-ridge <path>` against the registered repo, placing the new worktree at `~/.worktree-studio/worktrees/<repoId>/amber-ridge` — **outside** the source repo's own directory tree (deliberate: keeps the main repo's `.gitignore`/tooling from getting confused by a nested worktree). List worktrees for a repo with `GET /api/repos/:repoId/worktrees/`.
 
-## Removing a worktree
+## Archiving a worktree (not "delete" anymore)
 
-Via the UI: click "Delete" next to a worktree row (there's a confirm prompt).
+Via the UI: each worktree row's kebab menu ("⋮") has **"Archive"** — this replaced "Delete" as the everyday action. Archiving is a pure visibility flag: it hides the worktree from the normal list, but does **not** touch git at all — the worktree checkout, its branch, and anything recorded against it (a claude session, see below) all stay exactly as they were on disk. There's a confirm prompt explaining this before it happens.
 
 Via the API:
+
+```bash
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/archive
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/unarchive   # reverse it
+```
+
+There's currently no UI to browse archived worktrees — that's planned as part of a future settings-modal datagrid (bulk-manage worktrees across repos, filtered by repo/status), not built yet. To find one again in the meantime, query the API directly:
+
+```bash
+curl http://localhost:8787/api/repos/<repoId>/worktrees/     # active only by default
+```
+
+(The store layer supports filtering `ListWorktrees` by any set of statuses, but the REST endpoint doesn't expose a status query param yet — another piece the settings modal will need.)
+
+Real, destructive deletion (`git worktree remove --force` + removing the registry row) still exists at the API layer, it's just not reachable from the kebab menu anymore:
 
 ```bash
 curl -X DELETE http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>
 ```
 
-This runs `git worktree remove --force <path>` and deletes the registry row. It does not touch the branch itself (only the worktree checkout).
+This does not touch the branch itself (only the worktree checkout) and, unlike archive, is not reversible.
 
 ## Debugging: server logs
 
@@ -176,11 +191,33 @@ Adding a repo or a worktree is a modal now, not a page — reachable via the sid
 
 **Deleting a worktree also closes its terminal sessions now** (real tmux kill, not just a DB row disappearing via cascade) — found and fixed while building the dockview arrangement above; before this fix, a deleted worktree's tmux sessions leaked forever with no trace in the DB pointing back to them.
 
-**Creating a worktree auto-starts a `claude` terminal.** Both the sidebar "+"/command-palette flow and the worktree-list "+ New worktree" button create the worktree, then immediately create one terminal in it with `claude` sent as the first command (via `tmux send-keys`, a real argv element — no shell interpolation involved). If that second step fails (e.g. tmux unavailable), the worktree itself is still created and usable; you just don't get the auto-started terminal, and the error is logged to the browser console rather than blocking worktree creation. To get the same behavior from the API directly, pass `initial_command` when creating a terminal:
+**Creating a worktree auto-starts a `claude` terminal with a known, resumable session id.** Both the sidebar "+"/command-palette flow and the worktree-list "+ New worktree" button create the worktree, then immediately create one terminal in it running `claude --session-id <uuid> -n <name>` as the first command (via `tmux send-keys`, a real argv element — no shell interpolation involved; the uuid is generated client-side via `crypto.randomUUID()` *before* claude ever starts, specifically so it's known and loggable). This also logs a `claude.session.create` audit event with that session id and title — see "Per-worktree audit log" below for why that survives independent of the terminal itself. If the terminal-creation step fails (e.g. tmux unavailable), the worktree itself is still created and usable; you just don't get the auto-started terminal, and the error is logged to the browser console rather than blocking worktree creation. To get the same behavior from the API directly, pass `initial_command` plus the two claude fields when creating a terminal:
 
 ```bash
 curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/ \
-  -H "Content-Type: application/json" -d '{"tab_label": "claude", "initial_command": "claude"}'
+  -H "Content-Type: application/json" -d '{
+    "tab_label": "claude",
+    "initial_command": "claude --session-id 11111111-1111-1111-1111-111111111111 -n feature",
+    "claude_session_id": "11111111-1111-1111-1111-111111111111",
+    "claude_session_title": "feature"
+  }'
 ```
 
-<!-- Each later build step (terminal layout persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+## Per-worktree audit log
+
+Every worktree's kebab menu ("⋮") has a **"View worktree log"** item, and `WorktreeDetail.tsx` (the terminal view) has a "🕐 Log" toolbar button — both open the same dialog: every audit-log event recorded for that specific worktree (worktree create/remove/archive/unarchive, terminal open/close, spotlight start/stop, claude session started), newest first, with a friendly label/icon and a one-line summary (branch name, terminal tab label, claude session id). Click "raw" on any entry to see the full JSON line as actually written to `~/.worktree-studio/audit.log.jsonl`.
+
+**Resuming a claude session later**: find its `claude.session.create` entry in this log (or grep the JSONL file directly for `claude_session_id`), then in a terminal inside that worktree run `claude --resume <the-id>`. There's no one-click "Resume" button yet — this is a manually-actionable record, not an automated flow (see the TODO in `PLAN.md`). This only works if the worktree itself hasn't actually been deleted (archiving is fine — see "Archiving a worktree" above — but real delete removes the git checkout `claude --resume` would need).
+
+This view survives the worktree itself being deleted — it's driven by the worktree id, not a live DB row, so it's a real record of "what happened to this piece of work" independent of whether the worktree/terminal sessions behind it are still alive. Useful as a lightweight checkpoint trail: e.g. confirm exactly when a worktree was created, or when its last terminal was closed, without digging through the raw JSONL by hand.
+
+Via the API directly:
+
+```bash
+curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/audit-log
+# [{"ts":"...","event":"worktree.create","repo_id":"...","worktree_id":"...","name":"...","branch":"..."}, ...]
+```
+
+Not yet built (ideas, not commitments): a way to add a free-text checkpoint note manually (e.g. "sent PR link to reviewer"), and event types for repo-hosting-platform actions (branch pushed, PR opened/merged) once any such integration exists — right now every event this log can show is one this tool itself already causes.
+
+<!-- Each later build step (Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->

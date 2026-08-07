@@ -250,6 +250,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		Branch:    branch,
 		Path:      worktreePath,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Status:    store.WorktreeStatusActive,
 	}
 	if err := s.Store.AddWorktree(wt); err != nil {
 		s.Log.Error("save worktree; rolling back the git worktree/branch just created", "err", err)
