@@ -191,6 +191,71 @@ form {
   margin-top: 1rem;
 }
 
+.audit-log-dialog {
+  min-width: 28rem;
+  max-width: 36rem;
+}
+
+.audit-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.audit-log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-log-entry:last-child {
+  border-bottom: none;
+}
+
+.audit-log-icon {
+  flex-shrink: 0;
+}
+
+.audit-log-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.audit-log-label {
+  font-family: var(--font-ui);
+}
+
+.audit-log-summary {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.audit-log-time {
+  display: block;
+  font-size: 0.8em;
+}
+
+.audit-log-raw {
+  flex-shrink: 0;
+  font-size: 0.8em;
+  color: var(--text-dim);
+}
+
+.audit-log-raw pre {
+  max-width: 24rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+}
+
 code {
   font-family: var(--font-mono);
   background: var(--bg);

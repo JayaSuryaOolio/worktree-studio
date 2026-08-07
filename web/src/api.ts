@@ -30,6 +30,12 @@ export interface WorktreeStatus {
   behind: number;
 }
 
+export interface AuditLogEntry {
+  ts: string;
+  event: string;
+  [field: string]: unknown;
+}
+
 export interface SpotlightStatus {
   available: boolean;
   active: boolean;
@@ -139,6 +145,15 @@ export function getWorktreeStatus(
 ): Promise<WorktreeStatus> {
   return request<WorktreeStatus>(
     `/api/repos/${repoId}/worktrees/${worktreeId}/status`
+  );
+}
+
+export function getWorktreeAuditLog(
+  repoId: string,
+  worktreeId: string
+): Promise<AuditLogEntry[]> {
+  return request<AuditLogEntry[]>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/audit-log`
   );
 }
 

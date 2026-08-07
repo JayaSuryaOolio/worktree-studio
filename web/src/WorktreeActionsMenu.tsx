@@ -7,6 +7,7 @@ interface Props {
   onOpen?: () => void; // optional — the sidebar's row is already a nav link, so it omits this
   onSpotlightStart: () => void;
   onSpotlightStop: () => void;
+  onViewLog: () => void;
   onDelete: () => void;
 }
 
@@ -20,6 +21,7 @@ export default function WorktreeActionsMenu({
   onOpen,
   onSpotlightStart,
   onSpotlightStop,
+  onViewLog,
   onDelete,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -89,6 +91,9 @@ export default function WorktreeActionsMenu({
                   : "Start spotlight"}
               </button>
             ))}
+          <button type="button" role="menuitem" onClick={() => act(onViewLog)}>
+            View worktree log
+          </button>
           <button
             type="button"
             role="menuitem"

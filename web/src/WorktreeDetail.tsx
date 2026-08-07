@@ -11,6 +11,7 @@ import {
   TerminalSession,
 } from "./api";
 import Terminal from "./Terminal";
+import WorktreeAuditLog from "./WorktreeAuditLog";
 
 interface TerminalPanelParams {
   terminalId: string;
@@ -69,6 +70,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   // State (not a ref) deliberately: the effect that applies the initial
   // saved layout needs to re-run once this becomes available, and refs
   // don't trigger effect re-runs when mutated.
@@ -214,6 +216,9 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           )}
         </div>
         <div className="terminal-toolbar-actions">
+          <button title="View this worktree's audit log" onClick={() => setLogOpen(true)}>
+            🕐 Log
+          </button>
           <button
             title="Open this worktree in a new browser tab"
             onClick={() => window.open(window.location.href, "_blank")}
@@ -232,6 +237,15 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           className="dockview-theme-abyss command-deck-dockview"
         />
       </div>
+
+      {logOpen && (
+        <WorktreeAuditLog
+          repoId={repoId}
+          worktreeId={worktreeId}
+          title="this worktree"
+          onClose={() => setLogOpen(false)}
+        />
+      )}
     </div>
   );
 }

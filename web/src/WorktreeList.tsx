@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
+import WorktreeAuditLog from "./WorktreeAuditLog";
 import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
 interface Props {
@@ -57,12 +59,14 @@ export default function WorktreeList({
   onActionError,
 }: Props) {
   const navigate = useNavigate();
+  const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
 
   if (worktrees.length === 0) {
     return <p>No worktrees yet for this repo.</p>;
   }
 
   return (
+    <>
     <table>
       <thead>
         <tr>
@@ -99,6 +103,7 @@ export default function WorktreeList({
                 onSpotlightStop={() =>
                   stopSpotlightSafe(wt, { onDone: onActionDone, onError: onActionError })
                 }
+                onViewLog={() => setLogWorktree(wt)}
                 onDelete={() =>
                   deleteWorktreeWithConfirm(wt, { onDone: onActionDone, onError: onActionError })
                 }
@@ -108,5 +113,14 @@ export default function WorktreeList({
         ))}
       </tbody>
     </table>
+    {logWorktree && (
+      <WorktreeAuditLog
+        repoId={logWorktree.repo_id}
+        worktreeId={logWorktree.id}
+        title={logWorktree.branch}
+        onClose={() => setLogWorktree(null)}
+      />
+    )}
+    </>
   );
 }

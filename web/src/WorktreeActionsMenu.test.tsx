@@ -35,6 +35,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
           spotlightStatus={undefined}
           onSpotlightStart={() => {}}
           onSpotlightStop={() => {}}
+          onViewLog={() => {}}
           onDelete={() => {}}
         />
       </a>
@@ -54,6 +55,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
           spotlightStatus={undefined}
           onSpotlightStart={() => {}}
           onSpotlightStop={() => {}}
+          onViewLog={() => {}}
           onDelete={onDelete}
         />
       </a>
@@ -94,6 +96,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
             spotlightStatus={{ available: true, active: false }}
             onSpotlightStart={() => {}}
             onSpotlightStop={() => {}}
+          onViewLog={() => {}}
             onDelete={() => {}}
           />
         </a>
@@ -115,6 +118,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
         spotlightStatus={{ available: false, active: false }}
         onSpotlightStart={() => {}}
         onSpotlightStop={() => {}}
+          onViewLog={() => {}}
         onDelete={() => {}}
       />
     );
@@ -127,6 +131,7 @@ describe("WorktreeActionsMenu nested inside an anchor", () => {
         spotlightStatus={{ available: true, active: true }}
         onSpotlightStart={() => {}}
         onSpotlightStop={() => {}}
+          onViewLog={() => {}}
         onDelete={() => {}}
       />
     );

@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useMatch } from "react-router-dom";
+import { Worktree } from "./api";
 import { useRepoContext } from "./RepoContext";
 import WorktreeActionsMenu from "./WorktreeActionsMenu";
+import WorktreeAuditLog from "./WorktreeAuditLog";
 import { deleteWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 
 interface Props {
@@ -33,6 +35,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   const activeWorktreeId = worktreeMatch?.params.worktreeId ?? null;
 
   const [error, setError] = useState<string | null>(null);
+  const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
 
   return (
     <nav className="sidebar" aria-label="Repos and worktrees">
@@ -122,6 +125,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                               onSpotlightStop={() =>
                                 stopSpotlightSafe(wt, { onDone: refreshWorktrees, onError: setError })
                               }
+                              onViewLog={() => setLogWorktree(wt)}
                               onDelete={() =>
                                 deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
                               }
@@ -145,6 +149,15 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
       </div>
 
       {error && <p className="error sidebar-error">{error}</p>}
+
+      {logWorktree && (
+        <WorktreeAuditLog
+          repoId={logWorktree.repo_id}
+          worktreeId={logWorktree.id}
+          title={logWorktree.branch}
+          onClose={() => setLogWorktree(null)}
+        />
+      )}
     </nav>
   );
 }
