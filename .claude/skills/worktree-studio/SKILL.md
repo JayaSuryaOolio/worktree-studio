@@ -172,8 +172,15 @@ The UI is now built around a persistent left sidebar (not the flat pages describ
 
 Adding a repo or a worktree is a modal now, not a page — reachable via the sidebar's "+" buttons or the command palette, not a separate route.
 
-**Visual design**: the app has one theme, "Command Deck" (dark, mission-control-styled — see `docs/design.md` for the full token system and rationale). Worktree rows in the sidebar are styled as flight strips: a colored left-edge tab shows dirty (red) / clean (green), status figures and branch names render in monospace like telemetry, page titles use a display face. There's no theme switcher — that's a recorded `PLAN.md` TODO, not built.
+**Visual design**: the app has one theme, "Command Deck" (dark, mission-control-styled — see `docs/design.md` for the full token system and rationale). Worktree rows in the sidebar are styled as flight strips: status figures and branch names render in monospace like telemetry, page titles use a display face. Row color is deliberately minimal now — every row is neutral gray by default, and only the currently-selected worktree gets a green left-edge accent; there's no separate dirty/clean color-coding on the row itself (per direct feedback that red/green/amber all at once on every row read as noise, not signal — dirty state is still visible via the ahead/behind ticks). There's no theme switcher — that's a recorded `PLAN.md` TODO, not built.
 
 **Deleting a worktree also closes its terminal sessions now** (real tmux kill, not just a DB row disappearing via cascade) — found and fixed while building the dockview arrangement above; before this fix, a deleted worktree's tmux sessions leaked forever with no trace in the DB pointing back to them.
+
+**Creating a worktree auto-starts a `claude` terminal.** Both the sidebar "+"/command-palette flow and the worktree-list "+ New worktree" button create the worktree, then immediately create one terminal in it with `claude` sent as the first command (via `tmux send-keys`, a real argv element — no shell interpolation involved). If that second step fails (e.g. tmux unavailable), the worktree itself is still created and usable; you just don't get the auto-started terminal, and the error is logged to the browser console rather than blocking worktree creation. To get the same behavior from the API directly, pass `initial_command` when creating a terminal:
+
+```bash
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/ \
+  -H "Content-Type: application/json" -d '{"tab_label": "claude", "initial_command": "claude"}'
+```
 
 <!-- Each later build step (terminal layout persistence, Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->

@@ -8,7 +8,7 @@ Checked against what a generic pass at this brief would produce: near-black back
 
 - **Blue-black, not near-black** (`--bg: #0b0f14`) — reads as "cockpit at night," not "default dark mode."
 - **Four grounded semantic accents** (amber/cyan/green/red — `--amber`/`--cyan`/`--green`/`--red`), each tied to a real avionics/radar reference, rather than one decorative pop color with no meaning behind it.
-- **A signature element derived from the actual subject**: sidebar worktree rows are styled as **flight strips** — the paper strips air-traffic controllers use to track multiple simultaneous in-progress flights. Branch name = the "callsign" (mono, prominent), a colored left-edge tab = status, small tick marks = ahead/behind counts. Git worktrees genuinely are multiple simultaneous in-progress things being coordinated, so this isn't decoration — it's the actual thing this tool does, rendered as UI.
+- **A signature element derived from the actual subject**: sidebar worktree rows are styled as **flight strips** — the paper strips air-traffic controllers use to track multiple simultaneous in-progress flights. Branch name = the "callsign" (mono, prominent), small tick marks = ahead/behind counts. Git worktrees genuinely are multiple simultaneous in-progress things being coordinated, so this isn't decoration — it's the actual thing this tool does, rendered as UI. (Row color itself was simplified after real usage — see below — so the left-edge tab now marks *selection*, not dirty/clean status.)
 - **A 3-tier type system**, not one display font slapped on top of existing chrome:
   - **Display** (`--font-display`, Space Grotesk) — page/section titles only, used with restraint.
   - **UI** (`--font-ui`, Inter) — buttons, labels, nav, form chrome. The neutral workhorse.
@@ -35,9 +35,9 @@ Checked against what a generic pass at this brief would produce: near-black back
 
 Space Grotesk and Inter load from the Google Fonts CDN (`web/index.html`) — every rule that uses them lists a real system-font fallback first in the stack (`--font-display`/`--font-ui`), so working offline means slightly-less-on-brand headings, not broken layout or missing text. The mono stack (`--font-mono`) is entirely system fonts already, no network dependency at all.
 
-## Where the flight-strip status color comes from
+## Where the flight-strip row color comes from
 
-`Sidebar.tsx` sets `data-dirty="true"|"false"` directly on each worktree row's `<Link>`, read from `internal/gitops.Status` via the existing `/status` endpoint. CSS keys off that explicit attribute (`.sidebar-worktree[data-dirty="true"] { border-left-color: var(--red); }`) rather than inferring status from a decorative child element's presence — deliberately explicit over clever, so the mapping is one `grep` away if it ever needs to change.
+Originally `Sidebar.tsx` set `data-dirty="true"|"false"` on each row and CSS colored the left-edge tab red/green from it, with the *active* row getting a third amber color on top. In practice all three colors on every row at once read as noise, not signal — reported directly after the first real look at the built UI. Simplified to: every row is neutral gray (`--border`) by default, and only `.sidebar-worktree.active` (the currently-selected worktree, via the router's `NavLink` active state) gets the accent — a `--green` left-edge tab plus a subtle `--green-dim` inset box-shadow. Dirty/clean is still visible in the row (via the ahead/behind ticks, sourced the same way from `internal/gitops.Status`), it's just no longer encoded as the row's border color.
 
 ## Extending this later
 
