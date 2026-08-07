@@ -4,6 +4,23 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-07 — Bug report: Ctrl+C/Ctrl+V don't work in browser terminals
+
+User reported the most basic terminal actions — copy (Ctrl+C) and paste (Ctrl+V) — silently doing nothing in the xterm.js terminal panels.
+
+**Root cause**: xterm.js's own key handling calls `preventDefault()` on virtually every keystroke it translates into pty bytes, including Ctrl+C (which must reach the shell as a real `0x03`/SIGINT byte for a real terminal to work at all) — that same `preventDefault()` also suppresses the browser's native copy action, so "select text, press Ctrl+C" never had anywhere to go. This is a well-known xterm.js integration gap (not a regression from anything built this project) — the embedding app is expected to wire this up itself via `attachCustomKeyEventHandler`, which nothing in `Terminal.tsx` did.
+
+**Fixed**: `Terminal.tsx` now intercepts Ctrl+C/Cmd+C — if there's an active selection, copies it via `navigator.clipboard.writeText` and suppresses the keystroke (so it doesn't also send a literal SIGINT); with no selection, lets it through as a normal interrupt, so `Ctrl+C` at a running prompt still works exactly as before. Ctrl+V/Cmd+V is handled explicitly via `navigator.clipboard.readText()` → `term.paste(text)`, rather than relying on xterm's own native-`paste`-event wiring (which does exist in xterm.js's source, but explicit handling removes any ambiguity about whether it was actually the failure point). Both Ctrl- and Cmd- modifiers are handled, since this runs on macOS but Ctrl+C/Ctrl+V is common muscle memory regardless of OS.
+
+The key-combo decision logic (`classifyTerminalKeyEvent`) is a small pure function, extracted specifically so it's unit-testable without a real browser or a real xterm `Terminal` instance — the actual clipboard/xterm glue isn't independently testable in this environment (no browser automation tool connected this session; same honest limitation `Terminal.tsx` has always had, per every earlier PROGRESS entry that touched it).
+
+**Verified:**
+- `bun run build`/`bun run test` clean — **35/35** (8 new in `Terminal.test.tsx`, covering Ctrl+C/Cmd+C/Ctrl+V/Cmd+V classification, case-insensitivity, Ctrl+Shift+C passthrough, unrelated Ctrl-combos, plain unmodified keys, and keyup events all correctly falling through to "pass").
+- Confirmed `attachCustomKeyEventHandler` present in the real built production JS bundle (`web/dist/assets/index-*.js`), not just the source.
+- **Not verified**: actual copy/paste behavior in a real browser — no browser automation tool is connected this session. The fix is the standard, well-documented pattern for this exact xterm.js gap (the same approach used by VS Code's integrated terminal, Hyper, and other xterm.js-based apps), and the bundle contains the code, but a real click-through is still worth doing to confirm it feels right, same caveat as every prior UI change in this project made without a browser tool available.
+
+---
+
 ## 2026-08-07 — Claude Code SessionStart hook + global settings modal
 
 Follow-up to the two entries below, prompted by direct user feedback: the launch-time `--session-id` tracking has two real gaps (only sees worktree-studio's own auto-started sessions; the auto-terminal doesn't always actually get created — an observed race, not yet root-caused), and the user asked for (1) a real Claude Code hook installed as part of setup, resumable/re-triggerable from a global settings UI rather than failing silently, (2) fetching a session's real title from its own transcript, and (3) a settings UI with a worktree list page and an installation-status page — "do this now."

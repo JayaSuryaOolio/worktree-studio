@@ -8,6 +8,36 @@ interface Props {
   terminalId: string;
 }
 
+export type TerminalKeyAction = "copy" | "paste" | "pass";
+
+/**
+ * Decides what a keydown means for copy/paste, independent of xterm/
+ * clipboard APIs so it's unit-testable without a real browser. xterm.js's
+ * own key handling calls preventDefault() on virtually every keystroke it
+ * translates into pty bytes (including Ctrl+C, which needs to reach the
+ * shell as a real 0x03/SIGINT byte) — that preventDefault also blocks the
+ * browser's native copy action from ever firing, which is why "select
+ * text, press Ctrl+C" silently does nothing in a stock xterm.js terminal.
+ * Handling both Ctrl and Cmd (metaKey) since this app runs on macOS too,
+ * where Cmd+C/Cmd+V are the muscle-memory shortcut but Ctrl+C/Ctrl+V are
+ * common habit for anyone coming from Linux/Windows or a plain terminal.
+ */
+export function classifyTerminalKeyEvent(event: {
+  type: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  key: string;
+}): TerminalKeyAction {
+  if (event.type !== "keydown" || event.shiftKey) return "pass";
+  const mod = event.ctrlKey || event.metaKey;
+  if (!mod) return "pass";
+  const key = event.key.toLowerCase();
+  if (key === "c") return "copy";
+  if (key === "v") return "paste";
+  return "pass";
+}
+
 /**
  * A real terminal, not an exec-and-capture box: xterm.js renders whatever
  * the server's pty->tmux attach sends over the websocket, and every
@@ -31,6 +61,35 @@ export default function Terminal({ terminalId }: Props) {
     term.loadAddon(fit);
     term.open(containerRef.current);
     fit.fit();
+
+    // Copy-on-selection + explicit clipboard paste — see
+    // classifyTerminalKeyEvent's doc comment for why xterm.js needs this
+    // wired up by hand rather than "just working." Returning false tells
+    // xterm not to also process the keystroke itself (i.e. don't ALSO
+    // send Ctrl+C as a literal SIGINT byte when the user meant "copy").
+    term.attachCustomKeyEventHandler((event) => {
+      switch (classifyTerminalKeyEvent(event)) {
+        case "copy": {
+          const selection = term.getSelection();
+          if (!selection) return true; // no selection: real Ctrl+C, send SIGINT as normal
+          navigator.clipboard?.writeText(selection).catch(() => {
+            // Clipboard permission denied/unavailable — nothing else to
+            // do; the selection is still visible for a manual right-
+            // click copy.
+          });
+          return false;
+        }
+        case "paste":
+          navigator.clipboard?.readText().then((text) => term.paste(text)).catch(() => {
+            // Clipboard permission denied/unavailable — the browser's own
+            // native paste event (right-click / OS menu) still works,
+            // since that path doesn't go through this handler at all.
+          });
+          return false;
+        default:
+          return true;
+      }
+    });
 
     const ws = new WebSocket(terminalWsUrl(terminalId));
     ws.binaryType = "arraybuffer";
