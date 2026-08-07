@@ -126,6 +126,10 @@ Every step above (2 through 7) also: (a) adds audit-log calls for its new mutati
 
 Explicitly deferred (not v1): Agent SDK integration (terminal-as-CLI is enough to start), multiple terminal tabs per worktree beyond the "open in new browser tab" model (trivial extension of step 2's session model later), any auth/remote-access hardening (bind to `localhost` only), audit log rotation/query UI, theme switching (Command Deck is the only theme; the CSS-custom-property token structure makes adding alternates cheap whenever there's a real second theme to switch to). **Never** (not deferred, ruled out): OS-level popout of a terminal into a separate browser window.
 
+**TODO — tmux session hygiene / cleanup tooling**: the Go server should expose CLI command(s) to list all `wts-*` tmux sessions along with which worktree (if any) each is still associated with in the DB, so orphaned/leaked sessions (e.g. from a worktree whose DB row is gone but whose tmux session wasn't killed) can be found and cleared deliberately instead of accumulating forever. Consider also surfacing the same list-and-clear action in a settings modal in the UI, not just CLI-only.
+
+**TODO — sidebar resizable + collapsible**: the sidebar should support drag-to-resize (persist the width, same pattern as the terminal layout persistence) and a toggle to collapse/hide it entirely, for when the terminal area needs the full window width.
+
 ## Execution approach
 
 - Drive implementation through subagents (Agent tool), one step (or sub-piece of a step) per subagent dispatch, rather than one long inline session.
