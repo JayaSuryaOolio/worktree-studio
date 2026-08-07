@@ -37,7 +37,7 @@ go build -o worktree-studio ./cmd/worktree-studio
 
 Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or your existing registered repos, if `~/.worktree-studio/studio.db` already has data from a prior run — this state persists across restarts by design).
 
-There's currently no dependency-status report on install/startup (e.g. "tmux: ✓, spotlight: not found, this skill: ✓ installed") — that's a recorded `PLAN.md` TODO (a possible future `worktree-studio doctor` check), not built yet. For now, check each prerequisite above by hand if something isn't working as expected.
+Once the server is running, check dependency status (tmux, spotlight, this skill globally, the claude hook) via the settings modal (gear icon in the sidebar) or `curl http://localhost:8787/api/settings/dependencies` — see "Global settings" and "Claude Code session-tracking hook" below for the two dependencies that are actionable (install/uninstall) directly from there. There's still no automatic report at server startup or a standalone `doctor` CLI — checking is on-demand via that endpoint/UI, not push-notified.
 
 ## Starting the server
 
@@ -236,6 +236,38 @@ Every worktree's kebab menu ("⋮") has a **"View worktree log"** item, and `Wor
 **Resuming a claude session later**: find its `claude.session.create` entry in this log (or grep the JSONL file directly for `claude_session_id`), then in a terminal inside that worktree run `claude --resume <the-id>`. There's no one-click "Resume" button yet — this is a manually-actionable record, not an automated flow (see the TODO in `PLAN.md`). This only works if the worktree itself hasn't actually been deleted (archiving is fine — see "Archiving a worktree" above — but real delete removes the git checkout `claude --resume` would need).
 
 This view survives the worktree itself being deleted — it's driven by the worktree id, not a live DB row, so it's a real record of "what happened to this piece of work" independent of whether the worktree/terminal sessions behind it are still alive. Useful as a lightweight checkpoint trail: e.g. confirm exactly when a worktree was created, or when its last terminal was closed, without digging through the raw JSONL by hand.
+
+## Claude Code session-tracking hook (more reliable than the launch-time id above)
+
+The launch-time `--session-id`/`claude.session.create` logging above has two real gaps: it only sees sessions worktree-studio itself starts, and the auto-started terminal doesn't always actually get created (an observed race). A real Claude Code `SessionStart` hook fixes both — it fires for *every* claude session on the machine, including ones started by hand in a plain shell, and doesn't depend on worktree-studio's own terminal-creation flow succeeding.
+
+**Install it** from the settings modal (gear icon in the sidebar → Installation tab → "Install" next to "Claude session-tracking hook"), or directly via the API:
+
+```bash
+curl -X POST http://localhost:8787/api/settings/dependencies/claude-hook/install
+curl -X POST http://localhost:8787/api/settings/dependencies/claude-hook/uninstall   # reverse it
+```
+
+This is the one action in this whole tool that edits a file outside `~/.worktree-studio/` — your real, global `~/.claude/settings.json`, shared with every other tool that registers a Claude Code hook. It's safe to run: it only ever merges one clearly-marked entry into `hooks.SessionStart` (never touches any other key or any other tool's hooks), backs the file up to `~/.worktree-studio/backups/claude-settings-<timestamp>.json` before every write, and is idempotent (installing twice doesn't duplicate the entry). Still, only run install/uninstall when you actually mean to — same standing caution as any action that touches state outside this project's own directory.
+
+Once installed, a `claude.session.create` entry with `"source": "hook"` appears in a worktree's audit log automatically the next time a claude session starts with that worktree's path as its cwd — no title is logged up front for these (unlike the launch-time ones), but the audit log viewer fetches one live from the session's own transcript (see `GET /api/claude-sessions/:id/title`, backed by `~/.claude/projects/`).
+
+## Global settings
+
+A gear icon in the sidebar header opens a settings modal with two tabs: **Worktrees** (every worktree across every repo, any status — including archived ones, which don't show up anywhere else right now) and **Installation** (status for tmux, the spotlight CLI, the globally-installed skill, and the claude hook above, with Install/Uninstall buttons for the latter two). Via the API:
+
+```bash
+curl http://localhost:8787/api/worktrees/all           # cross-repo worktree list
+curl http://localhost:8787/api/settings/dependencies   # dependency status
+```
+
+Installing the skill globally (`~/.claude/skills/worktree-studio/`, distinct from this project's own `.claude/skills/worktree-studio/`) makes it available from any project, not just when working inside this repo's own checkout:
+
+```bash
+curl -X POST http://localhost:8787/api/settings/dependencies/skill/install
+```
+
+No bulk-select/bulk-delete on the Worktrees tab yet — that's a recorded `PLAN.md` TODO, blocked on resolving a `path UNIQUE` collision that soft-deleting a row would hit.
 
 Via the API directly:
 
