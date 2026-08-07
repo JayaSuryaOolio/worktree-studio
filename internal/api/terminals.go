@@ -70,7 +70,8 @@ func (s *Server) handleListTerminals(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTerminalRequest struct {
-	TabLabel string `json:"tab_label"`
+	TabLabel       string `json:"tab_label"`
+	InitialCommand string `json:"initial_command"`
 }
 
 func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
@@ -81,14 +82,14 @@ func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
 
 	var req createTerminalRequest
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req) // body is optional; a bad/empty body just means "use the default label"
+		_ = json.NewDecoder(r.Body).Decode(&req) // body is optional; a bad/empty body just means "use the default label, no initial command"
 	}
 	label := req.TabLabel
 	if label == "" {
 		label = "shell"
 	}
 
-	ts, err := s.Term.CreateSession(wt.ID, wt.Path, label)
+	ts, err := s.Term.CreateSession(wt.ID, wt.Path, label, req.InitialCommand)
 	if err != nil {
 		s.Log.Error("create terminal session", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create terminal session: "+err.Error())

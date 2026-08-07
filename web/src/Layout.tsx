@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import AddRepoDialog from "./AddRepoDialog";
-import { createWorktree, Repo } from "./api";
+import { Repo } from "./api";
 import CommandPalette from "./CommandPalette";
 import NewWorktreeDialog from "./NewWorktreeDialog";
 import { RepoProvider, useRepoContext } from "./RepoContext";
 import Sidebar from "./Sidebar";
+import { createWorktreeWithClaudeTerminal } from "./worktreeActions";
 
 // The persistent app shell: a left sidebar (worktree list, auto-loading per
 // selected repo), the routed page content, and a command palette — all
@@ -39,7 +40,7 @@ function LayoutShell() {
   }
 
   async function handleWorktreeCreate(repoId: string, name: string) {
-    const wt = await createWorktree(repoId, name);
+    const wt = await createWorktreeWithClaudeTerminal(repoId, name);
     refreshWorktrees();
     navigate(`/repo/${repoId}/worktree/${wt.id}`);
   }

@@ -29,14 +29,30 @@ type Manager struct {
 const tmuxNamePrefix = "wts-"
 
 // CreateSession starts a new detached tmux session rooted at worktreePath,
-// records it in the store, and audit-logs the creation.
-func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel string) (store.TerminalSession, error) {
+// records it in the store, and audit-logs the creation. If initialCommand
+// is non-empty, it's typed into the session and run immediately (via
+// `tmux send-keys`) — e.g. auto-starting `claude` in a freshly created
+// worktree's first terminal. Passed as a real argv element to tmux (not
+// through a shell), so there's no shell-injection concern regardless of
+// its content.
+func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialCommand string) (store.TerminalSession, error) {
 	id := newSessionID()
 	tmuxName := tmuxNamePrefix + id
 
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", tmuxName, "-c", worktreePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return store.TerminalSession{}, fmt.Errorf("tmux new-session: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+
+	if initialCommand != "" {
+		sendKeys := exec.Command("tmux", "send-keys", "-t", tmuxName, initialCommand, "Enter")
+		if err := sendKeys.Run(); err != nil {
+			// Not fatal to the whole operation — the session exists and is
+			// usable, it just didn't get its auto-run command. Reflected in
+			// the audit log below (initial_command field omitted) rather
+			// than failing session creation over it.
+			initialCommand = ""
+		}
 	}
 
 	ts := store.TerminalSession{
@@ -52,9 +68,13 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel string) (stor
 	}
 
 	if m.Audit != nil {
-		_ = m.Audit.Log("terminal.create", map[string]any{
+		fields := map[string]any{
 			"terminal_id": id, "worktree_id": worktreeID, "tmux_session_name": tmuxName, "tab_label": tabLabel,
-		})
+		}
+		if initialCommand != "" {
+			fields["initial_command"] = initialCommand
+		}
+		_ = m.Audit.Log("terminal.create", fields)
 	}
 	return ts, nil
 }

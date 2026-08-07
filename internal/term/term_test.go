@@ -46,7 +46,7 @@ func TestCreateListCloseSession(t *testing.T) {
 	st := newTestStore(t)
 	m := &Manager{Store: st}
 
-	ts, err := m.CreateSession("wt1", t.TempDir(), "shell")
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestReconcileDropsDeadSessions(t *testing.T) {
 	st := newTestStore(t)
 	m := &Manager{Store: st}
 
-	ts, err := m.CreateSession("wt1", t.TempDir(), "shell")
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestReconcileKeepsLiveSessions(t *testing.T) {
 	st := newTestStore(t)
 	m := &Manager{Store: st}
 
-	ts, err := m.CreateSession("wt1", t.TempDir(), "shell")
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestAttachAndResize(t *testing.T) {
 	st := newTestStore(t)
 	m := &Manager{Store: st}
 
-	ts, err := m.CreateSession("wt1", t.TempDir(), "shell")
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -191,4 +191,33 @@ func TestAttachAndResize(t *testing.T) {
 	}
 
 	_ = cmd.Process.Kill()
+}
+
+func TestCreateSessionRunsInitialCommand(t *testing.T) {
+	requireTmux(t)
+	st := newTestStore(t)
+	m := &Manager{Store: st}
+
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "echo hello-from-initial-command")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	t.Cleanup(func() { _ = m.CloseSession(ts) })
+
+	// tmux send-keys is asynchronous from the shell's perspective (it just
+	// injects keystrokes) — give the shell inside a moment to actually
+	// execute the echoed command before checking the pane.
+	var out []byte
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err = exec.Command("tmux", "capture-pane", "-p", "-t", ts.TmuxSessionName).Output()
+		if err != nil {
+			t.Fatalf("capture-pane: %v", err)
+		}
+		if strings.Contains(string(out), "hello-from-initial-command") {
+			return // success
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("expected the initial command's output in the pane within 3s, got:\n%s", out)
 }

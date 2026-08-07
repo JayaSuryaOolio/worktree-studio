@@ -113,11 +113,12 @@ export function listTerminals(
 export function createTerminal(
   repoId: string,
   worktreeId: string,
-  tabLabel?: string
+  tabLabel?: string,
+  initialCommand?: string
 ): Promise<TerminalSession> {
   return request<TerminalSession>(
     `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/`,
-    { method: "POST", body: JSON.stringify({ tab_label: tabLabel }) }
+    { method: "POST", body: JSON.stringify({ tab_label: tabLabel, initial_command: initialCommand }) }
   );
 }
 
