@@ -106,6 +106,7 @@ func TestWorktreeCRUD(t *testing.T) {
 		Branch:    "my-feature",
 		Path:      "/tmp/wt1",
 		CreatedAt: "2026-08-06T12:00:00Z",
+		Status:    WorktreeStatusActive,
 	}
 	if err := s.AddWorktree(w); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
@@ -155,6 +156,54 @@ func TestWorktreeCRUD(t *testing.T) {
 	}
 	if len(wts) != 1 {
 		t.Fatalf("ListWorktrees after remove = %+v, want 1 entry", wts)
+	}
+}
+
+func TestWorktreeStatusDefaultsAndFiltering(t *testing.T) {
+	s := newTestStore(t)
+	repo := Repo{ID: "r1", Name: "test", Path: "/tmp/r1"}
+	if err := s.AddRepo(repo); err != nil {
+		t.Fatalf("AddRepo: %v", err)
+	}
+
+	wt := Worktree{ID: "wt1", RepoID: repo.ID, Name: "feature", Branch: "feature", Path: "/tmp/wt1"}
+	if err := s.AddWorktree(wt); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	got, err := s.GetWorktree(wt.ID)
+	if err != nil {
+		t.Fatalf("GetWorktree: %v", err)
+	}
+	if got.Status != WorktreeStatusActive {
+		t.Fatalf("newly created worktree Status = %q, want %q (should default without the caller setting it)", got.Status, WorktreeStatusActive)
+	}
+
+	if err := s.SetWorktreeStatus(wt.ID, WorktreeStatusArchived); err != nil {
+		t.Fatalf("SetWorktreeStatus: %v", err)
+	}
+	got, err = s.GetWorktree(wt.ID)
+	if err != nil {
+		t.Fatalf("GetWorktree after archive: %v", err)
+	}
+	if got.Status != WorktreeStatusArchived {
+		t.Fatalf("Status after SetWorktreeStatus = %q, want %q", got.Status, WorktreeStatusArchived)
+	}
+
+	activeOnly, err := s.ListWorktrees(repo.ID, WorktreeStatusActive)
+	if err != nil {
+		t.Fatalf("ListWorktrees(active): %v", err)
+	}
+	if len(activeOnly) != 0 {
+		t.Fatalf("ListWorktrees(active) after archiving the only worktree = %+v, want empty", activeOnly)
+	}
+
+	all, err := s.ListWorktrees(repo.ID)
+	if err != nil {
+		t.Fatalf("ListWorktrees(no filter): %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("ListWorktrees(no filter) = %+v, want the archived worktree still included", all)
 	}
 }
 

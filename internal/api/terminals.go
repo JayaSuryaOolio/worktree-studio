@@ -72,6 +72,15 @@ func (s *Server) handleListTerminals(w http.ResponseWriter, r *http.Request) {
 type createTerminalRequest struct {
 	TabLabel       string `json:"tab_label"`
 	InitialCommand string `json:"initial_command"`
+	// ClaudeSessionID/ClaudeSessionTitle are set by the frontend when the
+	// initial command is a `claude --session-id <uuid> ...` invocation it
+	// generated itself (see createWorktreeWithClaudeTerminal in
+	// worktreeActions.ts) — logged as their own audit event so the id (and
+	// a human-readable title) survive independently of this terminal/tmux
+	// session, letting a person later `claude --resume <id>` in this
+	// worktree even after the tab/session that started it is long gone.
+	ClaudeSessionID    string `json:"claude_session_id"`
+	ClaudeSessionTitle string `json:"claude_session_title"`
 }
 
 func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +104,17 @@ func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create terminal session: "+err.Error())
 		return
 	}
+
+	if req.ClaudeSessionID != "" {
+		s.auditLog("claude.session.create", map[string]any{
+			"repo_id":           wt.RepoID,
+			"worktree_id":       wt.ID,
+			"terminal_id":       ts.ID,
+			"claude_session_id": req.ClaudeSessionID,
+			"title":             req.ClaudeSessionTitle,
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, ts)
 }
 

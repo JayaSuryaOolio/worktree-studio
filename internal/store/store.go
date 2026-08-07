@@ -61,6 +61,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
+	if err := s.migrateAddWorktreeStatus(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate worktrees.status: %w", err)
+	}
 	return s, nil
 }
 
@@ -92,7 +96,8 @@ CREATE TABLE IF NOT EXISTS worktrees (
 	name       TEXT NOT NULL,
 	branch     TEXT NOT NULL,
 	path       TEXT NOT NULL UNIQUE,
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	status     TEXT NOT NULL DEFAULT 'active'
 );
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo_id ON worktrees(repo_id);
 
@@ -119,6 +124,54 @@ CREATE TABLE IF NOT EXISTS worktree_layouts (
 	return err
 }
 
+// migrateAddWorktreeStatus adds the worktrees.status column for databases
+// created before it existed. There's no migration framework in this
+// project (see the plain CREATE TABLE IF NOT EXISTS schema above) — for a
+// single added column, checking PRAGMA table_info and conditionally
+// ALTER-ing is simpler than introducing one.
+func (s *Store) migrateAddWorktreeStatus() error {
+	rows, err := s.db.Query(`PRAGMA table_info(worktrees)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasStatus := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "status" {
+			hasStatus = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasStatus {
+		return nil
+	}
+
+	_, err = s.db.Exec(`ALTER TABLE worktrees ADD COLUMN status TEXT NOT NULL DEFAULT '` + WorktreeStatusActive + `'`)
+	return err
+}
+
+// Worktree status values. "active" and "archived" are both live today
+// (see the archive/unarchive endpoints). "deleted" is reserved for a
+// future bulk-management settings modal (filter by repo/status, then
+// actually remove) — not wired into today's single-item delete endpoint,
+// which still hard-removes the row via RemoveWorktree (see its doc
+// comment for why).
+const (
+	WorktreeStatusActive   = "active"
+	WorktreeStatusArchived = "archived"
+	WorktreeStatusDeleted  = "deleted"
+)
+
 // Repo is a registered git repository.
 type Repo struct {
 	ID   string `json:"id"`
@@ -134,6 +187,7 @@ type Worktree struct {
 	Branch    string `json:"branch"`
 	Path      string `json:"path"`
 	CreatedAt string `json:"created_at"`
+	Status    string `json:"status"`
 }
 
 // AddRepo inserts a new repo row.
@@ -175,24 +229,38 @@ func (s *Store) RepoPathExists(path string) (bool, error) {
 	return count > 0, err
 }
 
-// AddWorktree inserts a new worktree row, stamping CreatedAt if empty.
+// AddWorktree inserts a new worktree row, stamping CreatedAt and defaulting
+// Status to "active" if empty.
 func (s *Store) AddWorktree(w Worktree) error {
 	if w.CreatedAt == "" {
 		w.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	if w.Status == "" {
+		w.Status = WorktreeStatusActive
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt,
+		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status,
 	)
 	return err
 }
 
-// ListWorktrees returns all worktrees for a given repo, newest first.
-func (s *Store) ListWorktrees(repoID string) ([]Worktree, error) {
-	rows, err := s.db.Query(
-		`SELECT id, repo_id, name, branch, path, created_at FROM worktrees WHERE repo_id = ? ORDER BY created_at DESC`,
-		repoID,
-	)
+// ListWorktrees returns worktrees for a given repo, newest first. statuses
+// filters which status values to include; passing none returns every
+// status (used by ListAllWorktreesForRepo, e.g. a future settings-modal
+// datagrid) — the normal UI list calls this with WorktreeStatusActive only.
+func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, error) {
+	query := `SELECT id, repo_id, name, branch, path, created_at, status FROM worktrees WHERE repo_id = ?`
+	args := []any{repoID}
+	if len(statuses) > 0 {
+		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
+		for _, st := range statuses {
+			args = append(args, st)
+		}
+	}
+	query += ` ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +269,7 @@ func (s *Store) ListWorktrees(repoID string) ([]Worktree, error) {
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -209,16 +277,43 @@ func (s *Store) ListWorktrees(repoID string) ([]Worktree, error) {
 	return out, rows.Err()
 }
 
+func placeholders(n int) string {
+	s := "?"
+	for i := 1; i < n; i++ {
+		s += ",?"
+	}
+	return s
+}
+
 // GetWorktree fetches a single worktree by id. Returns sql.ErrNoRows if not found.
 func (s *Store) GetWorktree(id string) (Worktree, error) {
 	var w Worktree
 	err := s.db.QueryRow(
-		`SELECT id, repo_id, name, branch, path, created_at FROM worktrees WHERE id = ?`, id,
-	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt)
+		`SELECT id, repo_id, name, branch, path, created_at, status FROM worktrees WHERE id = ?`, id,
+	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status)
 	return w, err
 }
 
-// RemoveWorktree deletes a worktree row by id.
+// SetWorktreeStatus updates a worktree's status (active/archived/deleted).
+// Used by archive/unarchive (no git changes at all — purely a visibility
+// flag) and by the delete flow (status="deleted", after the git worktree
+// and branch have actually been removed from disk).
+func (s *Store) SetWorktreeStatus(id, status string) error {
+	_, err := s.db.Exec(`UPDATE worktrees SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+// RemoveWorktree deletes a worktree row by id outright. Still what the
+// real (hard) delete flow calls today — WorktreeStatusDeleted is not wired
+// up to any handler yet. It's reserved for a future settings-modal bulk
+// delete (filter by repo/status, then actually remove), which is expected
+// to soft-mark rows "deleted" first and purge them in a separate step; that
+// design isn't built yet, and wiring "deleted" into today's single-item
+// delete endpoint would collide with the `path TEXT UNIQUE` constraint the
+// instant someone recreates a worktree with the same name (the old
+// soft-deleted row would still be occupying that path). Left unresolved
+// until the actual bulk-delete feature exists to make an informed call
+// (e.g. mutating path on soft-delete, or dropping the UNIQUE constraint).
 func (s *Store) RemoveWorktree(id string) error {
 	_, err := s.db.Exec(`DELETE FROM worktrees WHERE id = ?`, id)
 	return err

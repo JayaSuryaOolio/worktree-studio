@@ -19,8 +19,7 @@ func (s *Server) handleWorktreeAuditLog(w http.ResponseWriter, r *http.Request) 
 	repoID := chi.URLParam(r, "repoID")
 	worktreeID := chi.URLParam(r, "worktreeID")
 
-	repo, err := s.Store.GetRepo(repoID)
-	if err != nil {
+	if _, err := s.Store.GetRepo(repoID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "repo not found")
 			return
@@ -49,11 +48,13 @@ func (s *Server) handleWorktreeAuditLog(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Filtered by worktree_id alone, not also repo_id: worktree ids are
+	// globally unique (newID()), and not every event type logs a repo_id
+	// alongside worktree_id (e.g. terminal.create/close only log
+	// terminal_id+worktree_id) — requiring both would silently drop those.
 	entries := make([]map[string]any, 0, len(all))
 	for _, e := range all {
-		wtID, _ := e["worktree_id"].(string)
-		repoID, _ := e["repo_id"].(string)
-		if wtID == worktreeID && repoID == repo.ID {
+		if id, ok := e["worktree_id"].(string); ok && id == worktreeID {
 			entries = append(entries, e)
 		}
 	}

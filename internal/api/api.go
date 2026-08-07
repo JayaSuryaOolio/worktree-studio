@@ -45,6 +45,8 @@ func (s *Server) Routes(r chi.Router) {
 				r.Delete("/", s.handleDeleteWorktree)
 				r.Get("/status", s.handleWorktreeStatus)
 				r.Get("/audit-log", s.handleWorktreeAuditLog)
+				r.Post("/archive", s.handleArchiveWorktree)
+				r.Post("/unarchive", s.handleUnarchiveWorktree)
 
 				r.Route("/terminals", func(r chi.Router) {
 					r.Get("/", s.handleListTerminals)
@@ -172,7 +174,10 @@ func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	worktrees, err := s.Store.ListWorktrees(repoID)
+	// Only "active" worktrees show up in the normal list — archived ones
+	// are deliberately hidden here (no archived-view UI exists yet; that's
+	// the planned settings-modal datagrid, filterable by repo/status).
+	worktrees, err := s.Store.ListWorktrees(repoID, store.WorktreeStatusActive)
 	if err != nil {
 		s.Log.Error("list worktrees", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list worktrees")
