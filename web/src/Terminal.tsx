@@ -61,6 +61,22 @@ export default function Terminal({ terminalId }: Props) {
       // 52 handler via registerOscHandler, which xterm.js gates behind
       // this flag as a "proposed" (not-yet-fully-stabilized) API.
       allowProposedApi: true,
+      // xterm.js already parses OSC 8 hyperlinks (the escape sequence
+      // `claude` itself uses for its clickable-looking links — confirmed
+      // via `strings` on the binary) with no addon needed for that part.
+      // But its DEFAULT link-open behavior, with no linkHandler supplied,
+      // is a native browser confirm() dialog ("Do you want to navigate to
+      // ...? WARNING: This link could potentially be dangerous") before
+      // it ever calls window.open — found by reading xterm.js's own
+      // source. Providing our own skips that dialog. See
+      // docs/terminal-clipboard.md for the still-open question of whether
+      // link clicks are *also* being swallowed by mouse-tracking mode the
+      // same way text selection is (unconfirmed without a real browser).
+      linkHandler: {
+        activate: (_event, uri) => {
+          window.open(uri, "_blank", "noopener,noreferrer");
+        },
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
