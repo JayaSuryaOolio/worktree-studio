@@ -76,7 +76,7 @@ export default function FileTree({ repoId, worktreeId, folderName, onOpenFile, a
     <div className="file-tree-panel">
       <div className="file-tree-heading">
         <span className="file-tree-heading-name" title={folderName}>
-          📁 {folderName}
+          {folderName}
         </span>
         <button
           type="button"
@@ -145,10 +145,11 @@ function FileTreeNode({
       title={isOpaque ? `${node.data.name} (not browsable here)` : node.data.name}
     >
       {isDir ? (
-        <span className="file-tree-disclosure">{isOpaque ? "" : node.isOpen ? "▾" : "▸"}</span>
+        <span className="file-tree-disclosure">{isOpaque ? "" : node.isOpen ? "📂" : "📁"}</span>
       ) : (
         <span className="file-tree-disclosure" />
       )}
+      <span>&nbsp;</span>
       <span className="file-tree-label">{node.data.name}</span>
     </div>
   );

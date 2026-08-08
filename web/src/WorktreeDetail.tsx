@@ -363,12 +363,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           <button title="View this worktree's audit log" onClick={() => setLogOpen(true)}>
             🕐 Log
           </button>
-          <button
-            title="Open this worktree in a new browser tab"
-            onClick={() => window.open(window.location.href, "_blank")}
-          >
-            ⧉ New tab
-          </button>
         </div>
       </div>
       {error && <p className="error">{error}</p>}
