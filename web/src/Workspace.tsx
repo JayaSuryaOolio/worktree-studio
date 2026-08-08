@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { createWorktree } from "./api";
 import { useRepoContext } from "./RepoContext";
 import WorktreeList from "./WorktreeList";
 import NewWorktreeDialog from "./NewWorktreeDialog";
-import { createWorktreeWithClaudeTerminal } from "./worktreeActions";
 
 export default function Workspace() {
   const { repoId } = useParams<{ repoId: string }>();
@@ -21,7 +21,7 @@ export default function Workspace() {
 
   async function handleCreate(name: string) {
     if (!repoId) return;
-    await createWorktreeWithClaudeTerminal(repoId, name);
+    await createWorktree(repoId, name);
     refreshWorktrees();
   }
 

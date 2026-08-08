@@ -1,9 +1,8 @@
 // Shared worktree action logic (delete-with-confirm-and-force-retry,
-// spotlight start/stop with a friendly conflict message, create-with-an-
-// auto-started-claude-terminal) — used by Workspace.tsx's table,
-// Sidebar.tsx's per-worktree kebab menu, and Layout.tsx's shared
-// creation flow, so none of this is duplicated across those surfaces.
-import { archiveWorktree, ConflictError, createTerminal, createWorktree, deleteWorktree, startSpotlight, stopSpotlight, Worktree } from "./api";
+// spotlight start/stop with a friendly conflict message) — used by
+// Workspace.tsx's table and Sidebar.tsx's per-worktree kebab menu, so
+// none of this is duplicated across those surfaces.
+import { archiveWorktree, ConflictError, deleteWorktree, startSpotlight, stopSpotlight, Worktree } from "./api";
 
 interface ActionCallbacks {
   onDone: () => void;
@@ -69,9 +68,26 @@ export async function startSpotlightWithFriendlyError(wt: Worktree, { onDone, on
     onDone();
   } catch (err) {
     if (err instanceof ConflictError) {
-      onError(
-        `Can't start spotlight for "${wt.name}": the repo's root checkout has uncommitted changes. Commit or stash them first.`
-      );
+      // The spotlight CLI itself supports stashing the root's uncommitted
+      // changes and proceeding, but only via an interactive prompt this
+      // server-side call has no terminal to show — so it refuses outright
+      // instead. This is the browser-side stand-in for that prompt: ask
+      // the same yes/no question a real terminal would have, and retry
+      // with stash=true (the non-interactive "yes") only if confirmed —
+      // same "refuse first, retry with an explicit flag once confirmed"
+      // shape as deleteWorktreeWithConfirm's force-retry above.
+      if (
+        confirm(
+          `Can't start spotlight for "${wt.name}": the repo's root checkout has uncommitted changes.\n\nStash them and start spotlight?`
+        )
+      ) {
+        try {
+          await startSpotlight(wt.repo_id, wt.id, true);
+          onDone();
+        } catch (retryErr) {
+          onError((retryErr as Error).message);
+        }
+      }
       return;
     }
     onError((err as Error).message);
@@ -85,40 +101,4 @@ export async function stopSpotlightSafe(wt: Worktree, { onDone, onError }: Actio
   } catch (err) {
     onError((err as Error).message);
   }
-}
-
-// Creates a worktree, then immediately creates a terminal in it with
-// `claude` auto-run as the first command — every worktree-creation
-// surface (sidebar "+", command palette, Workspace's own button) wants
-// this same behavior, not just the git-level worktree creation. Errors
-// from the terminal-creation step are swallowed (logged only) rather
-// than failing the whole operation: the worktree itself was created
-// successfully at that point, and the user can always open a terminal
-// manually — losing the auto-claude convenience isn't worth surfacing
-// a scary error for what's otherwise a successful worktree creation.
-// The claude session gets an id we generate ourselves (rather than one
-// `claude` would pick on its own) specifically so it's known *before* the
-// session starts — passed via `--session-id` and recorded in the audit log
-// in the same request that creates the terminal. That's what makes
-// `claude --resume <id>` possible later, independent of whether this
-// terminal/tmux session is still alive. `-n <name>` sets a human-readable
-// title (the worktree's own adjective-noun name is already human-friendly
-// and has no spaces/special characters, so it's safe to embed directly in
-// the command line typed into the pane's shell — no quoting needed).
-export async function createWorktreeWithClaudeTerminal(repoId: string, name: string): Promise<Worktree> {
-  const wt = await createWorktree(repoId, name);
-  try {
-    const claudeSessionId = crypto.randomUUID();
-    await createTerminal(
-      repoId,
-      wt.id,
-      "claude",
-      `claude --session-id ${claudeSessionId} -n ${wt.name}`,
-      claudeSessionId,
-      wt.name
-    );
-  } catch (err) {
-    console.error("worktree created, but failed to auto-start a claude terminal", err);
-  }
-  return wt;
 }

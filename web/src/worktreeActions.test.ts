@@ -1,16 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", () => ({
   ConflictError: class ConflictError extends Error {},
-  createWorktree: vi.fn(),
-  createTerminal: vi.fn(),
   deleteWorktree: vi.fn(),
   startSpotlight: vi.fn(),
   stopSpotlight: vi.fn(),
 }));
 
-import { createTerminal, createWorktree } from "./api";
-import { createWorktreeWithClaudeTerminal } from "./worktreeActions";
+import { ConflictError, startSpotlight } from "./api";
+import { startSpotlightWithFriendlyError } from "./worktreeActions";
 
 const worktree = {
   id: "wt1",
@@ -22,45 +20,62 @@ const worktree = {
   status: "active" as const,
 };
 
-beforeEach(() => {
-  vi.mocked(createWorktree).mockResolvedValue(worktree);
-  vi.mocked(createTerminal).mockResolvedValue({
-    id: "t1",
-    worktree_id: "wt1",
-    tmux_session_name: "wts-t1",
-    tab_label: "claude",
-  });
-});
+describe("startSpotlightWithFriendlyError", () => {
+  it("calls onDone on a plain success", async () => {
+    vi.mocked(startSpotlight).mockResolvedValue({ root: "/tmp/root" });
+    const onDone = vi.fn();
+    const onError = vi.fn();
 
-describe("createWorktreeWithClaudeTerminal", () => {
-  it("creates the worktree, then a terminal with claude as tab label and initial command", async () => {
-    const result = await createWorktreeWithClaudeTerminal("r1", "feature");
+    await startSpotlightWithFriendlyError(worktree, { onDone, onError });
 
-    expect(createWorktree).toHaveBeenCalledWith("r1", "feature");
-    // The session id is a fresh crypto.randomUUID() each run, so match its
-    // shape rather than an exact string — what matters is that it's a real
-    // UUID, embedded in the command, and threaded through as the explicit
-    // claude_session_id/title fields (so the API can audit-log it
-    // independent of the terminal/tmux session's own lifecycle).
-    expect(createTerminal).toHaveBeenCalledWith(
-      "r1",
-      "wt1",
-      "claude",
-      expect.stringMatching(/^claude --session-id [0-9a-f-]{36} -n feature$/),
-      expect.stringMatching(/^[0-9a-f-]{36}$/),
-      "feature"
-    );
-    expect(result).toEqual(worktree);
+    expect(startSpotlight).toHaveBeenCalledWith("r1", "wt1");
+    expect(onDone).toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 
-  it("still returns the worktree even if creating the auto-claude terminal fails", async () => {
-    vi.mocked(createTerminal).mockRejectedValue(new Error("tmux exploded"));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("on a dirty-root conflict, confirms then retries with stash=true, and calls onDone on success", async () => {
+    vi.mocked(startSpotlight).mockRejectedValueOnce(new ConflictError("dirty"));
+    vi.mocked(startSpotlight).mockResolvedValueOnce({ root: "/tmp/root" });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onDone = vi.fn();
+    const onError = vi.fn();
 
-    const result = await createWorktreeWithClaudeTerminal("r1", "feature");
+    await startSpotlightWithFriendlyError(worktree, { onDone, onError });
 
-    expect(result).toEqual(worktree);
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(confirmSpy).toHaveBeenCalled();
+    // Second call is the stash=true retry — the non-interactive "yes" to
+    // the prompt confirm() just stood in for.
+    expect(startSpotlight).toHaveBeenNthCalledWith(2, "r1", "wt1", true);
+    expect(onDone).toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("on a dirty-root conflict, does nothing further if the user declines the confirm", async () => {
+    vi.mocked(startSpotlight).mockRejectedValueOnce(new ConflictError("dirty"));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await startSpotlightWithFriendlyError(worktree, { onDone, onError });
+
+    expect(startSpotlight).toHaveBeenCalledTimes(1); // no retry attempted
+    expect(onDone).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("surfaces the retry's own error if the stash=true retry itself fails", async () => {
+    vi.mocked(startSpotlight).mockRejectedValueOnce(new ConflictError("dirty"));
+    vi.mocked(startSpotlight).mockRejectedValueOnce(new Error("stash failed"));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await startSpotlightWithFriendlyError(worktree, { onDone, onError });
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("stash failed");
+    confirmSpy.mockRestore();
   });
 });
