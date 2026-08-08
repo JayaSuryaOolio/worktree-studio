@@ -22,6 +22,8 @@ Follow-up to the entry below, after the user confirmed they'd rebuilt/restarted 
 
 **Not verified, explicitly**: actual drag-to-copy or link-click behavior in a real browser — no browser automation tool connected this session. Real user confirmation is the next step.
 
+**Next up (read this first in a fresh session):** user is continuing this work in a new chat. Before anything else, get real feedback on the three open items above: (1) does drag-then-release now actually copy, both inside `claude` and in a plain shell; (2) does link-clicking work, in both contexts too — this is the one genuinely unresolved risk (a possible regression, not just "not yet fixed"); (3) if either is still broken, check the basics first (`tmux show-options -g mouse` / `-g set-clipboard` both `on`, frontend actually rebuilt and server actually restarted, browser clipboard permission granted) before assuming a new bug — see `docs/terminal-clipboard.md`'s troubleshooting checklist. Once terminal copy/paste is confirmed solid, the user's own stated next step (from two sessions ago, still unstarted) is Monaco editor + folder tree viewer — `PLAN.md` step 5.
+
 ---
 
 ## 2026-08-08 — Follow-up: copy still broken inside `claude` sessions specifically
