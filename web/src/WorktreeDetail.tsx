@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { DockviewApi, DockviewReact, DockviewReadyEvent, IDockviewPanelProps } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import {
   createTerminal,
   deleteTerminal,
+  getDependencyStatus,
   getWorktreeLayout,
   listTerminals,
+  openInVSCode,
   saveWorktreeLayout,
   TerminalSession,
 } from "./api";
 import Terminal from "./Terminal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
+import FileTree from "./FileTree";
+import EditorPanel, { EditorPanelParams } from "./EditorPanel";
+import { useRepoContext } from "./RepoContext";
+import VSCodeIcon from "./icons/VSCodeIcon";
+import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 
 interface TerminalPanelParams {
   terminalId: string;
@@ -26,12 +33,38 @@ function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>) {
   return <Terminal terminalId={props.params.terminalId} />;
 }
 
-const components = { terminal: TerminalPanel };
+const components = { terminal: TerminalPanel, editor: EditorPanel };
+
+// dockview's watermarkComponent (like `components` above) is read once at
+// construction, not re-passed fresh on every render — so it can't close
+// over WorktreeDetailInner's own handleNewTerminal directly the way an
+// inline function would, the same reason `components` is a stable
+// module-level object instead of built fresh per render. This tiny
+// context is the bridge: dockview-react renders panels/watermark via a
+// shared "ReactPortalStore" that's still part of the normal React tree
+// (that's what lets Terminal.tsx/EditorPanel.tsx work as plain components
+// at all), so context set up in WorktreeDetailInner's render still reaches
+// this module-scope Watermark component through the portal.
+const WatermarkActionsContext = createContext<{
+  onOpenShell: () => void;
+  onOpenClaude: () => void;
+} | null>(null);
 
 function Watermark() {
+  const actions = useContext(WatermarkActionsContext);
   return (
     <div className="dockview-watermark">
-      No terminals yet — click "+ New Terminal" to start a shell in this worktree.
+      <p>Nothing open in this worktree yet.</p>
+      {actions && (
+        <div className="dockview-watermark-actions">
+          <button type="button" onClick={actions.onOpenShell}>
+            Open shell
+          </button>
+          <button type="button" onClick={actions.onOpenClaude}>
+            Open claude
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -67,10 +100,16 @@ export default function WorktreeDetail() {
 }
 
 function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeId: string }) {
+  const { worktreesByRepo } = useRepoContext();
+  const worktree = worktreesByRepo[repoId]?.find((w) => w.id === worktreeId);
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const [vscodeAvailable, setVscodeAvailable] = useState(false);
+  const [vscodeError, setVscodeError] = useState<string | null>(null);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   // State (not a ref) deliberately: the effect that applies the initial
   // saved layout needs to re-run once this becomes available, and refs
   // don't trigger effect re-runs when mutated.
@@ -79,6 +118,15 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const [savedLayout, setSavedLayout] = useState<unknown | null | undefined>(undefined);
   const initialLayoutAppliedRef = useRef(false);
   const saveDebounceRef = useRef<number | undefined>(undefined);
+  // onDockviewReady below subscribes handlePanelClosed to dockview's
+  // onDidRemovePanel exactly once (dockview-react only calls onReady
+  // once per instance) — a plain read of the `terminals` state variable
+  // inside that closure would be frozen at whatever `terminals` was
+  // during that one render (likely still `[]`, since the terminals fetch
+  // is async and hasn't resolved yet at that point), silently breaking
+  // every future terminal-close call. This ref is kept current via the
+  // effect below and is what handlePanelClosed actually reads.
+  const terminalsRef = useRef<TerminalSession[]>([]);
 
   useEffect(() => {
     listTerminals(repoId, worktreeId)
@@ -90,6 +138,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    terminalsRef.current = terminals;
+  }, [terminals]);
+
   // Fetch the saved layout (if any) for this worktree — mount-only, same
   // reasoning as above.
   useEffect(() => {
@@ -98,6 +150,29 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       .catch(() => setSavedLayout(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Gates the "Open in VS Code" button — `code` requires a one-time manual
+  // install step even when VS Code itself is installed, so this can be
+  // false on an otherwise normal machine. See settings.go's checkOnPath
+  // for "code" and SettingsModal.tsx's Installation tab, which surfaces
+  // the same status with an install hint.
+  useEffect(() => {
+    getDependencyStatus()
+      .then((status) => setVscodeAvailable(status.vscode_cli?.installed ?? false))
+      .catch(() => setVscodeAvailable(false));
+  }, []);
+
+  async function handleOpenInVSCode() {
+    setVscodeError(null);
+    try {
+      await openInVSCode(repoId, worktreeId);
+    } catch (err) {
+      // A real error, not a silent no-op — this check passing doesn't
+      // guarantee the exec call succeeds (e.g. `code` uninstalled between
+      // the check above and this click).
+      setVscodeError((err as Error).message);
+    }
+  }
 
   // Seed dockview with a panel per known terminal that doesn't already
   // have one — used both as the fallback when there's no saved layout,
@@ -159,25 +234,43 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     event.api.onDidRemovePanel((panel) => {
       handlePanelClosed(panel.id);
     });
+    // Keeps the file tree's highlighted/scrolled-to node in sync with
+    // whichever editor panel is currently active — setActiveFilePath is a
+    // state setter, so this closure never goes stale the way a plain
+    // variable read would (see handlePanelClosed's terminalsRef comment
+    // above for the general version of that pitfall).
+    event.api.onDidActivePanelChange((e) => {
+      const id = e.panel?.id;
+      setActiveFilePath(id?.startsWith("editor:") ? id.slice("editor:".length) : null);
+    });
   }
 
-  async function handlePanelClosed(terminalId: string) {
+  async function handlePanelClosed(panelId: string) {
+    // dockview's onDidRemovePanel fires for every panel kind (terminals
+    // AND editor panels), but only terminals have a server-side session to
+    // tear down. Without this check, closing an editor panel (id
+    // "editor:<path>") fell through to deleteTerminal, which 404'd
+    // ("terminal session not found") and surfaced that as a top-level
+    // error banner — a real bug, found from a user report — for an action
+    // (closing a file) that has nothing to clean up server-side.
+    if (!terminalsRef.current.some((t) => t.id === panelId)) return;
+
     // The panel is already gone from dockview's own layout by the time
     // this fires (that's what triggered the event) — this just tells the
     // server to actually kill the tmux session and drops our own
     // bookkeeping copy of the list.
     try {
-      await deleteTerminal(repoId, worktreeId, terminalId);
+      await deleteTerminal(repoId, worktreeId, panelId);
     } catch (err) {
       setError((err as Error).message);
     }
-    setTerminals((prev) => prev.filter((t) => t.id !== terminalId));
+    setTerminals((prev) => prev.filter((t) => t.id !== panelId));
   }
 
-  async function handleNewTerminal(direction: PlacementDirection) {
+  async function handleNewTerminal(direction: PlacementDirection, tabLabel?: string, initialCommand?: string) {
     setMenuOpen(false);
     try {
-      const ts = await createTerminal(repoId, worktreeId);
+      const ts = await createTerminal(repoId, worktreeId, tabLabel, initialCommand);
       setTerminals((prev) => [...prev, ts]);
 
       if (!dockviewApi) return; // the seed effect will pick it up once ready
@@ -194,28 +287,79 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     }
   }
 
+  // Opens a file's editor panel, reusing an already-open panel for the same
+  // path instead of creating a second one — see EditorPanel.tsx's doc
+  // comment for why this is what makes the "two panels on the same file"
+  // question moot rather than something needing a shared-model design.
+  function handleOpenFile(path: string) {
+    if (!dockviewApi) return;
+    const id = `editor:${path}`;
+    const existing = dockviewApi.getPanel(id);
+    if (existing) {
+      existing.api.setActive();
+      return;
+    }
+    const reference = dockviewApi.activePanel;
+    dockviewApi.addPanel<EditorPanelParams>({
+      id,
+      component: "editor",
+      title: path.split("/").pop() ?? path,
+      params: { repoId, worktreeId, path },
+      position: reference ? { referencePanel: reference.id, direction: "within" } : undefined,
+    });
+  }
+
+  // Registers this worktree as the one the command palette's file search
+  // opens into — see activeWorktreeFileOpener.ts for why this needs to be
+  // a plain module-level registration rather than React context.
+  useEffect(() => {
+    registerActiveFileOpener(handleOpenFile);
+    return () => registerActiveFileOpener(null);
+  });
+
   return (
     <div className="container worktree-detail">
       <div className="terminal-toolbar">
-        <div className="new-terminal-menu">
-          <button type="button" onClick={() => setMenuOpen((o) => !o)}>
-            + New Terminal ▾
+        <div className="terminal-toolbar-left">
+          <div className="new-terminal-menu">
+            <button type="button" onClick={() => setMenuOpen((o) => !o)}>
+              + New Terminal ▾
+            </button>
+            {menuOpen && (
+              <div className="actions-menu-list new-terminal-menu-list">
+                <button type="button" onClick={() => handleNewTerminal("within")}>
+                  New tab
+                </button>
+                <button type="button" onClick={() => handleNewTerminal("right")}>
+                  Split right
+                </button>
+                <button type="button" onClick={() => handleNewTerminal("below")}>
+                  Split down
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            title="Toggle the file tree sidebar"
+            onClick={() => setFilesOpen((o) => !o)}
+            aria-pressed={filesOpen}
+          >
+            📁 Files
           </button>
-          {menuOpen && (
-            <div className="actions-menu-list new-terminal-menu-list">
-              <button type="button" onClick={() => handleNewTerminal("within")}>
-                New tab
-              </button>
-              <button type="button" onClick={() => handleNewTerminal("right")}>
-                Split right
-              </button>
-              <button type="button" onClick={() => handleNewTerminal("below")}>
-                Split down
-              </button>
-            </div>
-          )}
         </div>
         <div className="terminal-toolbar-actions">
+          <button
+            title={
+              vscodeAvailable
+                ? "Open this worktree in VS Code"
+                : "VS Code CLI ('code') not detected — see Settings > Installation"
+            }
+            disabled={!vscodeAvailable}
+            onClick={handleOpenInVSCode}
+            className="button-with-icon"
+          >
+            <VSCodeIcon /> VS Code
+          </button>
           <button title="View this worktree's audit log" onClick={() => setLogOpen(true)}>
             🕐 Log
           </button>
@@ -228,14 +372,35 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+      {vscodeError && <p className="error">Failed to open VS Code: {vscodeError}</p>}
 
-      <div className="terminal-area">
-        <DockviewReact
-          components={components}
-          watermarkComponent={Watermark}
-          onReady={onDockviewReady}
-          className="dockview-theme-abyss command-deck-dockview"
-        />
+      <div className="worktree-body">
+        {filesOpen && (
+          <div className="worktree-sidebar">
+            <FileTree
+              repoId={repoId}
+              worktreeId={worktreeId}
+              folderName={worktree?.name ?? worktreeId}
+              onOpenFile={handleOpenFile}
+              activePath={activeFilePath}
+            />
+          </div>
+        )}
+        <div className="terminal-area">
+          <WatermarkActionsContext.Provider
+            value={{
+              onOpenShell: () => handleNewTerminal("within"),
+              onOpenClaude: () => handleNewTerminal("within", "claude", "claude"),
+            }}
+          >
+            <DockviewReact
+              components={components}
+              watermarkComponent={Watermark}
+              onReady={onDockviewReady}
+              className="dockview-theme-abyss command-deck-dockview"
+            />
+          </WatermarkActionsContext.Provider>
+        </div>
       </div>
 
       {logOpen && (

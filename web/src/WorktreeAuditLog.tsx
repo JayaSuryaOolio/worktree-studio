@@ -30,6 +30,7 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
   "spotlight.start": { icon: "🔦", label: "Spotlight started" },
   "spotlight.stop": { icon: "🔦", label: "Spotlight stopped" },
   "claude.session.create": { icon: "🤖", label: "Claude session started" },
+  "file.write": { icon: "📝", label: "File saved" },
 };
 
 // A per-worktree checkpoint summary that's worth a glance at without
@@ -50,6 +51,8 @@ function summarize(entry: AuditLogEntry, realTitles: Record<string, string | nul
     case "terminal.create":
     case "terminal.close":
       return typeof entry.tab_label === "string" ? entry.tab_label : null;
+    case "file.write":
+      return typeof entry.path === "string" ? entry.path : null;
     case "claude.session.create": {
       const id = entry.claude_session_id;
       if (typeof id !== "string") return null;

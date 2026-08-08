@@ -14,15 +14,46 @@ vi.mock("./Terminal", () => ({
   ),
 }));
 
+// Stub out the real EditorPanel (CodeMirror + its own file-content fetch)
+// for the same reason Terminal is stubbed above — this test is about
+// dockview panel orchestration (does opening a file create/reuse the right
+// panel?), not the editor engine's own internals.
+vi.mock("./EditorPanel", () => ({
+  default: ({ params }: { params: { path: string } }) => (
+    <div data-testid={`editor-${params.path}`}>editor:{params.path}</div>
+  ),
+}));
+
 vi.mock("./api", () => ({
   listTerminals: vi.fn(),
   createTerminal: vi.fn(),
   deleteTerminal: vi.fn(),
   getWorktreeLayout: vi.fn(),
   saveWorktreeLayout: vi.fn(),
+  getFileTree: vi.fn(),
+  getDependencyStatus: vi.fn(),
+  openInVSCode: vi.fn(),
 }));
 
-import { createTerminal, getWorktreeLayout, listTerminals, saveWorktreeLayout } from "./api";
+// Stubbed rather than wrapped in the real RepoProvider (which would need
+// listRepos/listWorktrees/getWorktreeStatus/getSpotlightStatus mocked too,
+// none of which this test cares about) — WorktreeDetail only reads
+// worktreesByRepo from this context, to resolve the current worktree's
+// folder name for FileTree's heading.
+vi.mock("./RepoContext", () => ({
+  useRepoContext: vi.fn(),
+}));
+
+import {
+  createTerminal,
+  deleteTerminal,
+  getDependencyStatus,
+  getFileTree,
+  getWorktreeLayout,
+  listTerminals,
+  saveWorktreeLayout,
+} from "./api";
+import { useRepoContext } from "./RepoContext";
 
 function renderPage() {
   return render(
@@ -47,6 +78,33 @@ beforeEach(() => {
   }));
   vi.mocked(getWorktreeLayout).mockResolvedValue(null);
   vi.mocked(saveWorktreeLayout).mockResolvedValue(undefined);
+  vi.mocked(getFileTree).mockResolvedValue([]);
+  vi.mocked(deleteTerminal).mockResolvedValue(undefined);
+  vi.mocked(useRepoContext).mockReturnValue({
+    repos: [],
+    reposLoading: false,
+    reposError: null,
+    refreshRepos: vi.fn(),
+    selectedRepoId: "r1",
+    worktreesByRepo: {
+      r1: [
+        { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/feature", created_at: "", status: "active" },
+        { id: "w2", repo_id: "r1", name: "other-worktree", branch: "other", path: "/tmp/other", created_at: "", status: "active" },
+      ],
+    },
+    worktreesLoading: false,
+    worktreesError: null,
+    refreshWorktrees: vi.fn(),
+    gitStatus: {},
+    spotlightStatus: {},
+  });
+  vi.mocked(getDependencyStatus).mockResolvedValue({
+    tmux: { installed: true },
+    spotlight: { installed: true },
+    skill: { installed: true },
+    claude_hook: { installed: true },
+    vscode_cli: { installed: false },
+  });
 });
 
 describe("WorktreeDetail", () => {
@@ -54,6 +112,12 @@ describe("WorktreeDetail", () => {
     renderPage();
     await waitFor(() => expect(listTerminals).toHaveBeenCalledWith("r1", "w1"));
     expect(await screen.findByTestId("terminal-t1")).toBeInTheDocument();
+  });
+
+  it("shows the current worktree's folder name as the file tree's heading", async () => {
+    renderPage();
+    expect(await screen.findByText(/feature-worktree/)).toBeInTheDocument();
+    expect(screen.queryByText(/other-worktree/)).not.toBeInTheDocument();
   });
 
   it("creates a terminal via the dropdown's 'New tab' action and renders it", async () => {
@@ -64,7 +128,7 @@ describe("WorktreeDetail", () => {
     await user.click(screen.getByRole("button", { name: /new terminal/i }));
     await user.click(screen.getByRole("button", { name: "New tab" }));
 
-    await waitFor(() => expect(createTerminal).toHaveBeenCalledWith("r1", "w1"));
+    await waitFor(() => expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined));
     expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
     // Menu closes after the action.
     expect(screen.queryByRole("button", { name: "New tab" })).not.toBeInTheDocument();
@@ -171,5 +235,75 @@ describe("WorktreeDetail", () => {
 
     expect(await screen.findByTestId("terminal-t1")).toBeInTheDocument();
     expect(screen.queryByTestId("terminal-t2")).not.toBeInTheDocument();
+  });
+
+  it("empty-state watermark's 'Open claude' button creates a claude terminal", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Open claude" }));
+    await waitFor(() =>
+      expect(createTerminal).toHaveBeenCalledWith("r1", "w1", "claude", "claude")
+    );
+  });
+
+  it("empty-state watermark's 'Open shell' button creates a plain terminal", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Open shell" }));
+    await waitFor(() =>
+      expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined)
+    );
+  });
+
+  it("opens a file from the file tree into an editor panel, and reuses it on a second click", async () => {
+    vi.mocked(getFileTree).mockResolvedValue([
+      { name: "main.go", path: "src/main.go", type: "file" },
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    const fileButton = await screen.findByText("main.go");
+    await user.click(fileButton);
+    expect(await screen.findByTestId("editor-src/main.go")).toBeInTheDocument();
+
+    // Clicking the same file again must not open a second panel — see
+    // EditorPanel.tsx's doc comment: one panel per file per worktree,
+    // reused rather than duplicated.
+    await user.click(fileButton);
+    expect(screen.getAllByTestId("editor-src/main.go")).toHaveLength(1);
+  });
+
+  // Regression test for a real user-reported bug: dockview's
+  // onDidRemovePanel fires for every closed panel, terminals AND editor
+  // panels alike, but only terminals have a server-side session to tear
+  // down. Before the fix, closing an editor panel fell through to
+  // deleteTerminal(editorPanelId), which 404'd ("terminal session not
+  // found") and surfaced that as a top-level error banner sitting right
+  // above the editor — for an action (closing a file) that has nothing to
+  // clean up server-side.
+  it("closing a file's editor panel does not call deleteTerminal or show an error", async () => {
+    vi.mocked(getFileTree).mockResolvedValue([{ name: "main.go", path: "main.go", type: "file" }]);
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    await user.click(await screen.findByText("main.go"));
+    await screen.findByTestId("editor-main.go");
+
+    const editorTab = Array.from(container.querySelectorAll(".dv-tab")).find((el) =>
+      el.textContent?.includes("main.go")
+    );
+    const closeBtn = editorTab?.querySelector(".dv-default-tab-action");
+    expect(closeBtn).toBeTruthy();
+    await user.click(closeBtn as Element);
+
+    await waitFor(() => expect(screen.queryByTestId("editor-main.go")).not.toBeInTheDocument());
+    expect(deleteTerminal).not.toHaveBeenCalled();
+    expect(screen.queryByText(/terminal session not found/i)).not.toBeInTheDocument();
   });
 });

@@ -37,6 +37,7 @@ const depsAllMissing = {
   spotlight: { installed: false, install_hint: "see docs" },
   skill: { installed: false, install_hint: "install from here" },
   claude_hook: { installed: false, install_hint: "install from here" },
+  vscode_cli: { installed: false, install_hint: "install from here" },
 };
 
 beforeEach(() => {

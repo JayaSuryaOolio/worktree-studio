@@ -30,7 +30,7 @@ export interface DependencyStatus {
   install_hint?: string;
 }
 
-export type DependencyName = "tmux" | "spotlight" | "skill" | "claude_hook";
+export type DependencyName = "tmux" | "spotlight" | "skill" | "claude_hook" | "vscode_cli";
 export type DependencyStatusMap = Record<DependencyName, DependencyStatus>;
 
 export interface TerminalSession {
@@ -60,6 +60,18 @@ export interface SpotlightStatus {
   root?: string;
   active_worktree_path?: string;
   pid?: number;
+}
+
+export interface FileNode {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  children?: FileNode[];
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -210,12 +222,20 @@ export function getSpotlightStatus(
   );
 }
 
+/** stash=true is the non-interactive equivalent of answering "yes" to the
+ * spotlight CLI's own "stash and start?" prompt — this server-side call
+ * has no controlling terminal to show that prompt on, so a dirty root
+ * refuses (409/ConflictError) unless the caller passes stash=true, which
+ * only happens after the user confirms it themselves in a browser prompt
+ * (see startSpotlightWithFriendlyError in worktreeActions.ts). */
 export function startSpotlight(
   repoId: string,
-  worktreeId: string
+  worktreeId: string,
+  stash = false
 ): Promise<{ root: string }> {
+  const qs = stash ? "?stash=true" : "";
   return request<{ root: string }>(
-    `/api/repos/${repoId}/worktrees/${worktreeId}/spotlight/start`,
+    `/api/repos/${repoId}/worktrees/${worktreeId}/spotlight/start${qs}`,
     { method: "POST" }
   );
 }
@@ -233,6 +253,15 @@ export function stopSpotlight(repoId: string, worktreeId: string): Promise<void>
 export function terminalWsUrl(terminalId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/terminals/${terminalId}`;
+}
+
+/** Builds the websocket URL for a worktree's file-change push (fsnotify-
+ * driven external-change notifications) — same relative-URL trick as
+ * terminalWsUrl above, so it works from both `vite dev` and the production
+ * server unmodified. */
+export function filesWsUrl(worktreeId: string): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/files/${worktreeId}`;
 }
 
 /** Returns the saved dockview layout for a worktree, or `null` if nothing
@@ -260,6 +289,38 @@ export function saveWorktreeLayout(
     method: "PUT",
     body: JSON.stringify(layout),
   });
+}
+
+export function getFileTree(repoId: string, worktreeId: string): Promise<FileNode[]> {
+  return request<FileNode[]>(`/api/repos/${repoId}/worktrees/${worktreeId}/files/tree`);
+}
+
+export function getFileContent(
+  repoId: string,
+  worktreeId: string,
+  path: string
+): Promise<FileContent> {
+  return request<FileContent>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/files/content?path=${encodeURIComponent(path)}`
+  );
+}
+
+export function openInVSCode(repoId: string, worktreeId: string): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/open-in-vscode`, {
+    method: "POST",
+  });
+}
+
+export function saveFileContent(
+  repoId: string,
+  worktreeId: string,
+  path: string,
+  content: string
+): Promise<void> {
+  return request<void>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/files/content?path=${encodeURIComponent(path)}`,
+    { method: "PUT", body: JSON.stringify({ content }) }
+  );
 }
 
 /** Every worktree across every registered repo, any status — used by the

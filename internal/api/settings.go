@@ -30,6 +30,7 @@ func (s *Server) handleGetDependencyStatus(w http.ResponseWriter, r *http.Reques
 		"spotlight":   checkSpotlight(),
 		"skill":       checkSkillInstalled(),
 		"claude_hook": checkClaudeHook(),
+		"vscode_cli":  checkOnPath("code", `install from VS Code: Cmd+Shift+P -> "Shell Command: Install 'code' command in PATH"`),
 	}
 	writeJSON(w, http.StatusOK, result)
 }

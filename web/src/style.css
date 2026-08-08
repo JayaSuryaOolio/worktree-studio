@@ -374,6 +374,12 @@ code {
   padding-bottom: 0.5rem;
 }
 
+.terminal-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .new-terminal-menu {
   position: relative;
   display: inline-flex;
@@ -387,6 +393,12 @@ code {
 .terminal-toolbar-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.button-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .terminal-area {
@@ -425,8 +437,10 @@ code {
 
 .dockview-watermark {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.75rem;
   height: 100%;
   padding: 2rem;
   text-align: center;
@@ -434,7 +448,211 @@ code {
   font-family: var(--font-ui);
 }
 
+.dockview-watermark-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .terminal-pane {
+  height: 100%;
+}
+
+/* File tree sidebar + editor panel — see docs/editor-plan.md. */
+
+.worktree-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.worktree-sidebar {
+  width: 15rem;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tree-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.file-tree-heading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.file-tree-heading-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-tree-collapse-all {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.file-tree-collapse-all:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.file-tree-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.file-tree-loading,
+.file-tree-error,
+.file-tree-empty {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.5rem;
+}
+
+.file-tree-error {
+  color: var(--red);
+}
+
+.file-tree-loading,
+.file-tree-empty {
+  color: var(--text-dim);
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.file-tree-row:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-row-selected {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.file-tree-row-opaque {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.file-tree-disclosure {
+  display: inline-block;
+  width: 1rem;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.file-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.editor-panel-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.editor-panel-dirty {
+  color: var(--amber);
+}
+
+.editor-panel-save-error {
+  color: var(--red);
+}
+
+.editor-panel-external-change {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--red-dim);
+  border-bottom: 1px solid var(--red);
+  font-size: 0.85rem;
+}
+
+.editor-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-panel-loading,
+.editor-panel-error {
+  padding: 1rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.editor-panel-error {
+  color: var(--red);
+}
+
+.codemirror-editor-container {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+}
+
+.codemirror-editor-container .cm-editor {
   height: 100%;
 }
 

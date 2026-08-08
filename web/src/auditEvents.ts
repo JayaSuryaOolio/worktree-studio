@@ -21,6 +21,7 @@ export const AUDIT_EVENTS = [
   "spotlight.start",
   "spotlight.stop",
   "claude.session.create",
+  "file.write",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENTS)[number];

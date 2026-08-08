@@ -113,6 +113,7 @@ const DEPENDENCY_LABELS: Record<DependencyName, string> = {
   spotlight: "Spotlight CLI",
   skill: "worktree-studio skill (global)",
   claude_hook: "Claude session-tracking hook",
+  vscode_cli: "VS Code CLI (`code`)",
 };
 
 // tmux/spotlight are detection-only — this tool won't run `brew install`
