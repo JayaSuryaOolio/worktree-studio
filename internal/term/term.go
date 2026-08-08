@@ -44,17 +44,27 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		return store.TerminalSession{}, fmt.Errorf("tmux new-session: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 
-	// set-clipboard is a tmux SERVER option (no per-session scope exists),
-	// so this affects every tmux session on the machine, including ones
-	// the user created themselves outside worktree-studio — deliberate,
-	// not an oversight: it only enables OSC 52 relay (copy-mode selections
-	// get forwarded up the pty chain as a clipboard-set escape sequence),
-	// doesn't change any keybinding or mouse behavior, and is a commonly
-	// recommended tmux setting on its own merits. See
-	// docs/terminal-clipboard.md for why this exists at all. Best-effort:
-	// a failure here doesn't affect the session's usability as a shell,
-	// only whether tmux copy-mode's clipboard integration works.
+	// set-clipboard and mouse are both tmux SERVER options (no per-session
+	// scope exists), so both affect every tmux session on the machine,
+	// including ones the user created themselves outside worktree-studio
+	// — deliberate, not an oversight. Together they make tmux itself
+	// intercept mouse drag-select and emit an OSC 52 clipboard-set escape
+	// sequence on release, BEFORE the event ever reaches whatever program
+	// is running in the pane — this is what makes copy-by-dragging work
+	// even inside a program (e.g. `claude`) that's enabled its own mouse
+	// tracking, which otherwise disables the browser terminal's native
+	// selection entirely. Verified for real (not just reasoned through):
+	// simulated an actual SGR mouse press/drag/release sequence into a
+	// throwaway tmux session with both options set, and confirmed tmux
+	// emitted a real `\x1b]52;` sequence containing the dragged text on
+	// release. See docs/terminal-clipboard.md for the full story,
+	// including the one real tradeoff (`mouse on` also means tmux, not
+	// the browser terminal, now owns mouse-wheel scrolling for sessions
+	// that haven't requested their own mouse tracking). Best-effort — a
+	// failure here doesn't affect the session's usability as a shell,
+	// only whether copy-by-dragging works.
 	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
+	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
 
 	if initialCommand != "" {
 		sendKeys := exec.Command("tmux", "send-keys", "-t", tmuxName, initialCommand, "Enter")

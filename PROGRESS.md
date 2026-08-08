@@ -4,6 +4,26 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-08 — Superseding fix: tmux `mouse on`, not just `set-clipboard`; scary link-open dialog removed
+
+Follow-up to the entry below, after the user confirmed they'd rebuilt/restarted and were specifically drag-selecting (the workflow that's unavoidably broken inside `claude` with only yesterday's `set-clipboard` fix) and asked whether we should reach for a tmux plugin instead.
+
+**Finding**: turning on tmux's *own* mouse handling (`set -g mouse on` — a separate option from `set-clipboard`, which was all that was added yesterday) makes tmux intercept mouse events *before* they reach whatever's running in the pane. Verified for real: simulated an actual mouse press→drag→release using raw SGR escape codes fed directly into a throwaway tmux session's pty (with `mouse on` + `set-clipboard on`), and got back a genuine `\x1b]52;;<base64>\x07` sequence containing the dragged text on release — no keyboard step needed, working the same whether the pane is running a plain shell or `claude`. `internal/term.Manager.CreateSession` now sets both options.
+
+**Answered directly**: no tmux plugin needed. Both `set-clipboard` and `mouse` are native tmux options — zero new dependencies, zero supply-chain surface, better than pinning and vetting a third-party plugin (e.g. `tmux-yank`) that would just wrap the same underlying mechanism.
+
+**Real tradeoff, documented not hidden**: `mouse on` means tmux, not the browser terminal, now owns mouse handling for *every* session, including plain shells — concretely, mouse-wheel scroll in a plain shell now enters tmux's own scrollback view instead of the browser's native one. Accepted given `claude` is the dominant use case.
+
+**Also fixed**: xterm.js's default link-click behavior, with no `linkHandler` supplied, is a native `confirm()` dialog ("this link could potentially be dangerous") before it ever calls `window.open` — found by reading its source while investigating the user's separate "links don't respond" report. `Terminal.tsx` now supplies its own `linkHandler` that opens directly.
+
+**Genuinely unresolved, flagged rather than guessed at**: whether xterm.js's link-click activation is gated by the same mouse-tracking check that disables text selection — if so, the new `mouse on` change could mean link clicks now fail *everywhere* (not just inside `claude`), a regression from before. Could not confirm either way from reading minified source; needs live testing.
+
+**Verified:** `go build`/`go vet`/`gofmt`/`go test` clean — **76/76**. `bun run build`/`bun run test` clean — **35/35** (also had to fix an unrelated, pre-existing environment issue: `esbuild`'s native binary was being Gatekeeper-rejected — `xattr -cr` + ad-hoc re-sign fixed it, confirmed pre-existing by reproducing against a clean `git stash` before this session's changes). Confirmed via a live isolated server that `CreateSession` flips both `mouse` and `set-clipboard` from `off` to `on`. Docs consolidated into `docs/terminal-clipboard.md` per standing instruction to keep this out of the main architecture doc.
+
+**Not verified, explicitly**: actual drag-to-copy or link-click behavior in a real browser — no browser automation tool connected this session. Real user confirmation is the next step.
+
+---
+
 ## 2026-08-08 — Follow-up: copy still broken inside `claude` sessions specifically
 
 Yesterday's Ctrl+C/Ctrl+V fix (below) worked for a plain shell but not inside a running `claude` session. Root cause confirmed empirically (not guessed): `claude`'s TUI enables terminal mouse tracking (`strings` on the binary shows `[?1000h`/`[?1006h`/`mouseTrack`), and reading `@xterm/xterm`'s own source shows it unconditionally disables its own text-selection service whenever an app has mouse tracking active — there's no selection for Ctrl+C to act on at all, and no modifier-key override in this xterm.js version. Not `claude`-specific — any TUI that grabs the mouse (vim, less -R, fzf) hits the same wall; every terminal emulator, native or web, resolves this the same way (it's unavoidably a terminal-emulator-layer decision, not something tmux/pty bytes can carry).

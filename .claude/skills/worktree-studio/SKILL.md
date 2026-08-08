@@ -174,7 +174,7 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
 
-**Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste — but inside a program that's grabbed mouse tracking (like `claude`'s own TUI), you can't drag-select at all, by design of how terminal mouse-reporting works; use tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter` to copy) instead. If copy/paste seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.
+**Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste. Drag-to-select-then-release also copies directly (via tmux's own mouse handling + OSC 52), working the same inside a plain shell or inside a program like `claude` that's grabbed its own mouse tracking — tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter`) is a keyboard-only fallback, not required for the normal case anymore. If copy/paste (or link-clicking) seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.
 
 ## Using Spotlight
 
