@@ -16,6 +16,7 @@ import (
 
 	"worktree-studio/internal/api"
 	"worktree-studio/internal/audit"
+	"worktree-studio/internal/files"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 	webembed "worktree-studio/web"
@@ -76,6 +77,7 @@ func main() {
 		Store:        st,
 		Audit:        al,
 		Term:         &term.Manager{Store: st, Audit: al},
+		Files:        files.NewManager(),
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
 		// The hook always runs on the same machine as the server (a

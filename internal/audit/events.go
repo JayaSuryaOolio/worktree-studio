@@ -30,4 +30,6 @@ const (
 	EventSpotlightStop  Event = "spotlight.stop"
 
 	EventClaudeSessionCreate Event = "claude.session.create"
+
+	EventFileWrite Event = "file.write"
 )

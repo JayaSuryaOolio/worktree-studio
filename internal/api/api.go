@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"worktree-studio/internal/audit"
+	"worktree-studio/internal/files"
 	"worktree-studio/internal/gitops"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
@@ -26,6 +27,7 @@ type Server struct {
 	Store        *store.Store
 	Audit        *audit.Logger
 	Term         *term.Manager
+	Files        *files.Manager
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
 	// SelfBaseURL is this server's own reachable base URL (e.g.
@@ -66,11 +68,20 @@ func (s *Server) Routes(r chi.Router) {
 
 				r.Get("/layout", s.handleGetLayout)
 				r.Put("/layout", s.handleSaveLayout)
+
+				r.Route("/files", func(r chi.Router) {
+					r.Get("/tree", s.handleFileTree)
+					r.Get("/content", s.handleGetFileContent)
+					r.Put("/content", s.handlePutFileContent)
+				})
+
+				r.Post("/open-in-vscode", s.handleOpenInVSCode)
 			})
 		})
 	})
 
 	r.Get("/ws/terminals/{terminalID}", s.handleTerminalWS)
+	r.Get("/ws/files/{worktreeID}", s.handleFilesWS)
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
