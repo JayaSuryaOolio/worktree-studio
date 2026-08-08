@@ -7,9 +7,9 @@ description: How to run and use worktree-studio, a local Go+React tool for manag
 
 `worktree-studio` is a small local web tool for managing `git worktree`s across one or more repos: register a repo once, then create/remove worktrees through a dashboard instead of hand-running `git worktree add/remove`. It's meant to be driven by both humans and agents.
 
-**Status as of this section (steps 1–4 of `PLAN.md`): repo registration, worktree create/remove, tmux-backed terminals, spotlight, and the dirty/ahead-behind status dashboard all exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
-- No Monaco file editor (planned: step 5)
+**Status as of this section (steps 1–5 of `PLAN.md`): repo registration, worktree create/remove, tmux-backed terminals, spotlight, the dirty/ahead-behind status dashboard, and a CodeMirror-backed in-browser file editor all exist.** The following are explicitly **NOT built yet** — don't assume they exist or try to use them:
 - No git diff view or "send comment to agent" flow (planned: step 6 / TODO)
+- No engine-picker UI for the editor (the adapter registry supports more than one engine; there's only one registered today and no UI to choose between engines)
 
 Also important: spotlight does **not** install dependencies into a worktree. A freshly created worktree has only what `git worktree add` gives it — if you need `node_modules` there directly (rather than running things from the mirrored root), you still run your own install/build step.
 
@@ -176,6 +176,31 @@ The "⧉ New tab" button on a worktree's detail page just opens the same page in
 
 **Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste. Drag-to-select-then-release also copies directly (via tmux's own mouse handling + OSC 52), working the same inside a plain shell or inside a program like `claude` that's grabbed its own mouse tracking — tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter`) is a keyboard-only fallback, not required for the normal case anymore. If copy/paste (or link-clicking) seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.
 
+## Editing files
+
+Every worktree's detail page has a file tree sidebar (toggle with the "📁 Files" toolbar button) alongside the terminal area. Click a file to open it in a syntax-highlighted CodeMirror editor panel, docked into the same dockview grid as terminals — it can be split/tabbed the same way. This is a **light editor for quick edits**, not an IDE: no autosave (Cmd/Ctrl+S to save explicitly), no multi-cursor-heavy refactoring tools. For anything beyond light editing, click "💻 VS Code" in the toolbar to open the worktree in real VS Code instead (`code <worktree-path>` under the hood) — that button is disabled if the `code` CLI isn't on `PATH` (a one-time manual "Shell Command: Install 'code' command in PATH" step inside VS Code itself; check status the same way as tmux/spotlight, via the settings modal or `curl http://localhost:8787/api/settings/dependencies`, key `vscode_cli`).
+
+If a file changes on disk while it's open (e.g. a `claude` session in the same worktree's terminal edits it, or a `git checkout`), the editor picks that up automatically: silently, if you haven't made unsaved edits; with a "this file changed on disk — Reload / Keep editing" banner if you have.
+
+Via the API:
+
+```bash
+# file tree (nested; tracked + untracked-but-not-gitignored files)
+curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/files/tree
+
+# read/write a file's content (path relative to the worktree root)
+curl "http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/files/content?path=src/main.go"
+curl -X PUT "http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/files/content?path=src/main.go" \
+  -H "Content-Type: application/json" -d '{"content": "new file content\n"}'
+
+# open the worktree in real VS Code
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/open-in-vscode
+```
+
+Files over 5MB or that aren't valid UTF-8 text (binaries, images) refuse to open here (`422`) — use VS Code for those. Paths are validated against escaping the worktree root (`../../etc/passwd`-style attempts get a `400`), the same seriousness as the absolute-path rejection on repo registration.
+
+Built as a layered adapter (`web/src/editors/`) rather than hard-wiring CodeMirror everywhere — see `docs/editor.md` and `docs/editor-plan.md` if you need to swap or add an editing engine later; nothing about the file tree, dockview wiring, or save/reload flow needs to change to do that.
+
 ## Using Spotlight
 
 Spotlight mirrors a worktree's source files into its repo's **root checkout** — continuously, while active — so you can build/run from the root path (which already has `node_modules`/build output installed) and have it always reflect whichever worktree is "in focus." It does **not** copy dependencies into the worktree itself; see the caveat at the top of this file.
@@ -280,4 +305,4 @@ curl http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/audit-log
 
 Not yet built (ideas, not commitments): a way to add a free-text checkpoint note manually (e.g. "sent PR link to reviewer"), and event types for repo-hosting-platform actions (branch pushed, PR opened/merged) once any such integration exists — right now every event this log can show is one this tool itself already causes.
 
-<!-- Each later build step (Monaco, diff/comment-to-agent) appends its own section here per PLAN.md — this file is a living doc, not written once. -->
+<!-- Each later build step (diff/comment-to-agent, etc.) appends its own section here per PLAN.md — this file is a living doc, not written once. The editor's own section is "Editing files" above. -->

@@ -1,6 +1,6 @@
 # Architecture
 
-worktree-studio is a Go HTTP server + embedded React SPA for managing `git worktree`s across one or more registered repos. This doc is updated at the end of every build step in `PLAN.md`; it currently reflects **steps 1–4, the complete step 7 UI overhaul** (sidebar, command palette, Command Deck visual design, dockview terminal arrangement, terminal layout persistence), and several step-6-adjacent pieces built ahead of the diff/comment-to-agent part of that step: the **per-worktree audit log viewer**, worktree **lifecycle status + Archive**, **claude session tracking** (both launch-time and a real Claude Code hook), and a **global settings modal**.
+worktree-studio is a Go HTTP server + embedded React SPA for managing `git worktree`s across one or more registered repos. This doc is updated at the end of every build step in `PLAN.md`; it currently reflects **steps 1–5, the complete step 7 UI overhaul** (sidebar, command palette, Command Deck visual design, dockview terminal arrangement, terminal layout persistence), and several step-6-adjacent pieces built ahead of the diff/comment-to-agent part of that step: the **per-worktree audit log viewer**, worktree **lifecycle status + Archive**, **claude session tracking** (both launch-time and a real Claude Code hook), and a **global settings modal**. Step 5 is the **CodeMirror-backed in-browser editor** (file tree, read/write, fsnotify external-change push, a VS Code escape hatch) — see "In-browser editor" below and `docs/editor.md`.
 
 ## Pieces that exist today
 
@@ -12,8 +12,10 @@ internal/gitops/                shells out to `git worktree add/remove/list --po
 internal/audit/                 JSONL audit logger, append-only
 internal/term/                  tmux-backed terminal session manager: create/list/close, pty attach+resize, startup reconciliation
 internal/spotlight/             thin os/exec wrapper around the external `spotlight` CLI (worktree->root mirroring)
-internal/api/                   HTTP handlers (repos, worktrees, terminals, spotlight) + ws relay + adjective-noun name generator + slugify/id helpers
+internal/files/                  file tree (git ls-files)/read/write with path-traversal guards, fsnotify-backed external-change Watcher + Manager (ref-counted, shared per worktree)
+internal/api/                   HTTP handlers (repos, worktrees, terminals, spotlight, files) + ws relays + adjective-noun name generator + slugify/id helpers
 web/src/                        Vite + React + TS SPA — see "Frontend structure" below; RepoPicker/Workspace/WorktreeDetail are the routed pages, everything else is shared shell or a component
+web/src/editors/                 layered editor-engine adapters (EditorAdapter.ts interface + registry.ts + CodeMirrorEditor.tsx) — see "In-browser editor" below
 ```
 
 ## Frontend structure (post-overhaul)
@@ -26,6 +28,7 @@ web/src/                        Vite + React + TS SPA — see "Frontend structur
 - **`worktreeActions.ts`** — shared delete-with-confirm-and-force-retry / spotlight-start-with-friendly-conflict-message logic, used by both `Sidebar.tsx` and `WorktreeList.tsx` so that flow isn't duplicated.
 - **`WorktreeDetail.tsx`** — terminal arrangement, via **dockview** (`dockview-react`), not a plain tab strip. See "Terminal arrangement" below.
 - **`Terminal.tsx`** — unchanged by the whole overhaul. Still just xterm.js + a websocket to `/ws/terminals/:id`; hosting it inside a dockview panel instead of a manually-toggled `display:none` div doesn't touch this component at all.
+- **`FileTree.tsx`** / **`EditorPanel.tsx`** — the file editor's file-tree sidebar and dockview panel shell. See "In-browser editor" below.
 
 ### Request flow
 
@@ -51,6 +54,17 @@ web/src/                        Vite + React + TS SPA — see "Frontend structur
 - **No OS-level popout into a separate browser window** — considered and explicitly ruled out for this tool, not deferred as a future TODO.
 - **Layout persistence**: on mount, `GET .../layout` fetches the saved arrangement (a `404` means none saved yet, not an error); if present, `dockviewApi.fromJSON()` restores it, then `seedPanels` fills in any terminal that exists server-side but wasn't part of the saved layout (e.g. created after the last save). Every `onDidLayoutChange` (drag/resize/tab-switch) debounces a `PUT .../layout` of `dockviewApi.toJSON()` (500ms — the layout is one opaque JSON blob upserted wholesale, not worth writing on every single drag event). The server never inspects the layout's shape, just stores and returns it verbatim (`internal/api/layout.go`, `worktree_layouts` table). Verified surviving both a page reload and a full server kill+restart against a real running server.
 - **Known simplification, not an oversight**: if a saved layout references a terminal id that no longer exists server-side (e.g. deleted through a path that didn't get a chance to save an updated layout first), that panel is left to fail gracefully at the websocket layer (`Terminal.tsx` shows a connection-error message) rather than this code hand-pruning dockview's serialized grid structure to remove it. A real edge case with a non-destructive fallback, not worth the complexity of generic grid-pruning logic.
+
+### In-browser editor (CodeMirror, layered)
+
+- **Engine layering**: `web/src/editors/EditorAdapter.ts` defines the interface (`content`, `path`, `theme`, `onChange`, `onSaveRequested`) every editing engine implements as a plain React component; `registry.ts` maps a `kind` string to an adapter (today just `{ codemirror: CodeMirrorEditor }`), mirroring the `const components = { terminal: TerminalPanel }` pattern `WorktreeDetail.tsx` already uses for dockview. `EditorPanel.tsx` (the dockview panel shell) and `FileTree.tsx` never import CodeMirror directly — only `CodeMirrorEditor.tsx` does. Swapping or adding an engine is additive there, not a rewrite. See `docs/editor-plan.md`/`docs/editor.md` for the full rationale.
+- Each adapter is **uncontrolled after mount** (like `<textarea defaultValue>`, not `<input value>`) — resetting its content (e.g. after accepting an external-change reload) is done by remounting via a changed `key`, the same pattern already used to reset dockview state per worktree.
+- **`internal/files`**: `ListTree` (`git ls-files` tracked ∪ `git ls-files --others --exclude-standard` untracked, nested into a tree server-side), `ReadFile`/`WriteFile` (both go through `ResolvePath`, which rejects any path escaping the worktree root — the first place this app takes an untrusted filesystem path from the browser). REST: `GET .../files/tree`, `GET/PUT .../files/content?path=...`.
+- **External-change push**: `internal/files.Watcher` (fsnotify, recursive, skips `.git`) + `internal/files.Manager` (one `Watcher` shared/ref-counted per worktree across every ws subscriber) push `{"type":"changed","path":...}` over `GET /ws/files/:worktreeId`. Debounced (300ms) to collapse a burst of raw OS events into one notification per path. Own-write suppression (`MarkOwnWrite`, called **before** `WriteFile`, not after — a real race was found and fixed here, see `internal/api.TestPutFileContentSuppressesOwnWriteEvent`) stops a save from round-tripping back as a false external-change push to the tab that made it.
+- `EditorPanel.tsx` opens one ws connection per open file (same one-connection-per-panel simplicity call already made for terminals, not a shared multiplexed channel). A clean buffer reloads silently on a change event for its path; a dirty one shows a reload/keep-editing banner instead of silently discarding edits or silently ignoring the change.
+- **One buffer per file**: `WorktreeDetail.tsx`'s `handleOpenFile` reuses an already-open panel (`dockviewApi.getPanel("editor:" + path)`) instead of opening a second one for the same path — there's never more than one buffer on a file at once, by construction.
+- **VS Code escape hatch**: `POST .../open-in-vscode` shells out to `code <worktree-path>`. Gated in the UI on `GET /api/settings/dependencies`'s `vscode_cli` entry (same `exec.LookPath` detection pattern as tmux/spotlight in `SettingsModal.tsx`), since `code` needs a one-time manual PATH-install step even when VS Code itself is present.
+- Explicit save only (Cmd/Ctrl+S, bound inside `CodeMirrorEditor.tsx`'s own keymap) — no autosave.
 
 ### Per-worktree audit log viewer
 
@@ -96,6 +110,7 @@ Opened via a gear icon in the sidebar header, as a big modal rather than a new r
 - **SQLite** at `~/.worktree-studio/studio.db` via `modernc.org/sqlite` (pure Go, no cgo). Tables: `repos(id, name, path)`, `worktrees(id, repo_id, name, branch, path, created_at)`, `terminal_sessions(id, worktree_id, tmux_session_name, tab_label)`, and `worktree_layouts(worktree_id, layout_json, updated_at)` (one saved dockview layout per worktree, upserted wholesale — an opaque JSON blob this server never inspects the shape of).
 - **`PRAGMA foreign_keys = ON`** is set once in `store.Open` (real fix, not always-been-true): SQLite does not enforce foreign keys — including every `ON DELETE CASCADE` in the schema above — unless this is set per connection, off by default. Verified empirically (a throwaway script: insert parent+child, delete parent, child row survives) that it was silently unenforced before this fix. Found while adding `worktree_layouts`; `internal/term`'s existing tests had to be fixed too, since they created terminal sessions referencing a worktree id that was never actually inserted — silently worked before, correctly rejected now.
 - **Audit log** at `~/.worktree-studio/audit.log.jsonl`, one JSON object per line, written by `internal/audit.Logger.Log(event, fields)`. Every mutating handler in `internal/api` calls it (now including `terminal.create` / `terminal.close` / `spotlight.start` / `spotlight.stop`). See `docs/running-locally.md` for how to tail it.
+- **File-watcher state** (`internal/files.Manager`'s ref-counted `Watcher`s) is purely in-memory, never persisted — there's nothing to reconcile at startup the way `internal/term.Reconcile` does for tmux sessions, since an fsnotify watch has no meaning across a process restart; a fresh watch is (re-)created lazily the next time a `/ws/files/:worktreeId` client subscribes.
 - **Spotlight state** is NOT in worktree-studio's own store at all — the external `spotlight` CLI owns its own state file (which repo root is mirrored from which worktree, tracked by that tool, not queried here directly; `internal/spotlight.List`/`StatusForRoot` parse its `spotlight list` output instead). worktree-studio treats it as an external system to query, not data it's responsible for persisting.
 
 ### Frontend embedding
@@ -105,8 +120,8 @@ Opened via a gear icon in the sidebar header, as a big modal rather than a new r
 ### What's explicitly NOT built yet
 
 Per `PLAN.md`'s build order, none of the following exist yet — don't assume they do:
-- Monaco file editor (step 5)
-- Git diff view + comment-to-agent (step 6 / TODO)
+- Git diff view + comment-to-agent (step 6 / TODO) — the file editor from step 5 exists (see "In-browser editor" above), this is its own follow-up step
+- An engine-picker UI for the editor — the `web/src/editors/registry.ts` adapter registry supports more than one editing engine, but only CodeMirror is registered and there's no UI to choose between engines
 - Theme switching — Command Deck is the only theme (a recorded `PLAN.md` TODO, not built). OS-level popout for terminals is not a TODO at all — it was considered and ruled out.
 - Terminal websocket connections are NOT multiplexed over one shared channel — each terminal has its own dedicated `/ws/terminals/:id` connection (a deliberate simplification vs. PLAN.md's originally-sketched single-multiplexed-channel design; see `docs/session-persistence.md`).
 - Spotlight is a thin wrapper — it does NOT reimplement any sync logic, has no manifest/staging/lock scheme of its own (that was an earlier, wrong design; see `docs/spotlight-sync.md`'s "design correction" note), and there's no per-workspace/per-subdirectory scoping — it always mirrors an entire worktree into an entire root.
