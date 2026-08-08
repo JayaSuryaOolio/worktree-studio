@@ -108,3 +108,48 @@ func TestSpotlightStartOnDirtyRootReturnsConflict(t *testing.T) {
 		t.Fatalf("spotlight start on dirty root: status = %d, want 409", resp.StatusCode)
 	}
 }
+
+// TestSpotlightStartWithStashRetriesSuccessfully verifies the confirm-and-
+// retry flow this endpoint's ?stash=true is for: a plain start refuses on a
+// dirty root exactly like the test above, but retrying with ?stash=true
+// (what the frontend sends after the user confirms a browser prompt)
+// succeeds — the non-interactive equivalent of answering "yes" to the
+// spotlight CLI's own interactive stash prompt, which this server-side
+// exec call could never actually see or answer.
+func TestSpotlightStartWithStashRetriesSuccessfully(t *testing.T) {
+	requireGit(t)
+	requireSpotlightCLI(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+	t.Cleanup(func() { _ = spotlight.Stop(repoPath) })
+
+	if err := os.WriteFile(filepath.Join(repoPath, "dirty.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/spotlight/start", nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("spotlight start on dirty root (no stash): status = %d, want 409", resp.StatusCode)
+	}
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/spotlight/start?stash=true", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("spotlight start with ?stash=true: status = %d, want 200", resp.StatusCode)
+	}
+
+	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("expected repo root to be clean (changes stashed) after starting with ?stash=true, got: %q", out)
+	}
+}

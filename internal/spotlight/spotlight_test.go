@@ -73,7 +73,7 @@ func TestStartMirrorsWorktreeIntoRoot(t *testing.T) {
 		t.Fatalf("write hello.txt: %v", err)
 	}
 
-	gotRoot, err := Start(worktree)
+	gotRoot, err := Start(worktree, false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestLiveEditPropagates(t *testing.T) {
 	root, worktree := newTestRepoWithWorktree(t)
 	t.Cleanup(func() { _ = Stop(root) })
 
-	if _, err := Start(worktree); err != nil {
+	if _, err := Start(worktree, false); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	// fswatch's watcher takes a moment to actually start watching after the
@@ -151,7 +151,7 @@ func TestStopRestoresCleanRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, "hello.txt"), []byte("from worktree\n"), 0o644); err != nil {
 		t.Fatalf("write hello.txt: %v", err)
 	}
-	if _, err := Start(worktree); err != nil {
+	if _, err := Start(worktree, false); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
@@ -184,12 +184,49 @@ func TestStartRefusesDirtyRoot(t *testing.T) {
 		t.Fatalf("write dirty.txt in root: %v", err)
 	}
 
-	_, err := Start(worktree)
+	_, err := Start(worktree, false)
 	if err == nil {
 		t.Fatal("expected Start to refuse a dirty root, got nil error")
 	}
 	if !errors.Is(err, ErrRootDirty) {
 		t.Fatalf("expected an ErrRootDirty-wrapping error, got: %v", err)
+	}
+}
+
+// TestStartStashesRootChangesWhenRequested verifies the non-interactive
+// --stash-root-changes path all the way through: Start with
+// stashRootChanges=true must succeed against a dirty root (stashing
+// instead of refusing), and Stop must restore those stashed changes
+// afterward — the whole point of offering this as an alternative to the
+// CLI's interactive prompt, which this package's caller (a one-shot
+// exec.Command with no controlling terminal) can never actually answer.
+func TestStartStashesRootChangesWhenRequested(t *testing.T) {
+	requireSpotlight(t)
+	root, worktree := newTestRepoWithWorktree(t)
+	t.Cleanup(func() { _ = Stop(root) })
+
+	if err := os.WriteFile(filepath.Join(root, "dirty.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatalf("write dirty.txt in root: %v", err)
+	}
+
+	gotRoot, err := Start(worktree, true)
+	if err != nil {
+		t.Fatalf("Start with stashRootChanges=true: %v", err)
+	}
+	if gotRoot == "" {
+		t.Fatal("Start returned an empty root")
+	}
+
+	status := runGit(t, root, "status", "--porcelain")
+	if status != "" {
+		t.Fatalf("expected root to be clean (changes stashed) after Start, got status: %q", status)
+	}
+
+	if err := Stop(root); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "dirty.txt")); err != nil {
+		t.Fatalf("expected dirty.txt to be restored from the stash after Stop, stat err = %v", err)
 	}
 }
 
@@ -204,14 +241,14 @@ func TestStartSwitchingWorktreeStopsPrevious(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree1, "from-one.txt"), []byte("one\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Start(worktree1); err != nil {
+	if _, err := Start(worktree1, false); err != nil {
 		t.Fatalf("Start worktree1: %v", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(worktree2, "from-two.txt"), []byte("two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Start(worktree2); err != nil {
+	if _, err := Start(worktree2, false); err != nil {
 		t.Fatalf("Start worktree2: %v", err)
 	}
 

@@ -68,13 +68,19 @@ func (s *Server) handleSpotlightStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	root, err := spotlight.Start(wt.Path)
+	// ?stash=true means the user already confirmed, in the UI, that they
+	// want the root's uncommitted changes stashed rather than blocking on
+	// them — same "refuse first, retry with an explicit flag once
+	// confirmed" shape as worktree deletion's ?force=true.
+	stash := r.URL.Query().Get("stash") == "true"
+
+	root, err := spotlight.Start(wt.Path, stash)
 	if err != nil {
 		switch {
 		case errors.Is(err, spotlight.ErrNotFound):
 			writeError(w, http.StatusServiceUnavailable, "spotlight CLI is not installed (see github.com/JayaSuryaOolio/spotlight)")
 		case errors.Is(err, spotlight.ErrRootDirty):
-			writeError(w, http.StatusConflict, "the repo's root checkout has uncommitted changes; commit or stash them before starting spotlight")
+			writeError(w, http.StatusConflict, "the repo's root checkout has uncommitted changes; retry with ?stash=true to stash them and start anyway, or commit/stash them yourself first")
 		default:
 			s.Log.Error("spotlight start", "err", err)
 			writeError(w, http.StatusInternalServerError, "failed to start spotlight: "+err.Error())

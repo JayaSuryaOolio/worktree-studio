@@ -57,12 +57,26 @@ type MirrorStatus struct {
 // returning the resolved root path on success. Wraps `spotlight start` run
 // with its working directory set to worktreePath (the CLI resolves the
 // worktree/root pair from cwd via git itself).
-func Start(worktreePath string) (root string, err error) {
+//
+// If the root has uncommitted changes, the CLI itself normally prompts
+// interactively ("Stash them and start spotlight? [y/N]"); since this
+// call has no controlling terminal to prompt on, the CLI refuses outright
+// in that case (surfaced as ErrRootDirty) unless stashRootChanges is true,
+// which passes --stash-root-changes so the CLI stashes and proceeds
+// without prompting. Callers should default to false and only pass true
+// after the user has explicitly confirmed discarding-into-a-stash in the
+// UI — this is the non-interactive equivalent of answering "yes" to a
+// prompt the caller can't actually see.
+func Start(worktreePath string, stashRootChanges bool) (root string, err error) {
 	bin, err := BinaryPath()
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(bin, "start")
+	args := []string{"start"}
+	if stashRootChanges {
+		args = append(args, "--stash-root-changes")
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = worktreePath
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
@@ -81,13 +95,22 @@ func Start(worktreePath string) (root string, err error) {
 	return root, nil
 }
 
-// Stop tears down the mirror for the given repo root.
+// Stop tears down the mirror for the given repo root. root is resolved
+// through resolveBestEffort first — the same normalization StatusForRoot
+// already applies before comparing paths — because the spotlight CLI's own
+// path resolution (via `git rev-parse`) canonicalizes symlinks (e.g.
+// macOS's /var -> /private/var) when it records a mirror's root internally,
+// so a caller passing the unresolved form (as Go's os.TempDir()-derived
+// paths typically are) would otherwise get "nothing running for <root>"
+// even though a mirror for that exact directory is active. A real,
+// reproducible bug found via this package's own test suite, not a
+// defensive guess.
 func Stop(root string) error {
 	bin, err := BinaryPath()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(bin, "stop", root)
+	cmd := exec.Command(bin, "stop", resolveBestEffort(root))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("spotlight stop: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
