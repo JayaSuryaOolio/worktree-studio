@@ -9,7 +9,7 @@ interface Props {
   terminalId: string;
 }
 
-export type TerminalKeyAction = "copy" | "paste" | "pass";
+export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
 
 /**
  * Decides what a keydown means for copy/paste, independent of xterm/
@@ -22,6 +22,15 @@ export type TerminalKeyAction = "copy" | "paste" | "pass";
  * Handling both Ctrl and Cmd (metaKey) since this app runs on macOS too,
  * where Cmd+C/Cmd+V are the muscle-memory shortcut but Ctrl+C/Ctrl+V are
  * common habit for anyone coming from Linux/Windows or a plain terminal.
+ *
+ * Also classifies Shift+Enter as "newline": a real terminal profile
+ * (iTerm2's `/terminal-setup`, VS Code's integrated terminal, etc.) remaps
+ * Shift+Enter to send ESC followed by CR (`\x1b\r`) instead of a plain
+ * `\r`, which is the sequence Claude Code's Ink-based input recognizes as
+ * "insert a newline" rather than "submit". xterm.js has no such remap
+ * built in — left alone it sends the same `\r` for Shift+Enter as for
+ * plain Enter — so this mirrors that terminal-profile behavior at the
+ * xterm layer instead.
  */
 export function classifyTerminalKeyEvent(event: {
   type: string;
@@ -30,7 +39,9 @@ export function classifyTerminalKeyEvent(event: {
   shiftKey: boolean;
   key: string;
 }): TerminalKeyAction {
-  if (event.type !== "keydown" || event.shiftKey) return "pass";
+  if (event.type !== "keydown") return "pass";
+  if (event.shiftKey && event.key === "Enter") return "newline";
+  if (event.shiftKey) return "pass";
   const mod = event.ctrlKey || event.metaKey;
   if (!mod) return "pass";
   const key = event.key.toLowerCase();
@@ -95,6 +106,9 @@ export default function Terminal({ terminalId }: Props) {
     term.open(containerRef.current);
     fit.fit();
 
+    const ws = new WebSocket(terminalWsUrl(terminalId));
+    ws.binaryType = "arraybuffer";
+
     // Copy-on-selection + explicit clipboard paste — see
     // classifyTerminalKeyEvent's doc comment for why xterm.js needs this
     // wired up by hand rather than "just working." Returning false tells
@@ -129,13 +143,16 @@ export default function Terminal({ terminalId }: Props) {
             // conditionally un-preventing default after the fact.
           });
           return false;
+        case "newline":
+          event.preventDefault(); // stop xterm sending its own plain \r for this Enter
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(new TextEncoder().encode("\x1b\r"));
+          }
+          return false;
         default:
           return true;
       }
     });
-
-    const ws = new WebSocket(terminalWsUrl(terminalId));
-    ws.binaryType = "arraybuffer";
 
     const sendResize = () => {
       fit.fit();

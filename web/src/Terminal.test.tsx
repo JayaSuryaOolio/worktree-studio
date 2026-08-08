@@ -59,4 +59,22 @@ describe("classifyTerminalKeyEvent", () => {
       classifyTerminalKeyEvent({ type: "keyup", ctrlKey: true, metaKey: false, shiftKey: false, key: "c" })
     ).toBe("pass");
   });
+
+  it("classifies Shift+Enter as newline", () => {
+    expect(
+      classifyTerminalKeyEvent({ type: "keydown", ctrlKey: false, metaKey: false, shiftKey: true, key: "Enter" })
+    ).toBe("newline");
+  });
+
+  it("passes through plain Enter (no shift) untouched", () => {
+    expect(
+      classifyTerminalKeyEvent({ type: "keydown", ctrlKey: false, metaKey: false, shiftKey: false, key: "Enter" })
+    ).toBe("pass");
+  });
+
+  it("ignores Shift+Enter on keyup", () => {
+    expect(
+      classifyTerminalKeyEvent({ type: "keyup", ctrlKey: false, metaKey: false, shiftKey: true, key: "Enter" })
+    ).toBe("pass");
+  });
 });
