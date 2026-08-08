@@ -4,6 +4,22 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-08 — Follow-up: copy still broken inside `claude` sessions specifically
+
+Yesterday's Ctrl+C/Ctrl+V fix (below) worked for a plain shell but not inside a running `claude` session. Root cause confirmed empirically (not guessed): `claude`'s TUI enables terminal mouse tracking (`strings` on the binary shows `[?1000h`/`[?1006h`/`mouseTrack`), and reading `@xterm/xterm`'s own source shows it unconditionally disables its own text-selection service whenever an app has mouse tracking active — there's no selection for Ctrl+C to act on at all, and no modifier-key override in this xterm.js version. Not `claude`-specific — any TUI that grabs the mouse (vim, less -R, fzf) hits the same wall; every terminal emulator, native or web, resolves this the same way (it's unavoidably a terminal-emulator-layer decision, not something tmux/pty bytes can carry).
+
+Implemented the fix discussed and approved: **tmux copy-mode + OSC 52 clipboard passthrough**, which operates at the tmux layer independent of whatever the pane's program is doing with the mouse. `internal/term.Manager.CreateSession` now also runs `tmux set-option -g set-clipboard on` (a tmux *server* option, deliberately global — no per-session scope exists, and it's inert/harmless until something actually emits or expects OSC 52). `Terminal.tsx` loads the official `@xterm/addon-clipboard` (needs `allowProposedApi: true`, since the addon's `registerOscHandler` use is gated behind that flag) to catch the resulting OSC 52 sequence and write it to the real browser clipboard.
+
+**Real, empirical verification, not just "should work" reasoning**: attached a Python `pty` (mirroring exactly what the Go server's `creack/pty` does) to a throwaway tmux session with `set-clipboard on`, drove `tmux copy-mode` + `select-line` + `copy-selection-and-cancel`, and captured the actual `\x1b]52;;<base64>\x07` bytes coming out of that pty — decoded the base64 and confirmed it was exactly the selected text. Also confirmed via a real isolated server run that `CreateSession` genuinely flips `set-clipboard` from `off` to `on` (checked before/after with `tmux show-options -g`), and confirmed `registerOscHandler`/`allowProposedApi` present in the real built JS bundle. The receiving-end clipboard write itself (`@xterm/addon-clipboard` → `navigator.clipboard.writeText`) is the official xterm.js team addon's own responsibility, not verified by an actual browser click-through (none connected this session) — same standing limitation as every other UI change made without one.
+
+**Also hit and fixed, unrelated to the actual feature**: `bun run build`/`test` started failing with `esbuild`'s native binary getting `SIGKILL`'d (exit 137) — `spctl` confirmed Gatekeeper was rejecting its ad-hoc code signature (likely re-triggered by the `bun add` for the new dependency touching that binary). Fixed with `xattr -cr` + `codesign --sign - --force` on the esbuild binary; confirmed this was a pre-existing environment issue by reproducing it against an unmodified `git stash`, not something these code changes caused.
+
+**Per direct instruction, the deep mechanism/troubleshooting detail for both this and yesterday's fix now lives in its own file, `docs/terminal-clipboard.md`, kept out of `docs/architecture.md`** (which now just has a two-line pointer) — this is niche, rarely-needed detail, not core architecture every session needs to re-read. `.claude/skills/worktree-studio/SKILL.md` got a short pointer too, not the full explanation.
+
+**Verified:** `go build`/`go vet`/`gofmt`/`go test` clean — **76/76** (unchanged count; no new Go tests needed, `CreateSession`'s new line is a one-liner best-effort call already covered by existing session-creation tests continuing to pass). `bun run build`/`bun run test` clean — **35/35** (unchanged; this was a mechanism fix, not new testable logic — `classifyTerminalKeyEvent`'s tests from yesterday already cover the key-combo decision, and the OSC 52 addon itself isn't something to unit-test here, it's a verified-for-real third-party integration).
+
+---
+
 ## 2026-08-07 — Bug report: Ctrl+C/Ctrl+V don't work in browser terminals
 
 User reported the most basic terminal actions — copy (Ctrl+C) and paste (Ctrl+V) — silently doing nothing in the xterm.js terminal panels.

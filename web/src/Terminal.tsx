@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { terminalWsUrl } from "./api";
 
@@ -56,9 +57,25 @@ export default function Terminal({ terminalId }: Props) {
       fontSize: 13,
       fontFamily:
         "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      // Required for @xterm/addon-clipboard below: it registers its OSC
+      // 52 handler via registerOscHandler, which xterm.js gates behind
+      // this flag as a "proposed" (not-yet-fully-stabilized) API.
+      allowProposedApi: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // OSC 52 clipboard passthrough: when a program running inside the
+    // terminal (tmux copy-mode, if `set-clipboard on` — see
+    // internal/term.CreateSession — or any inner app that emits OSC 52
+    // itself) sets "the terminal clipboard," this addon catches that
+    // escape sequence and writes it to the real browser clipboard. This
+    // is the mechanism that makes copying work even when the pane's
+    // program has grabbed mouse tracking (e.g. `claude`'s TUI) and
+    // disabled xterm.js's own drag-to-select entirely — see
+    // docs/terminal-clipboard.md for the full story. Uses the addon's
+    // default BrowserClipboardProvider (navigator.clipboard), no custom
+    // provider needed.
+    term.loadAddon(new ClipboardAddon());
     term.open(containerRef.current);
     fit.fit();
 

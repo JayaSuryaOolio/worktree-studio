@@ -174,6 +174,8 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
 
+**Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste — but inside a program that's grabbed mouse tracking (like `claude`'s own TUI), you can't drag-select at all, by design of how terminal mouse-reporting works; use tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter` to copy) instead. If copy/paste seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.
+
 ## Using Spotlight
 
 Spotlight mirrors a worktree's source files into its repo's **root checkout** — continuously, while active — so you can build/run from the root path (which already has `node_modules`/build output installed) and have it always reflect whichever worktree is "in focus." It does **not** copy dependencies into the worktree itself; see the caveat at the top of this file.

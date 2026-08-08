@@ -44,6 +44,18 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		return store.TerminalSession{}, fmt.Errorf("tmux new-session: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 
+	// set-clipboard is a tmux SERVER option (no per-session scope exists),
+	// so this affects every tmux session on the machine, including ones
+	// the user created themselves outside worktree-studio — deliberate,
+	// not an oversight: it only enables OSC 52 relay (copy-mode selections
+	// get forwarded up the pty chain as a clipboard-set escape sequence),
+	// doesn't change any keybinding or mouse behavior, and is a commonly
+	// recommended tmux setting on its own merits. See
+	// docs/terminal-clipboard.md for why this exists at all. Best-effort:
+	// a failure here doesn't affect the session's usability as a shell,
+	// only whether tmux copy-mode's clipboard integration works.
+	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
+
 	if initialCommand != "" {
 		sendKeys := exec.Command("tmux", "send-keys", "-t", tmuxName, initialCommand, "Enter")
 		if err := sendKeys.Run(); err != nil {
