@@ -66,6 +66,27 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
 	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
 
+	// tmux's own DEFAULT key bindings for both a mouse-drag release and
+	// pressing Enter in copy-mode are "copy-pipe-and-cancel", not
+	// "copy-selection-and-cancel" — confirmed via `tmux list-keys`. The
+	// two commands both copy into tmux's own paste buffer, but only
+	// copy-selection also emits the `\x1b]52;` OSC 52 escape sequence
+	// that set-clipboard above needs to relay the copy into the browser's
+	// clipboard; copy-pipe instead hands the text to an external shell
+	// command (`copy-command`, empty by default here), which is a no-op
+	// as far as the browser is concerned. Verified empirically: with the
+	// stock bindings, dragging to select in a real terminal pane sets
+	// tmux's paste buffer (`tmux show-buffer` proves it) but no OSC 52
+	// frame ever reaches the browser, so `navigator.clipboard` is never
+	// written to — copy-by-dragging silently does nothing. Rebinding both
+	// the emacs and vi copy-mode key tables (mode-keys can be either)
+	// fixes it without touching `copy-command` or anyone's own tmux.conf.
+	// Key tables are server-global like the two set-options above.
+	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode", "MouseDragEnd1Pane", "send-keys", "-X", "copy-selection-and-cancel").Run()
+	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane", "send-keys", "-X", "copy-selection-and-cancel").Run()
+	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode", "Enter", "send-keys", "-X", "copy-selection-and-cancel").Run()
+	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode-vi", "Enter", "send-keys", "-X", "copy-selection-and-cancel").Run()
+
 	if initialCommand != "" {
 		sendKeys := exec.Command("tmux", "send-keys", "-t", tmuxName, initialCommand, "Enter")
 		if err := sendKeys.Run(); err != nil {
