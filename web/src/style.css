@@ -899,6 +899,38 @@ code {
   box-shadow: 0 0 4px var(--cyan);
 }
 
+/* A brief, non-blocking cue that the focused worktree's status was stale
+   and is being re-fetched — a soft pulse, not a spinner, so it doesn't
+   read as a loading state that blocks anything. Its debounced-in/held/
+   fade-out lifecycle is driven by useTransientIndicator.ts; the 300ms
+   transition here matches that hook's default fadeMs so the CSS fade and
+   the "hidden" state land at the same time. */
+.sidebar-status-refreshing {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--text-dim);
+  opacity: 0.9;
+  animation: sidebar-status-refreshing-pulse 1s ease-in-out infinite;
+  transition: opacity 300ms ease;
+}
+
+.sidebar-status-refreshing.fading {
+  opacity: 0;
+  animation: none;
+}
+
+@keyframes sidebar-status-refreshing-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
 .sidebar-error {
   margin: 0.5rem 1rem;
   font-size: 0.8rem;

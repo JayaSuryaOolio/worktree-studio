@@ -97,6 +97,7 @@ beforeEach(() => {
     refreshWorktrees: vi.fn(),
     gitStatus: {},
     spotlightStatus: {},
+    statusRefreshing: {},
   });
   vi.mocked(getDependencyStatus).mockResolvedValue({
     tmux: { installed: true },

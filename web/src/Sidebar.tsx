@@ -6,6 +6,7 @@ import WorktreeActionsMenu from "./WorktreeActionsMenu";
 import SettingsModal from "./SettingsModal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
 import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
+import { useTransientIndicator } from "./useTransientIndicator";
 
 interface Props {
   onAddRepo: () => void;
@@ -31,10 +32,19 @@ export default function Sidebar({ onAddRepo, onNewWorktree, onAttachWorktree }: 
     refreshWorktrees,
     gitStatus,
     spotlightStatus,
+    statusRefreshing,
   } = useRepoContext();
 
   const worktreeMatch = useMatch("/repo/:repoId/worktree/:worktreeId");
   const activeWorktreeId = worktreeMatch?.params.worktreeId ?? null;
+
+  // Debounced/held/fade-out presence for the "refreshing" dot below — see
+  // useTransientIndicator.ts. Only the active worktree's row can ever show
+  // it (RepoContext.tsx's stale-on-focus refresh only fires for the
+  // currently-viewed worktree), so this one hook call covers every row.
+  const activeStatusRefreshingPhase = useTransientIndicator(
+    activeWorktreeId ? !!statusRefreshing[activeWorktreeId] : false
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
@@ -136,6 +146,25 @@ export default function Sidebar({ onAddRepo, onNewWorktree, onAttachWorktree }: 
                             )}
                             {spot?.active && (
                               <span className="sidebar-dot sidebar-dot-spotlight" title="Spotlight active" />
+                            )}
+                            {/* Only meaningful for the just-focused worktree in
+                                practice (see RepoContext.tsx's stale-on-focus
+                                refresh) — a brief, non-blocking cue that a
+                                just-opened worktree's status was stale and is
+                                being refreshed, not a permanent loading state.
+                                Debounced/held/fade-out via
+                                useTransientIndicator so a fast refresh (the
+                                common case) doesn't just flash on and off. */}
+                            {wt.id === activeWorktreeId && activeStatusRefreshingPhase !== "hidden" && (
+                              <span
+                                className={
+                                  activeStatusRefreshingPhase === "fading"
+                                    ? "sidebar-status-refreshing fading"
+                                    : "sidebar-status-refreshing"
+                                }
+                                title="Refreshing status…"
+                                aria-label="Refreshing status"
+                              />
                             )}
                             <WorktreeActionsMenu
                               wt={wt}
