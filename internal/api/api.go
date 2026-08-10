@@ -45,6 +45,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Route("/{repoID}/worktrees", func(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
 			r.Post("/", s.handleCreateWorktree)
+			r.Post("/import", s.handleImportWorktree)
 			r.Get("/new-name-suggestion", s.handleNewNameSuggestion)
 
 			r.Route("/{worktreeID}", func(r chi.Router) {

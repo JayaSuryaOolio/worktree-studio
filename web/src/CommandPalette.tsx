@@ -8,6 +8,7 @@ import { useRepoContext } from "./RepoContext";
 interface Props {
   onAddRepo: () => void;
   onNewWorktree: (repoId: string) => void;
+  onAttachWorktree: (repoId: string) => void;
 }
 
 // Flattens a file tree into just the file paths (skipping directories
@@ -32,7 +33,7 @@ function flattenFilePaths(nodes: FileNode[]): string[] {
 // Scoped deliberately narrow: jump to a repo or worktree, trigger the
 // existing add-repo/new-worktree modals, or (when currently viewing a
 // worktree) fuzzy-open one of its files — not arbitrary command execution.
-export default function CommandPalette({ onAddRepo, onNewWorktree }: Props) {
+export default function CommandPalette({ onAddRepo, onNewWorktree, onAttachWorktree }: Props) {
   const [open, setOpen] = useState(false);
   const { repos, worktreesByRepo } = useRepoContext();
   const navigate = useNavigate();
@@ -111,6 +112,9 @@ export default function CommandPalette({ onAddRepo, onNewWorktree }: Props) {
             </Command.Item>
             <Command.Item onSelect={() => runAndClose(() => onNewWorktree(r.id))}>
               + New worktree in {r.name}
+            </Command.Item>
+            <Command.Item onSelect={() => runAndClose(() => onAttachWorktree(r.id))}>
+              📂 Attach existing worktree in {r.name}
             </Command.Item>
             {(worktreesByRepo[r.id] ?? []).map((wt) => (
               <Command.Item

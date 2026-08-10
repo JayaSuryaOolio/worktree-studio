@@ -21,11 +21,17 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function Harness({ initialPath = "/" }: { initialPath?: string }) {
+function Harness({
+  initialPath = "/",
+  onAttachWorktree = vi.fn(),
+}: {
+  initialPath?: string;
+  onAttachWorktree?: (repoId: string) => void;
+}) {
   return (
     <MemoryRouter initialEntries={[initialPath]}>
       <RepoProvider>
-        <CommandPalette onAddRepo={vi.fn()} onNewWorktree={vi.fn()} />
+        <CommandPalette onAddRepo={vi.fn()} onNewWorktree={vi.fn()} onAttachWorktree={onAttachWorktree} />
         <LocationProbe />
       </RepoProvider>
     </MemoryRouter>
@@ -79,7 +85,7 @@ describe("CommandPalette", () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <RepoProvider>
-          <CommandPalette onAddRepo={vi.fn()} onNewWorktree={onNewWorktree} />
+          <CommandPalette onAddRepo={vi.fn()} onNewWorktree={onNewWorktree} onAttachWorktree={vi.fn()} />
         </RepoProvider>
       </MemoryRouter>
     );
@@ -127,6 +133,23 @@ describe("CommandPalette", () => {
     await user.click(item);
 
     expect(opener).toHaveBeenCalledWith("src/main.go");
+    expect(screen.queryByPlaceholderText(/jump to a repo\/worktree/i)).not.toBeInTheDocument();
+  });
+
+  it("triggers onAttachWorktree for the right repo and closes", async () => {
+    const user = userEvent.setup();
+    const onAttachWorktree = vi.fn();
+    render(<Harness onAttachWorktree={onAttachWorktree} />);
+    await waitFor(() => expect(listWorktrees).toHaveBeenCalled());
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    });
+
+    const item = await screen.findByText(/attach existing worktree in adelaide/i);
+    await user.click(item);
+
+    expect(onAttachWorktree).toHaveBeenCalledWith("r1");
     expect(screen.queryByPlaceholderText(/jump to a repo\/worktree/i)).not.toBeInTheDocument();
   });
 });

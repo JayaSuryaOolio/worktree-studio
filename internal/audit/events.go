@@ -19,6 +19,7 @@ const (
 	EventRepoAdd Event = "repo.add"
 
 	EventWorktreeCreate    Event = "worktree.create"
+	EventWorktreeImport    Event = "worktree.import"
 	EventWorktreeRemove    Event = "worktree.remove"
 	EventWorktreeArchive   Event = "worktree.archive"
 	EventWorktreeUnarchive Event = "worktree.unarchive"

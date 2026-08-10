@@ -79,6 +79,18 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/ \
 
 This runs `git worktree add -b amber-ridge <path>` against the registered repo, placing the new worktree at `~/.worktree-studio/worktrees/<repoId>/amber-ridge` — **outside** the source repo's own directory tree (deliberate: keeps the main repo's `.gitignore`/tooling from getting confused by a nested worktree). List worktrees for a repo with `GET /api/repos/:repoId/worktrees/`.
 
+## Attaching an existing worktree (no git mutation)
+
+For a worktree created some other way — by hand with `git worktree add`, or by another tool — there's a separate "attach" flow that registers it without running any git command at all. In the UI: the sidebar's per-repo "📂" button (next to the "+" for a new worktree), or "📂 Attach existing worktree in `<repo>`" in the command palette.
+
+```bash
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/import \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/absolute/path/to/existing/worktree"}'
+```
+
+The path must already appear in `git worktree list --porcelain` run from the registered repo's root — anything else is a `400`. A detached-HEAD worktree is also rejected (`400`): most of this app assumes a real branch. Re-importing an already-registered path is a `409`, not a silent no-op. `name` is optional in the request body; when omitted it defaults to `ext_<directory name>` — the `ext_` prefix is deliberate, so an attached worktree is visually distinguishable in the list from one this tool created itself (which is always a bare adjective-noun slug).
+
 ## Archiving a worktree (not "delete" anymore)
 
 Via the UI: each worktree row's kebab menu ("⋮") has **"Archive"** — this replaced "Delete" as the everyday action. Archiving is a pure visibility flag: it hides the worktree from the normal list, but does **not** touch git at all — the worktree checkout, its branch, and anything recorded against it (a claude session, see below) all stay exactly as they were on disk. There's a confirm prompt explaining this before it happens.

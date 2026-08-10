@@ -246,6 +246,16 @@ func (s *Store) AddWorktree(w Worktree) error {
 	return err
 }
 
+// WorktreePathExists reports whether a worktree with the given path is
+// already registered — mirrors RepoPathExists, used the same way (a
+// pre-insert check that turns a UNIQUE constraint violation into a
+// friendly 409 instead of a raw SQL error reaching the client).
+func (s *Store) WorktreePathExists(path string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(1) FROM worktrees WHERE path = ?`, path).Scan(&count)
+	return count > 0, err
+}
+
 // ListWorktrees returns worktrees for a given repo, newest first. statuses
 // filters which status values to include; passing none returns every
 // status (used by ListAllWorktreesForRepo, e.g. a future settings-modal

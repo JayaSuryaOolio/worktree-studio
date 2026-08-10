@@ -122,6 +122,25 @@ export function createWorktree(repoId: string, name: string): Promise<Worktree> 
   });
 }
 
+/** Registers an existing, already-on-disk git worktree of this repo — no
+ * `git worktree add` is run, this is purely a registry insert for a
+ * worktree created some other way (by hand, or by another tool). The
+ * backend rejects a path that isn't actually one of this repo's real git
+ * worktrees (a plain 400, not a ConflictError), and 409s only if that path
+ * is already registered. `name` defaults server-side to `ext_<dirname>` if
+ * omitted, so imported worktrees are visually distinguishable from ones
+ * created through the normal flow. */
+export function importWorktree(
+  repoId: string,
+  path: string,
+  name?: string
+): Promise<Worktree> {
+  return request<Worktree>(`/api/repos/${repoId}/worktrees/import`, {
+    method: "POST",
+    body: JSON.stringify({ path, name }),
+  });
+}
+
 export function deleteWorktree(
   repoId: string,
   worktreeId: string,
