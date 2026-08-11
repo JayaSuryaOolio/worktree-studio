@@ -1,8 +1,12 @@
 // Package files provides the file tree, read, and write operations behind
 // the in-browser editor (see docs/editor-plan.md). The tree comes from
-// `git ls-files` (tracked + untracked-but-not-ignored), the same
-// tracked/untracked distinction internal/gitops.Status already uses, so
-// .gitignore semantics come for free instead of being reimplemented.
+// `git ls-files` (tracked + untracked, INCLUDING gitignored — per direct
+// user feedback, .gitignore controls what git tracks, not what's
+// browsable here; a stray ignored file like .env shouldn't just vanish).
+// The one deliberate exception is opaqueDirNames (node_modules, build):
+// those still collapse to a single non-expandable folder entry regardless
+// of ignore status, since dependency/build output directories are huge
+// and not something anyone browses via this tree.
 package files
 
 import (
@@ -62,15 +66,15 @@ type FileNode struct {
 }
 
 // ListTree lists every tracked file (`git ls-files`) unioned with every
-// untracked-but-not-gitignored file (`git ls-files --others
-// --exclude-standard`), then nests the flat path list into a directory
-// tree.
+// untracked file regardless of gitignore status (`git ls-files --others`,
+// deliberately without --exclude-standard — see this package's doc
+// comment), then nests the flat path list into a directory tree.
 func ListTree(worktreePath string) ([]FileNode, error) {
 	tracked, err := lsFiles(worktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
 	}
-	untracked, err := lsFilesOthers(worktreePath)
+	untracked, err := lsFilesOthersIncludingIgnored(worktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files --others: %w", err)
 	}
@@ -101,6 +105,7 @@ func ListTree(worktreePath string) ([]FileNode, error) {
 // presence isn't a surprise), it's just not explorable.
 var opaqueDirNames = map[string]bool{
 	"node_modules": true,
+	"build":        true,
 }
 
 // collapseOpaqueDirs truncates any path that passes through an opaque
@@ -137,8 +142,12 @@ func lsFiles(worktreePath string) ([]string, error) {
 	return strings.Split(strings.TrimRight(string(out), "\n"), "\n"), nil
 }
 
-func lsFilesOthers(worktreePath string) ([]string, error) {
-	cmd := exec.Command("git", "-C", worktreePath, "ls-files", "--others", "--exclude-standard")
+// lsFilesOthersIncludingIgnored deliberately omits --exclude-standard —
+// see this package's doc comment for why gitignored files should still
+// show up in the tree (opaqueDirNames is what keeps node_modules/build
+// from dumping thousands of entries, independent of this).
+func lsFilesOthersIncludingIgnored(worktreePath string) ([]string, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "ls-files", "--others")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

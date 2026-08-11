@@ -1,6 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { DockviewApi, DockviewReact, DockviewReadyEvent, IDockviewPanelProps } from "dockview-react";
+import {
+  DockviewApi,
+  DockviewDefaultTab,
+  DockviewReact,
+  DockviewReadyEvent,
+  IDockviewPanelHeaderProps,
+  IDockviewPanelProps,
+} from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import {
   createTerminal,
@@ -18,21 +25,72 @@ import FileTree from "./FileTree";
 import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
 import VSCodeIcon from "./icons/VSCodeIcon";
+import ClaudeIcon from "./icons/ClaudeIcon";
 import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
+import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 
 interface TerminalPanelParams {
   terminalId: string;
+  // What the tab reverts to once the pane's title no longer matches a
+  // known app — the tab_label this terminal was created with (see
+  // createTerminal/handleNewTerminal), not something recomputed later.
+  baseLabel: string;
+  // Set once a known interactive app is detected running in this pane
+  // (see terminalAppDetection.ts) — drives which icon TerminalTab shows.
+  // Undefined until/unless a matching title arrives, and cleared again if
+  // the title stops matching (e.g. the app exits back to a plain shell).
+  appKind?: TerminalAppKind;
 }
+
+// Icon shown in a terminal tab once its pane is known to be running that
+// app (see terminalAppDetection.ts) — kept separate from that module so
+// terminalAppDetection.ts itself stays framework-free. New entries here
+// are how this grows to cover more "persisting" apps beyond claude later.
+const TERMINAL_APP_ICONS: Record<TerminalAppKind, (props: { size?: number }) => JSX.Element> = {
+  claude: ClaudeIcon,
+};
 
 // A thin wrapper so dockview can host the existing Terminal component as a
 // panel. Terminal.tsx itself needs no changes — dockview panels are just
 // React components in the tree; adding/splitting/resizing panels doesn't
 // touch this component's mount state, so the xterm/websocket lifecycle in
 // Terminal.tsx's own useEffect is unaffected.
+//
+// Also wires Terminal's onTitleChange to this panel's own dockview tab:
+// detects a known app from the pane's title and, if it changed, updates
+// both the tab's label (api.setTitle) and its params (api.updateParameters)
+// so TerminalTab below knows which icon to render. Reverts to baseLabel
+// with no icon once the title stops matching anything known (e.g. the app
+// exited back to a plain shell).
 function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>) {
-  return <Terminal terminalId={props.params.terminalId} />;
+  function handleTitleChange(title: string) {
+    const app = detectTerminalApp(title);
+    if (props.params.appKind !== app?.kind) {
+      props.api.updateParameters({ ...props.params, appKind: app?.kind });
+    }
+    props.api.setTitle(app ? app.label : props.params.baseLabel);
+  }
+
+  return <Terminal terminalId={props.params.terminalId} onTitleChange={handleTitleChange} />;
 }
+
+// Renders the same look as dockview's own default tab, plus a leading
+// app icon when TerminalPanel above has detected one. Delegating to
+// DockviewDefaultTab (rather than reimplementing the tab's close button
+// etc. from scratch) is what keeps this in sync with dockview's own
+// look/behavior for free.
+function TerminalTab(props: IDockviewPanelHeaderProps<TerminalPanelParams>) {
+  const Icon = props.params.appKind ? TERMINAL_APP_ICONS[props.params.appKind] : null;
+  return (
+    <div className="terminal-tab-with-icon">
+      {Icon && <Icon size={13} />}
+      <DockviewDefaultTab {...props} />
+    </div>
+  );
+}
+
+const tabComponents = { "terminal-tab": TerminalTab };
 
 const components = { terminal: TerminalPanel, editor: EditorPanel };
 
@@ -192,8 +250,9 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
         api.addPanel<TerminalPanelParams>({
           id: ts.id,
           component: "terminal",
+          tabComponent: "terminal-tab",
           title: ts.tab_label,
-          params: { terminalId: ts.id },
+          params: { terminalId: ts.id, baseLabel: ts.tab_label },
         });
       }
     }
@@ -308,8 +367,9 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       dockviewApi.addPanel<TerminalPanelParams>({
         id: ts.id,
         component: "terminal",
+        tabComponent: "terminal-tab",
         title: ts.tab_label,
-        params: { terminalId: ts.id },
+        params: { terminalId: ts.id, baseLabel: ts.tab_label },
         position: reference ? { referencePanel: reference.id, direction } : undefined,
       });
     } catch (err) {
@@ -431,6 +491,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           >
             <DockviewReact
               components={components}
+              tabComponents={tabComponents}
               watermarkComponent={Watermark}
               onReady={onDockviewReady}
               className="dockview-theme-abyss command-deck-dockview"

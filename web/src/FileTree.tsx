@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { getFileTree, type FileNode } from "./api";
+import FileTypeIcon from "./icons/FileTypeIcon";
 
 interface FileTreeProps {
   repoId: string;
@@ -142,15 +143,21 @@ function FileTreeNode({
         isOpaque ? " file-tree-row-opaque" : ""
       }`}
       onClick={handleClick}
-      title={isOpaque ? `${node.data.name} (not browsable here)` : node.data.name}
+      title={isOpaque ? `${node.data.name} — files hidden, not browsable here` : node.data.name}
     >
       {isDir ? (
-        <span className="file-tree-disclosure">{isOpaque ? "" : node.isOpen ? "📂" : "📁"}</span>
+        // Opaque dirs (node_modules, build — see internal/files.collapseOpaqueDirs)
+        // still get the plain closed-folder icon, not a blank slot — the
+        // point is the folder's presence should never be a surprise.
+        <span className="file-tree-disclosure">{!isOpaque && node.isOpen ? "📂" : "📁"}</span>
       ) : (
-        <span className="file-tree-disclosure" />
+        <span className="file-tree-disclosure file-tree-file-icon">
+          <FileTypeIcon name={node.data.name} size={14} />
+        </span>
       )}
       <span>&nbsp;</span>
       <span className="file-tree-label">{node.data.name}</span>
+      {isOpaque && <span className="file-tree-opaque-note">Files hidden</span>}
     </div>
   );
 }

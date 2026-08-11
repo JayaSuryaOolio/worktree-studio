@@ -467,6 +467,29 @@ code {
   height: 100%;
 }
 
+/* Wraps dockview's own DockviewDefaultTab (unchanged) with a leading app
+   icon — see WorktreeDetail.tsx's TerminalTab. flex:1/min-width:0 on the
+   nested default-tab makes it fill the remaining space exactly as it
+   would as a direct child, so its own text-truncation and close-button
+   layout aren't affected by this wrapper. */
+.terminal-tab-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 100%;
+  padding-left: 0.5rem;
+  min-width: 0;
+}
+
+.terminal-tab-with-icon svg {
+  flex-shrink: 0;
+}
+
+.terminal-tab-with-icon .dv-default-tab {
+  flex: 1;
+  min-width: 0;
+}
+
 /* File tree sidebar + editor panel — see docs/editor-plan.md. */
 
 .worktree-body {
@@ -594,10 +617,24 @@ code {
   text-align: center;
 }
 
+.file-tree-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .file-tree-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-tree-opaque-note {
+  flex-shrink: 0;
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-dim);
 }
 
 .editor-panel {

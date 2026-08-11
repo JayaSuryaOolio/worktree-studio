@@ -18,7 +18,9 @@ func requireGit(t *testing.T) {
 // newTestRepo creates a throwaway git repo with one tracked file (in a
 // subdirectory, to exercise tree nesting), one untracked-but-not-ignored
 // file, and one gitignored file — the three cases ListTree needs to get
-// right.
+// right (per direct user feedback, all three should now be *visible* —
+// gitignored no longer means hidden from this tree, only the dedicated
+// opaqueDirNames like node_modules/build do that).
 func newTestRepo(t *testing.T) string {
 	t.Helper()
 	requireGit(t)
@@ -112,7 +114,12 @@ func TestListTree(t *testing.T) {
 		}
 	}
 
-	wantTop := map[string]bool{"src": true, "README.md": true, ".gitignore": true, "untracked.txt": true}
+	// ignored.txt is gitignored but NOT inside an opaque dir — it should
+	// still show up, per direct user feedback that .gitignore controls
+	// what git tracks, not what's browsable in this tree.
+	wantTop := map[string]bool{
+		"src": true, "README.md": true, ".gitignore": true, "untracked.txt": true, "ignored.txt": true,
+	}
 	for name := range wantTop {
 		found := false
 		for _, n := range names {
@@ -122,11 +129,6 @@ func TestListTree(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("ListTree top level missing %q, got %v", name, names)
-		}
-	}
-	for _, n := range names {
-		if n == "ignored.txt" {
-			t.Errorf("ListTree included gitignored file: %v", names)
 		}
 	}
 
@@ -171,6 +173,78 @@ func TestListTreeCollapsesNodeModules(t *testing.T) {
 	}
 	if len(nodeModules.Children) != 0 {
 		t.Errorf("expected node_modules to have no children, got %+v", nodeModules.Children)
+	}
+}
+
+// TestListTreeCollapsesBuild is TestListTreeCollapsesNodeModules's sibling
+// for the other opaqueDirNames entry — added per direct user feedback that
+// build output directories should get the same "folder visible, contents
+// hidden" treatment as node_modules, not just show up in full.
+func TestListTreeCollapsesBuild(t *testing.T) {
+	repo := newTestRepo(t)
+
+	if err := os.MkdirAll(filepath.Join(repo, "build", "static"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "build", "static", "main.js"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tree, err := ListTree(repo)
+	if err != nil {
+		t.Fatalf("ListTree: %v", err)
+	}
+
+	var build *FileNode
+	for i := range tree {
+		if tree[i].Name == "build" {
+			build = &tree[i]
+		}
+	}
+	if build == nil {
+		t.Fatalf("ListTree did not include a build entry, got %+v", tree)
+	}
+	if build.Type != "dir" {
+		t.Errorf("build.Type = %q, want %q", build.Type, "dir")
+	}
+	if len(build.Children) != 0 {
+		t.Errorf("expected build to have no children, got %+v", build.Children)
+	}
+}
+
+// TestListTreeShowsGitignoredDirectoryNormally verifies a gitignored
+// directory that ISN'T one of opaqueDirNames is browsable like any other
+// directory (not collapsed, not hidden) — the specific behavior the user
+// reported missing: only node_modules/build should be special-cased.
+func TestListTreeShowsGitignoredDirectoryNormally(t *testing.T) {
+	repo := newTestRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("ignored.txt\ndist/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "dist", "bundle.js"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tree, err := ListTree(repo)
+	if err != nil {
+		t.Fatalf("ListTree: %v", err)
+	}
+
+	var dist *FileNode
+	for i := range tree {
+		if tree[i].Name == "dist" {
+			dist = &tree[i]
+		}
+	}
+	if dist == nil {
+		t.Fatalf("ListTree did not include a dist entry, got %+v", tree)
+	}
+	if len(dist.Children) != 1 || dist.Children[0].Name != "bundle.js" {
+		t.Errorf("expected dist/ to be browsable with bundle.js inside, got %+v", dist.Children)
 	}
 }
 

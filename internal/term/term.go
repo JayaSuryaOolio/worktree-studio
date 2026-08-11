@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
@@ -67,6 +66,20 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
 	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
 
+	// tmux does NOT forward a pane's OSC 0/2 title-set escape sequence to
+	// the outer terminal by default — `set-titles` is off out of the box,
+	// so a program running inside tmux (e.g. `claude`, which sets its
+	// title to "<status glyph> Claude Code") never reaches xterm.js's
+	// onTitleChange at all; the sequence is swallowed by tmux itself.
+	// Verified empirically: piped raw bytes through a real tmux session
+	// with set-titles off and confirmed zero OSC title sequences reached
+	// the attaching pty; with it on, tmux emits its own composed title
+	// (session:window:program - "<inner title>") on every title change,
+	// which still contains the inner program's title as a substring — see
+	// web/src/terminalAppDetection.ts, which matches on that substring
+	// rather than an exact string for exactly this reason.
+	_ = exec.Command("tmux", "set-option", "-g", "set-titles", "on").Run()
+
 	// tmux's own DEFAULT key bindings for both a mouse-drag release and
 	// pressing Enter in copy-mode are "copy-pipe-and-cancel", not
 	// "copy-selection-and-cancel" — confirmed via `tmux list-keys`. The
@@ -104,7 +117,6 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		WorktreeID:      worktreeID,
 		TmuxSessionName: tmuxName,
 		TabLabel:        tabLabel,
-		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := m.Store.AddTerminalSession(ts); err != nil {
 		// Don't leak the tmux session we just created if we can't record it.

@@ -7,6 +7,10 @@ import { terminalWsUrl } from "./api";
 
 interface Props {
   terminalId: string;
+  // Fired whenever the pty stream sets the terminal's window title via an
+  // OSC 0/2 escape sequence (xterm.js's own onTitleChange) — see
+  // terminalAppDetection.ts for what WorktreeDetail.tsx does with it.
+  onTitleChange?: (title: string) => void;
 }
 
 export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
@@ -57,8 +61,17 @@ export function classifyTerminalKeyEvent(event: {
  * backing tmux session is what makes this survive a worktree-studio server
  * restart, not anything client-side.
  */
-export default function Terminal({ terminalId }: Props) {
+export default function Terminal({ terminalId, onTitleChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // A ref, not a dependency of the effect below: onTitleChange is commonly
+  // a fresh inline function on every parent render (see WorktreeDetail.tsx's
+  // TerminalPanel), and this effect creates the real xterm instance + ws
+  // connection — it must not tear that down and reconnect just because the
+  // callback identity changed.
+  const onTitleChangeRef = useRef(onTitleChange);
+  useEffect(() => {
+    onTitleChangeRef.current = onTitleChange;
+  }, [onTitleChange]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -184,12 +197,17 @@ export default function Terminal({ terminalId }: Props) {
       }
     });
 
+    const titleDisposable = term.onTitleChange((title) => {
+      onTitleChangeRef.current?.(title);
+    });
+
     const resizeObserver = new ResizeObserver(sendResize);
     resizeObserver.observe(containerRef.current);
 
     return () => {
       resizeObserver.disconnect();
       dataDisposable.dispose();
+      titleDisposable.dispose();
       ws.close();
       term.dispose();
     };
