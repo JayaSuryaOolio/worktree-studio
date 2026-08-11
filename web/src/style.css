@@ -306,6 +306,16 @@ form {
   overflow-y: auto;
 }
 
+.repo-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.settings-section h3 {
+  margin-bottom: 0.15rem;
+}
+
 .badge-status-active {
   color: var(--green);
 }

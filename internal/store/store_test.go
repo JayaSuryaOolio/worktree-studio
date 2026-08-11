@@ -107,6 +107,7 @@ func TestWorktreeCRUD(t *testing.T) {
 		Path:      "/tmp/wt1",
 		CreatedAt: "2026-08-06T12:00:00Z",
 		Status:    WorktreeStatusActive,
+		Source:    WorktreeSourceCreated,
 	}
 	if err := s.AddWorktree(w); err != nil {
 		t.Fatalf("AddWorktree: %v", err)

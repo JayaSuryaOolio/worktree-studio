@@ -93,6 +93,14 @@ export default function Sidebar({ onAddRepo, onNewWorktree, onAttachWorktree }: 
                   <Link to={`/repo/${r.id}`} className="sidebar-repo">
                     {r.name}
                   </Link>
+                  <Link
+                    to={`/repo/${r.id}/settings`}
+                    className="icon-button"
+                    aria-label={`${r.name} settings`}
+                    title="Repo settings"
+                  >
+                    ⚙
+                  </Link>
                   <button
                     type="button"
                     className="icon-button"

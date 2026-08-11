@@ -121,18 +121,15 @@ describe("WorktreeDetail", () => {
     expect(screen.queryByText(/other-worktree/)).not.toBeInTheDocument();
   });
 
-  it("creates a terminal via the dropdown's 'New tab' action and renders it", async () => {
+  it("creates a terminal via the '+' new-terminal-tab action and renders it", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("terminal-t1");
 
-    await user.click(screen.getByRole("button", { name: /new terminal/i }));
-    await user.click(screen.getByRole("button", { name: "New tab" }));
+    await user.click(screen.getByRole("button", { name: "New terminal tab" }));
 
     await waitFor(() => expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined));
     expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
-    // Menu closes after the action.
-    expect(screen.queryByRole("button", { name: "New tab" })).not.toBeInTheDocument();
   });
 
   it("creates a terminal via 'Split right' and via 'Split down'", async () => {
@@ -140,12 +137,10 @@ describe("WorktreeDetail", () => {
     renderPage();
     await screen.findByTestId("terminal-t1");
 
-    await user.click(screen.getByRole("button", { name: /new terminal/i }));
-    await user.click(screen.getByRole("button", { name: "Split right" }));
+    await user.click(screen.getByRole("button", { name: "Split right (new terminal)" }));
     expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /new terminal/i }));
-    await user.click(screen.getByRole("button", { name: "Split down" }));
+    await user.click(screen.getByRole("button", { name: "Split down (new terminal)" }));
     expect(await screen.findByTestId("terminal-t3")).toBeInTheDocument();
 
     expect(createTerminal).toHaveBeenCalledTimes(2);
@@ -171,8 +166,7 @@ describe("WorktreeDetail", () => {
       await screen.findByTestId("terminal-t1");
       await waitFor(() => expect(getWorktreeLayout).toHaveBeenCalled());
 
-      await user.click(screen.getByRole("button", { name: /new terminal/i }));
-      await user.click(screen.getByRole("button", { name: "New tab" }));
+      await user.click(screen.getByRole("button", { name: "New terminal tab" }));
       await screen.findByTestId("terminal-t2");
 
       // Nothing saved yet — still inside the debounce window.

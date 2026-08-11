@@ -53,6 +53,35 @@ func (s *Server) getRepoAndWorktree(w http.ResponseWriter, r *http.Request) (sto
 	return wt, true
 }
 
+// handleListTerminalsForRepo returns every terminal session across every
+// worktree under this repo, joined with worktree branch/name — the settings
+// page's "open shells" tab, a cross-worktree view the per-worktree
+// handleListTerminals doesn't give you.
+func (s *Server) handleListTerminalsForRepo(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+
+	if _, err := s.Store.GetRepo(repoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	sessions, err := s.Store.ListTerminalSessionsForRepo(repoID)
+	if err != nil {
+		s.Log.Error("list terminal sessions for repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to list terminal sessions")
+		return
+	}
+	if sessions == nil {
+		sessions = []store.TerminalSessionWithWorktree{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
 func (s *Server) handleListTerminals(w http.ResponseWriter, r *http.Request) {
 	wt, ok := s.getRepoAndWorktree(w, r)
 	if !ok {

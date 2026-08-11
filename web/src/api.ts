@@ -10,6 +10,11 @@ export interface Repo {
 // behind info — this is the worktree's own lifecycle state.
 export type WorktreeLifecycle = "active" | "archived" | "deleted";
 
+// "created" = made through worktree-studio's own "+ New worktree" flow;
+// "imported" = an existing `git worktree` attached in via the repo settings
+// page's attach flow.
+export type WorktreeSource = "created" | "imported";
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -18,6 +23,14 @@ export interface Worktree {
   path: string;
   created_at: string;
   status: WorktreeLifecycle;
+  source: WorktreeSource;
+}
+
+/** A `git worktree` that exists on disk for a repo but isn't tracked in
+ * worktree-studio's DB yet — a candidate for attachWorktree(). */
+export interface ExternalWorktreeEntry {
+  path: string;
+  branch: string;
 }
 
 export interface WorktreeWithRepo extends Worktree {
@@ -38,6 +51,14 @@ export interface TerminalSession {
   worktree_id: string;
   tmux_session_name: string;
   tab_label: string;
+  created_at: string;
+}
+
+/** A TerminalSession joined with its worktree's branch/name — used by the
+ * repo settings page's "Shells" tab. */
+export interface TerminalSessionWithWorktree extends TerminalSession {
+  worktree_branch: string;
+  worktree_name: string;
 }
 
 export interface WorktreeStatus {
@@ -155,6 +176,26 @@ export function deleteWorktree(
 /** Thrown by request() when the server responds 409 Conflict (used here to
  * mean: worktree has uncommitted changes, retry with force to discard them). */
 export class ConflictError extends Error {}
+
+/** Worktrees `git worktree list` reports for this repo that aren't tracked
+ * in the DB yet — the repo settings page's "the rest" datagrid. */
+export function listExternalWorktrees(repoId: string): Promise<ExternalWorktreeEntry[]> {
+  return request<ExternalWorktreeEntry[]>(`/api/repos/${repoId}/worktrees/external`);
+}
+
+/** Imports an existing, on-disk `git worktree` into worktree-studio's DB. */
+export function attachWorktree(repoId: string, path: string, branch?: string): Promise<Worktree> {
+  return request<Worktree>(`/api/repos/${repoId}/worktrees/attach`, {
+    method: "POST",
+    body: JSON.stringify({ path, branch }),
+  });
+}
+
+/** Every terminal session across every worktree under a repo, joined with
+ * worktree branch/name — the repo settings page's "Shells" tab. */
+export function listTerminalsForRepo(repoId: string): Promise<TerminalSessionWithWorktree[]> {
+  return request<TerminalSessionWithWorktree[]>(`/api/repos/${repoId}/terminals/all`);
+}
 
 export function listTerminals(
   repoId: string,

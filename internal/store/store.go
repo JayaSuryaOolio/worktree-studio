@@ -66,6 +66,14 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate worktrees.status: %w", err)
 	}
+	if err := s.migrateAddWorktreeSource(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate worktrees.source: %w", err)
+	}
+	if err := s.migrateAddTerminalSessionCreatedAt(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate terminal_sessions.created_at: %w", err)
+	}
 	return s, nil
 }
 
@@ -161,6 +169,62 @@ func (s *Store) migrateAddWorktreeStatus() error {
 	return err
 }
 
+// migrateAddWorktreeSource adds the worktrees.source column (distinguishing
+// worktrees created through worktree-studio from ones attached/imported from
+// an existing `git worktree`), same ALTER-if-missing approach as
+// migrateAddWorktreeStatus above.
+func (s *Store) migrateAddWorktreeSource() error {
+	hasColumn, err := s.hasColumn("worktrees", "source")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE worktrees ADD COLUMN source TEXT NOT NULL DEFAULT '` + WorktreeSourceCreated + `'`)
+	return err
+}
+
+// migrateAddTerminalSessionCreatedAt adds the terminal_sessions.created_at
+// column for databases created before it existed. Existing rows (whose
+// actual creation time was never recorded) backfill to the migration time —
+// the best available answer, not a real value, but no worse than leaving it
+// NULL for a column that's meant to always have a display-worthy timestamp.
+func (s *Store) migrateAddTerminalSessionCreatedAt() error {
+	hasColumn, err := s.hasColumn("terminal_sessions", "created_at")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE terminal_sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT '` + time.Now().UTC().Format(time.RFC3339) + `'`)
+	return err
+}
+
+// hasColumn reports whether table has a column named col.
+func (s *Store) hasColumn(table, col string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 // Worktree status values. "active" and "archived" are both live today
 // (see the archive/unarchive endpoints). "deleted" is reserved for a
 // future bulk-management settings modal (filter by repo/status, then
@@ -171,6 +235,15 @@ const (
 	WorktreeStatusActive   = "active"
 	WorktreeStatusArchived = "archived"
 	WorktreeStatusDeleted  = "deleted"
+)
+
+// Worktree source values: "created" means worktree-studio itself ran `git
+// worktree add` for it (the normal "+ New worktree" flow); "imported" means
+// it already existed as a plain `git worktree` and was attached into the DB
+// via the settings page's "attach" flow instead.
+const (
+	WorktreeSourceCreated  = "created"
+	WorktreeSourceImported = "imported"
 )
 
 // Repo is a registered git repository.
@@ -189,6 +262,7 @@ type Worktree struct {
 	Path      string `json:"path"`
 	CreatedAt string `json:"created_at"`
 	Status    string `json:"status"`
+	Source    string `json:"source"`
 }
 
 // AddRepo inserts a new repo row.
@@ -239,9 +313,12 @@ func (s *Store) AddWorktree(w Worktree) error {
 	if w.Status == "" {
 		w.Status = WorktreeStatusActive
 	}
+	if w.Source == "" {
+		w.Source = WorktreeSourceCreated
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status,
+		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status, w.Source,
 	)
 	return err
 }
@@ -261,7 +338,7 @@ func (s *Store) WorktreePathExists(path string) (bool, error) {
 // status (used by ListAllWorktreesForRepo, e.g. a future settings-modal
 // datagrid) — the normal UI list calls this with WorktreeStatusActive only.
 func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, error) {
-	query := `SELECT id, repo_id, name, branch, path, created_at, status FROM worktrees WHERE repo_id = ?`
+	query := `SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees WHERE repo_id = ?`
 	args := []any{repoID}
 	if len(statuses) > 0 {
 		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
@@ -280,7 +357,7 @@ func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, er
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -312,7 +389,7 @@ type WorktreeWithRepo struct {
 // the caller.
 func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	rows, err := s.db.Query(`
-		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, r.name
+		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, r.name
 		FROM worktrees w JOIN repos r ON w.repo_id = r.id
 		ORDER BY w.created_at DESC`)
 	if err != nil {
@@ -323,7 +400,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	var out []WorktreeWithRepo
 	for rows.Next() {
 		var w WorktreeWithRepo
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.RepoName); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.RepoName); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -340,7 +417,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 // outcome: most claude sessions on this machine have nothing to do with
 // worktree-studio).
 func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
-	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status FROM worktrees`)
+	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees`)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -348,7 +425,7 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source); err != nil {
 			return Worktree{}, err
 		}
 		if cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/") {
@@ -365,8 +442,8 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 func (s *Store) GetWorktree(id string) (Worktree, error) {
 	var w Worktree
 	err := s.db.QueryRow(
-		`SELECT id, repo_id, name, branch, path, created_at, status FROM worktrees WHERE id = ?`, id,
-	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status)
+		`SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees WHERE id = ?`, id,
+	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source)
 	return w, err
 }
 
@@ -403,13 +480,18 @@ type TerminalSession struct {
 	WorktreeID      string `json:"worktree_id"`
 	TmuxSessionName string `json:"tmux_session_name"`
 	TabLabel        string `json:"tab_label"`
+	CreatedAt       string `json:"created_at"`
 }
 
-// AddTerminalSession inserts a new terminal session row.
+// AddTerminalSession inserts a new terminal session row, stamping CreatedAt
+// if empty.
 func (s *Store) AddTerminalSession(t TerminalSession) error {
+	if t.CreatedAt == "" {
+		t.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO terminal_sessions (id, worktree_id, tmux_session_name, tab_label) VALUES (?, ?, ?, ?)`,
-		t.ID, t.WorktreeID, t.TmuxSessionName, t.TabLabel,
+		`INSERT INTO terminal_sessions (id, worktree_id, tmux_session_name, tab_label, created_at) VALUES (?, ?, ?, ?, ?)`,
+		t.ID, t.WorktreeID, t.TmuxSessionName, t.TabLabel, t.CreatedAt,
 	)
 	return err
 }
@@ -417,7 +499,7 @@ func (s *Store) AddTerminalSession(t TerminalSession) error {
 // ListTerminalSessions returns all terminal sessions for a given worktree.
 func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, error) {
 	rows, err := s.db.Query(
-		`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions WHERE worktree_id = ?`,
+		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions WHERE worktree_id = ?`,
 		worktreeID,
 	)
 	if err != nil {
@@ -428,7 +510,7 @@ func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, erro
 	var out []TerminalSession
 	for rows.Next() {
 		var t TerminalSession
-		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -439,7 +521,7 @@ func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, erro
 // ListAllTerminalSessions returns every terminal session row, used at
 // server startup to reconcile against tmux's actual live sessions.
 func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
-	rows, err := s.db.Query(`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions`)
+	rows, err := s.db.Query(`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions`)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +530,7 @@ func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
 	var out []TerminalSession
 	for rows.Next() {
 		var t TerminalSession
-		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -461,9 +543,43 @@ func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
 func (s *Store) GetTerminalSession(id string) (TerminalSession, error) {
 	var t TerminalSession
 	err := s.db.QueryRow(
-		`SELECT id, worktree_id, tmux_session_name, tab_label FROM terminal_sessions WHERE id = ?`, id,
-	).Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel)
+		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions WHERE id = ?`, id,
+	).Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt)
 	return t, err
+}
+
+// TerminalSessionWithWorktree is a TerminalSession joined with its parent
+// worktree's branch/name — used by the "open shells" settings tab, a
+// cross-worktree view where a bare worktree_id isn't useful to a person.
+type TerminalSessionWithWorktree struct {
+	TerminalSession
+	WorktreeBranch string `json:"worktree_branch"`
+	WorktreeName   string `json:"worktree_name"`
+}
+
+// ListTerminalSessionsForRepo returns every terminal session belonging to
+// any worktree under repoID, newest first, joined with each worktree's
+// branch/name for display.
+func (s *Store) ListTerminalSessionsForRepo(repoID string) ([]TerminalSessionWithWorktree, error) {
+	rows, err := s.db.Query(`
+		SELECT t.id, t.worktree_id, t.tmux_session_name, t.tab_label, t.created_at, w.branch, w.name
+		FROM terminal_sessions t JOIN worktrees w ON t.worktree_id = w.id
+		WHERE w.repo_id = ?
+		ORDER BY t.created_at DESC`, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TerminalSessionWithWorktree
+	for rows.Next() {
+		var t TerminalSessionWithWorktree
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.WorktreeBranch, &t.WorktreeName); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // RemoveTerminalSession deletes a terminal session row by id.

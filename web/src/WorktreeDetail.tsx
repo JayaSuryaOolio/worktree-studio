@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { DockviewApi, DockviewReact, DockviewReadyEvent, IDockviewPanelProps } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import {
@@ -18,6 +18,7 @@ import FileTree from "./FileTree";
 import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
 import VSCodeIcon from "./icons/VSCodeIcon";
+import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 
 interface TerminalPanelParams {
@@ -103,8 +104,15 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const { worktreesByRepo } = useRepoContext();
   const worktree = worktreesByRepo[repoId]?.find((w) => w.id === worktreeId);
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
+  // Distinguishes "haven't fetched terminals yet" from "fetched, there are
+  // none" — the initial-layout effect below must not run until this is
+  // true, or it can seed panels from a still-empty `terminals` and then
+  // never get another chance (see that effect's own doc comment for why).
+  const [terminalsLoaded, setTerminalsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const deepLinkTerminalId = searchParams.get("terminal");
+  const deepLinkAppliedRef = useRef(false);
   const [logOpen, setLogOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(true);
   const [vscodeAvailable, setVscodeAvailable] = useState(false);
@@ -131,7 +139,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   useEffect(() => {
     listTerminals(repoId, worktreeId)
       .then(setTerminals)
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setTerminalsLoaded(true));
     // repoId/worktreeId never change within this component's lifetime —
     // the outer WorktreeDetail remounts a fresh instance (new `key`) per
     // worktree instead. Empty deps: this is mount-only, deliberately.
@@ -190,17 +199,25 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     }
   }
 
-  // Apply the initial layout exactly once dockview is ready AND the
-  // saved-layout fetch has resolved (order between those two is not
-  // guaranteed — this effect is what makes it not matter). If a saved
-  // layout references a terminal id that no longer exists server-side
-  // (e.g. deleted through some path that didn't get a chance to save an
-  // updated layout first), that panel is left to dockview/Terminal.tsx's
-  // own graceful failure (a pane showing a connection error) rather than
-  // hand-pruning dockview's serialized grid structure — a deliberate
-  // simplification, not an oversight; see docs/architecture.md.
+  // Apply the initial layout exactly once dockview is ready AND both the
+  // saved-layout and terminals fetches have resolved (order between any of
+  // these is not guaranteed — this effect is what makes it not matter).
+  // Gating on terminalsLoaded (not just a truthy `terminals`) matters: a
+  // worktree with terminals but no saved layout would otherwise let this
+  // fire while `terminals` was still its initial `[]`, seed nothing, and —
+  // because of the ref guard below — never get a second chance once the
+  // fetch actually resolved. Found for real: a fresh worktree page showed
+  // the "nothing open" watermark despite the worktree having live terminal
+  // sessions, reproducing on every cold load, not just occasionally.
+  //
+  // If a saved layout references a terminal id that no longer exists
+  // server-side (e.g. deleted through some path that didn't get a chance
+  // to save an updated layout first), that panel is left to dockview/
+  // Terminal.tsx's own graceful failure (a pane showing a connection
+  // error) rather than hand-pruning dockview's serialized grid structure —
+  // a deliberate simplification, not an oversight; see docs/architecture.md.
   useEffect(() => {
-    if (!dockviewApi || savedLayout === undefined || initialLayoutAppliedRef.current) return;
+    if (!dockviewApi || savedLayout === undefined || !terminalsLoaded || initialLayoutAppliedRef.current) return;
     initialLayoutAppliedRef.current = true;
     if (savedLayout) {
       try {
@@ -210,7 +227,21 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       }
     }
     seedPanels(dockviewApi, terminals);
-  }, [dockviewApi, savedLayout, terminals]);
+  }, [dockviewApi, savedLayout, terminalsLoaded, terminals]);
+
+  // Deep link support: a settings-page "Shells" row links to
+  // /repo/:repoId/worktree/:worktreeId?terminal=<id>, and landing here
+  // should focus that terminal's panel — once, after the initial
+  // layout/seed above has actually created it (a fresh navigation to an
+  // already-mounted instance doesn't re-run this: see the `key` remount
+  // comment above WorktreeDetail).
+  useEffect(() => {
+    if (!dockviewApi || !deepLinkTerminalId || deepLinkAppliedRef.current) return;
+    const panel = dockviewApi.getPanel(deepLinkTerminalId);
+    if (!panel) return;
+    deepLinkAppliedRef.current = true;
+    panel.api.setActive();
+  }, [dockviewApi, deepLinkTerminalId, terminals]);
 
   // Debounced layout save on every layout change, once the initial
   // load/seed above has happened (so restoring the saved layout doesn't
@@ -268,7 +299,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   }
 
   async function handleNewTerminal(direction: PlacementDirection, tabLabel?: string, initialCommand?: string) {
-    setMenuOpen(false);
     try {
       const ts = await createTerminal(repoId, worktreeId, tabLabel, initialCommand);
       setTerminals((prev) => [...prev, ts]);
@@ -321,24 +351,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     <div className="container worktree-detail">
       <div className="terminal-toolbar">
         <div className="terminal-toolbar-left">
-          <div className="new-terminal-menu">
-            <button type="button" onClick={() => setMenuOpen((o) => !o)}>
-              + New Terminal ▾
-            </button>
-            {menuOpen && (
-              <div className="actions-menu-list new-terminal-menu-list">
-                <button type="button" onClick={() => handleNewTerminal("within")}>
-                  New tab
-                </button>
-                <button type="button" onClick={() => handleNewTerminal("right")}>
-                  Split right
-                </button>
-                <button type="button" onClick={() => handleNewTerminal("below")}>
-                  Split down
-                </button>
-              </div>
-            )}
-          </div>
           <button
             title="Toggle the file tree sidebar"
             onClick={() => setFilesOpen((o) => !o)}
@@ -346,8 +358,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           >
             📁 Files
           </button>
-        </div>
-        <div className="terminal-toolbar-actions">
           <button
             title={
               vscodeAvailable
@@ -362,6 +372,38 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           </button>
           <button title="View this worktree's audit log" onClick={() => setLogOpen(true)}>
             🕐 Log
+          </button>
+        </div>
+        <div className="terminal-toolbar-actions">
+          <button
+            aria-label="Open this worktree in a new browser tab"
+            title="Open this worktree in a new browser tab"
+            onClick={() => window.open(window.location.href, "_blank")}
+          >
+            ⧉
+          </button>
+          <button
+            aria-label="New terminal tab"
+            title="New terminal tab"
+            onClick={() => handleNewTerminal("within")}
+          >
+            +
+          </button>
+          <button
+            aria-label="Split right (new terminal)"
+            title="Split right (new terminal)"
+            className="button-with-icon"
+            onClick={() => handleNewTerminal("right")}
+          >
+            <SplitVerticalIcon />
+          </button>
+          <button
+            aria-label="Split down (new terminal)"
+            title="Split down (new terminal)"
+            className="button-with-icon"
+            onClick={() => handleNewTerminal("below")}
+          >
+            <SplitHorizontalIcon />
           </button>
         </div>
       </div>

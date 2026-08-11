@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
@@ -103,6 +104,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		WorktreeID:      worktreeID,
 		TmuxSessionName: tmuxName,
 		TabLabel:        tabLabel,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := m.Store.AddTerminalSession(ts); err != nil {
 		// Don't leak the tmux session we just created if we can't record it.
