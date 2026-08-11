@@ -86,6 +86,17 @@ func main() {
 		SelfBaseURL: "http://localhost" + addrPort(addr),
 	}
 
+	// Backfills the synthetic root worktree (see api.Server.ensureRootWorktree)
+	// for repos registered before it existed — new repos get theirs at
+	// add-repo time instead, this only ever does real work once per repo.
+	if repos, err := st.ListRepos(); err != nil {
+		logger.Warn("list repos for root-worktree backfill", "err", err)
+	} else {
+		for _, repo := range repos {
+			srv.EnsureRootWorktree(repo)
+		}
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)

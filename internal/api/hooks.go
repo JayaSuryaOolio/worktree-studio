@@ -91,6 +91,8 @@ func (s *Server) handleClaudeSessionTitle(w http.ResponseWriter, r *http.Request
 
 // handleListAllWorktrees returns every worktree across every registered
 // repo (any status), for the settings modal's cross-repo "Worktrees" tab.
+// Excludes the synthetic root worktrees (see EnsureRootWorktree) — same
+// reasoning as handleListWorktrees.
 func (s *Server) handleListAllWorktrees(w http.ResponseWriter, r *http.Request) {
 	worktrees, err := s.Store.ListAllWorktreesWithRepo()
 	if err != nil {
@@ -98,8 +100,13 @@ func (s *Server) handleListAllWorktrees(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to list worktrees")
 		return
 	}
-	if worktrees == nil {
-		worktrees = []store.WorktreeWithRepo{}
+
+	out := make([]store.WorktreeWithRepo, 0, len(worktrees))
+	for _, wt := range worktrees {
+		if wt.Source == store.WorktreeSourceRoot {
+			continue
+		}
+		out = append(out, wt)
 	}
-	writeJSON(w, http.StatusOK, worktrees)
+	writeJSON(w, http.StatusOK, out)
 }

@@ -166,6 +166,61 @@ func TestAddRepoRejectsDuplicatePath(t *testing.T) {
 	}
 }
 
+// TestAddRepoCreatesRootWorktree verifies that registering a repo also
+// creates its synthetic root worktree (EnsureRootWorktree): reachable
+// directly via GetWorktree/the terminals endpoints (so the sidebar's
+// repo-name link works), but excluded from the normal worktree listing
+// (it's not a real git worktree, and would otherwise duplicate the repo
+// itself in every worktree table/datagrid).
+func TestAddRepoCreatesRootWorktree(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "r", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/repos/: status = %d, want 201", resp.StatusCode)
+	}
+
+	rootID := store.RootWorktreeID(repo.ID)
+	wt, err := srv.Store.GetWorktree(rootID)
+	if err != nil {
+		t.Fatalf("GetWorktree(%q) after repo add: %v", rootID, err)
+	}
+	if wt.Path != repo.Path {
+		t.Errorf("root worktree path = %q, want repo path %q", wt.Path, repo.Path)
+	}
+	if wt.Source != store.WorktreeSourceRoot {
+		t.Errorf("root worktree source = %q, want %q", wt.Source, store.WorktreeSourceRoot)
+	}
+
+	// Not in the normal per-repo listing.
+	listResp := doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", nil)
+	var worktrees []store.Worktree
+	decodeInto(t, listResp, &worktrees)
+	for _, w := range worktrees {
+		if w.ID == rootID {
+			t.Errorf("root worktree %q unexpectedly present in /worktrees/ listing", rootID)
+		}
+	}
+
+	// Reachable through a normal per-worktree endpoint (the terminals list
+	// is the simplest one that round-trips through GetWorktree).
+	termResp := doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+rootID+"/terminals/", nil)
+	if termResp.StatusCode != http.StatusOK {
+		t.Errorf("GET terminals for root worktree: status = %d, want 200", termResp.StatusCode)
+	}
+
+	// Idempotent: calling it again (as the startup backfill does for every
+	// registered repo) must not error or duplicate the row.
+	srv.EnsureRootWorktree(repo)
+	if _, err := srv.Store.GetWorktree(rootID); err != nil {
+		t.Fatalf("GetWorktree(%q) after second EnsureRootWorktree call: %v", rootID, err)
+	}
+}
+
 // TestFullWorktreeLifecycle drives the same repo-add -> list -> name
 // suggestion -> create -> list -> delete flow the manual curl verification
 // used, as an automated regression test.

@@ -7,6 +7,7 @@ import SettingsModal from "./SettingsModal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
 import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 import { useTransientIndicator } from "./useTransientIndicator";
+import { rootWorktreeId } from "./rootWorktree";
 
 interface Props {
   onAddRepo: () => void;
@@ -89,7 +90,17 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
             {repos.map((r) => (
               <li key={r.id} className="sidebar-repo-group">
                 <div className="sidebar-repo-row">
-                  <Link to={`/repo/${r.id}`} className="sidebar-repo">
+                  {/* Opens the repo's own root checkout through the same
+                      worktree-detail UI as a real worktree (terminals,
+                      files, layout) — see rootWorktree.ts and
+                      EnsureRootWorktree. Highlighted green, like an active
+                      worktree row, whenever that's what's currently open. */}
+                  <Link
+                    to={`/repo/${r.id}/worktree/${rootWorktreeId(r.id)}`}
+                    className={
+                      activeWorktreeId === rootWorktreeId(r.id) ? "sidebar-repo active" : "sidebar-repo"
+                    }
+                  >
                     {r.name}
                   </Link>
                   {/* Grouped in their own right-aligned cluster (rather than

@@ -4,6 +4,17 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-11 — Repo-root worktree view, settings-page default tab
+
+Two small changes requested after the previous session's toolbar/settings work:
+
+- **Clicking a repo's name in the sidebar now opens its own root checkout through the same worktree-detail UI** (terminals, files, layout) instead of the old bare "Worktrees" list page (redundant with the repo settings page's own Worktrees tab). Backend: `store.WorktreeSourceRoot`/`store.RootWorktreeID(repoID)` (`"root-" + repoID`) — a synthetic `worktrees` row pointing at `repo.Path` itself, no `git worktree add` involved. `Server.EnsureRootWorktree` inserts it (idempotently) right after a repo is registered, and `main.go` backfills it at startup for repos already registered before this existed. It's excluded from every normal worktree listing (`handleListWorktrees`, `handleListAllWorktrees`) — it's not a real git worktree and would otherwise duplicate the repo itself in every worktree table — but reachable through the ordinary per-worktree endpoints (terminals/files/layout/etc. all resolve it via the same `GetWorktree(id)` any real worktree uses). Frontend: the sidebar's repo-name link now points straight at `/repo/:repoId/worktree/root-:repoId` (`rootWorktree.ts` computes the id so the frontend can't drift out of sync with the backend's format); `/repo/:repoId` on its own now just redirects there (`App.tsx`'s `RepoRootRedirect`) rather than rendering the old `Workspace`/`WorktreeList` page, which is now dead code and was deleted. The repo name is highlighted green (reusing the same "currently open" treatment as an active worktree row) whenever its root is the page being viewed.
+- **Repo settings page now defaults to the General tab** instead of Worktrees when no `?tab=` is in the URL.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` (106 tests, including a new `TestAddRepoCreatesRootWorktree` covering creation-on-repo-add, exclusion from `/worktrees/` listing, reachability via the terminals endpoint, and idempotency of a second `EnsureRootWorktree` call), and `cd web && bun run build && bun run test` (85 tests, clean typecheck).
+
+---
+
 ## 2026-08-11 — Bug fixes: worktree base branch, terminal tab labels, split-pane padding
 
 Four issues reported after using the toolbar/settings-page rework from the previous session (`b8f72a2`/`eece2fb`/`3421289`/`6e8b475`):

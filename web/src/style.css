@@ -888,7 +888,8 @@ code {
 }
 
 .sidebar-repo.active {
-  color: var(--amber);
+  color: var(--green);
+  font-weight: 600;
 }
 
 /* The signature element: a worktree row styled as an ATC flight strip — a

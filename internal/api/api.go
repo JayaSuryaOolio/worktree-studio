@@ -188,7 +188,44 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		"path":    repo.Path,
 	})
 
+	s.EnsureRootWorktree(repo)
+
 	writeJSON(w, http.StatusCreated, repo)
+}
+
+// EnsureRootWorktree makes sure a synthetic worktree row exists for repo's
+// own root checkout (store.WorktreeSourceRoot, id store.RootWorktreeID),
+// inserting one if missing. Failures are logged but not surfaced — the repo
+// itself is already usable without it, this only unlocks the "open the repo
+// root like a worktree" sidebar shortcut, and every caller (repo add, and
+// the startup backfill in main.go for repos registered before this existed)
+// treats it as best-effort.
+func (s *Server) EnsureRootWorktree(repo store.Repo) {
+	id := store.RootWorktreeID(repo.ID)
+	if _, err := s.Store.GetWorktree(id); err == nil {
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		s.Log.Error("check root worktree", "err", err, "repo_id", repo.ID)
+		return
+	}
+
+	branch := ""
+	if status, err := gitops.Status(repo.Path); err == nil {
+		branch = status.Branch
+	}
+
+	wt := store.Worktree{
+		ID:     id,
+		RepoID: repo.ID,
+		Name:   "root",
+		Branch: branch,
+		Path:   repo.Path,
+		Status: store.WorktreeStatusActive,
+		Source: store.WorktreeSourceRoot,
+	}
+	if err := s.Store.AddWorktree(wt); err != nil {
+		s.Log.Error("add root worktree", "err", err, "repo_id", repo.ID)
+	}
 }
 
 type updateRepoSettingsRequest struct {
@@ -266,10 +303,19 @@ func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list worktrees")
 		return
 	}
-	if worktrees == nil {
-		worktrees = []store.Worktree{}
+
+	// The synthetic root worktree (see EnsureRootWorktree) isn't a real git
+	// worktree, so it's excluded from every normal worktree listing —
+	// reached instead through the sidebar's repo-name link straight to
+	// store.RootWorktreeID(repoID).
+	out := make([]store.Worktree, 0, len(worktrees))
+	for _, wt := range worktrees {
+		if wt.Source == store.WorktreeSourceRoot {
+			continue
+		}
+		out = append(out, wt)
 	}
-	writeJSON(w, http.StatusOK, worktrees)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleNewNameSuggestion(w http.ResponseWriter, r *http.Request) {

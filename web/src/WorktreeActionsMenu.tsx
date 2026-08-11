@@ -13,8 +13,7 @@ interface Props {
 
 // A per-worktree kebab menu — the single place every operational action on
 // a worktree lives (spotlight start/stop, delete, optionally open), rather
-// than a row of separate always-visible buttons. Used by both Sidebar.tsx
-// and WorktreeList.tsx so the two surfaces share one menu implementation.
+// than a row of separate always-visible buttons.
 export default function WorktreeActionsMenu({
   wt,
   spotlightStatus,

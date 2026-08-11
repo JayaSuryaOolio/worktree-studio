@@ -261,11 +261,22 @@ const (
 // Worktree source values: "created" means worktree-studio itself ran `git
 // worktree add` for it (the normal "+ New worktree" flow); "imported" means
 // it already existed as a plain `git worktree` and was attached into the DB
-// via the settings page's "attach" flow instead.
+// via the settings page's "attach" flow instead. "root" is the synthetic
+// entry (see RootWorktreeID) standing in for the repo's own main checkout —
+// no `git worktree add` is ever run for it, it just lets the repo's root
+// folder be opened through the same worktree-detail UI (terminals, files,
+// layout) as a real worktree.
 const (
 	WorktreeSourceCreated  = "created"
 	WorktreeSourceImported = "imported"
+	WorktreeSourceRoot     = "root"
 )
+
+// RootWorktreeID returns the synthetic worktree id used for a repo's own
+// root checkout — see WorktreeSourceRoot.
+func RootWorktreeID(repoID string) string {
+	return "root-" + repoID
+}
 
 // Repo is a registered git repository.
 type Repo struct {

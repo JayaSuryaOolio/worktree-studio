@@ -25,14 +25,14 @@ export default function RepoSettings() {
   const { repos } = useRepoContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const tab: Tab = tabParam === "shells" ? "shells" : tabParam === "general" ? "general" : "worktrees";
+  const tab: Tab = tabParam === "shells" ? "shells" : tabParam === "worktrees" ? "worktrees" : "general";
 
   const repo = repos.find((r) => r.id === repoId);
 
   if (!repoId) return null;
 
   function setTab(next: Tab) {
-    setSearchParams(next === "worktrees" ? {} : { tab: next });
+    setSearchParams(next === "general" ? {} : { tab: next });
   }
 
   return (
@@ -70,12 +70,14 @@ export default function RepoSettings() {
       </div>
 
       <div className="repo-settings-body">
-        {tab === "general" && repo ? (
-          <GeneralTab repo={repo} />
-        ) : tab === "worktrees" ? (
+        {tab === "worktrees" ? (
           <WorktreesTab repoId={repoId} />
-        ) : (
+        ) : tab === "shells" ? (
           <ShellsTab repoId={repoId} />
+        ) : repo ? (
+          <GeneralTab repo={repo} />
+        ) : (
+          <p className="muted">Loading…</p>
         )}
       </div>
     </div>

@@ -29,6 +29,7 @@ import ClaudeIcon from "./icons/ClaudeIcon";
 import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
+import { isRootWorktreeId } from "./rootWorktree";
 
 interface TerminalPanelParams {
   terminalId: string;
@@ -175,8 +176,14 @@ export default function WorktreeDetail() {
 }
 
 function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeId: string }) {
-  const { worktreesByRepo } = useRepoContext();
+  const { repos, worktreesByRepo } = useRepoContext();
   const worktree = worktreesByRepo[repoId]?.find((w) => w.id === worktreeId);
+  // The synthetic root worktree (see rootWorktree.ts) is never in
+  // worktreesByRepo — it's not a real git worktree, so the backend excludes
+  // it from the normal per-repo listing. Its folder name is the repo's own
+  // name instead of a worktree's.
+  const repo = repos.find((r) => r.id === repoId);
+  const folderName = isRootWorktreeId(worktreeId) ? repo?.name ?? "root" : worktree?.name ?? worktreeId;
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   // Distinguishes "haven't fetched terminals yet" from "fetched, there are
   // none" — the initial-layout effect below must not run until this is
@@ -492,7 +499,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
             <FileTree
               repoId={repoId}
               worktreeId={worktreeId}
-              folderName={worktree?.name ?? worktreeId}
+              folderName={folderName}
               onOpenFile={handleOpenFile}
               activePath={activeFilePath}
             />
