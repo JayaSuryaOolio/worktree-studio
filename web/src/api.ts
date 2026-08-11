@@ -27,7 +27,7 @@ export interface Worktree {
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
- * worktree-studio's DB yet — a candidate for attachWorktree(). */
+ * worktree-studio's DB yet — a candidate for importWorktree(). */
 export interface ExternalWorktreeEntry {
   path: string;
   branch: string;
@@ -178,17 +178,10 @@ export function deleteWorktree(
 export class ConflictError extends Error {}
 
 /** Worktrees `git worktree list` reports for this repo that aren't tracked
- * in the DB yet — the repo settings page's "the rest" datagrid. */
+ * in the DB yet — the repo settings page's "other git worktrees" datagrid.
+ * Import a candidate from here via importWorktree() above. */
 export function listExternalWorktrees(repoId: string): Promise<ExternalWorktreeEntry[]> {
   return request<ExternalWorktreeEntry[]>(`/api/repos/${repoId}/worktrees/external`);
-}
-
-/** Imports an existing, on-disk `git worktree` into worktree-studio's DB. */
-export function attachWorktree(repoId: string, path: string, branch?: string): Promise<Worktree> {
-  return request<Worktree>(`/api/repos/${repoId}/worktrees/attach`, {
-    method: "POST",
-    body: JSON.stringify({ path, branch }),
-  });
 }
 
 /** Every terminal session across every worktree under a repo, joined with

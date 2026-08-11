@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  attachWorktree,
   ExternalWorktreeEntry,
+  importWorktree,
   listExternalWorktrees,
   listTerminalsForRepo,
   TerminalSessionWithWorktree,
@@ -90,7 +90,7 @@ function WorktreesTab({ repoId }: { repoId: string }) {
     setAttaching(entry.path);
     setAttachError(null);
     try {
-      await attachWorktree(repoId, entry.path, entry.branch);
+      await importWorktree(repoId, entry.path);
       refreshWorktrees();
       refreshExternal();
     } catch (err) {

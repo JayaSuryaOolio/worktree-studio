@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -48,7 +49,6 @@ func (s *Server) Routes(r chi.Router) {
 			r.Post("/import", s.handleImportWorktree)
 			r.Get("/new-name-suggestion", s.handleNewNameSuggestion)
 			r.Get("/external", s.handleListExternalWorktrees)
-			r.Post("/attach", s.handleAttachWorktree)
 
 			r.Route("/{worktreeID}", func(r chi.Router) {
 				r.Delete("/", s.handleDeleteWorktree)
@@ -357,115 +357,29 @@ func (s *Server) handleListExternalWorktrees(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	known, err := s.Store.ListWorktrees(repoID)
-	if err != nil {
-		s.Log.Error("list worktrees", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to list known worktrees")
-		return
-	}
-	knownPaths := make(map[string]bool, len(known))
-	for _, wt := range known {
-		knownPaths[wt.Path] = true
-	}
-
 	out := []externalWorktreeEntry{}
 	for _, e := range entries {
 		// repo.Path itself always shows up in `git worktree list` (the
-		// primary checkout) — never a candidate to "attach" as a worktree.
-		if e.Path == repo.Path || knownPaths[e.Path] {
+		// primary checkout) — never a candidate to import as a worktree.
+		if resolveBestEffortEqual(e.Path, repo.Path) {
 			continue
 		}
-		out = append(out, externalWorktreeEntry{Path: e.Path, Branch: e.Branch})
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-type attachWorktreeRequest struct {
-	Path   string `json:"path"`
-	Branch string `json:"branch"`
-}
-
-// handleAttachWorktree imports an existing, on-disk `git worktree` (one not
-// created through worktree-studio) into the DB, so it shows up alongside
-// worktree-studio's own worktrees everywhere — sidebar, worktree list,
-// terminals, etc. Does not touch git at all; the worktree already exists on
-// disk, this just adds the DB row.
-func (s *Server) handleAttachWorktree(w http.ResponseWriter, r *http.Request) {
-	repoID := chi.URLParam(r, "repoID")
-
-	repo, err := s.Store.GetRepo(repoID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "repo not found")
+		// WorktreePathExists (not scoped to this repo) matches
+		// handleImportWorktree's own duplicate check, so a worktree that
+		// disappears from this list because it just got attached can't
+		// reappear via some other repo registration sharing the path.
+		exists, err := s.Store.WorktreePathExists(e.Path)
+		if err != nil {
+			s.Log.Error("check worktree exists", "err", err)
+			writeError(w, http.StatusInternalServerError, "failed to check known worktrees")
 			return
 		}
-		s.Log.Error("get repo", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to look up repo")
-		return
-	}
-
-	var req attachWorktreeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, "path is required")
-		return
-	}
-
-	// Confirm this path is actually one of the repo's real git worktrees
-	// (not just any directory the caller names) before trusting it enough
-	// to record.
-	entries, err := gitops.ListWorktrees(repo.Path)
-	if err != nil {
-		s.Log.Error("git worktree list", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to list git worktrees: "+err.Error())
-		return
-	}
-	var matched *gitops.WorktreeEntry
-	for i := range entries {
-		if entries[i].Path == req.Path {
-			matched = &entries[i]
-			break
+		if exists {
+			continue
 		}
+		out = append(out, externalWorktreeEntry{Path: e.Path, Branch: strings.TrimPrefix(e.Branch, "refs/heads/")})
 	}
-	if matched == nil {
-		writeError(w, http.StatusBadRequest, "path is not a git worktree of this repo")
-		return
-	}
-
-	branch := req.Branch
-	if branch == "" {
-		branch = matched.Branch
-	}
-
-	wt := store.Worktree{
-		ID:        newID(),
-		RepoID:    repo.ID,
-		Name:      filepath.Base(req.Path),
-		Branch:    branch,
-		Path:      req.Path,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		Status:    store.WorktreeStatusActive,
-		Source:    store.WorktreeSourceImported,
-	}
-	if err := s.Store.AddWorktree(wt); err != nil {
-		s.Log.Error("save attached worktree", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to save worktree record: "+err.Error())
-		return
-	}
-
-	s.auditLog(audit.EventWorktreeCreate, map[string]any{
-		"repo_id":     repo.ID,
-		"worktree_id": wt.ID,
-		"name":        wt.Name,
-		"branch":      wt.Branch,
-		"path":        wt.Path,
-		"source":      wt.Source,
-	})
-
-	writeJSON(w, http.StatusCreated, wt)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {

@@ -56,11 +56,7 @@ function LayoutShell() {
 
   return (
     <div className="app-shell">
-      <Sidebar
-        onAddRepo={() => setAddRepoOpen(true)}
-        onNewWorktree={setNewWorktreeRepoId}
-        onAttachWorktree={setAttachWorktreeRepoId}
-      />
+      <Sidebar onAddRepo={() => setAddRepoOpen(true)} onNewWorktree={setNewWorktreeRepoId} />
       <main className="app-main">
         <Outlet />
       </main>

@@ -110,6 +110,7 @@ func (s *Server) handleImportWorktree(w http.ResponseWriter, r *http.Request) {
 		Path:      entry.Path,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		Status:    store.WorktreeStatusActive,
+		Source:    store.WorktreeSourceImported,
 	}
 	if err := s.Store.AddWorktree(wt); err != nil {
 		s.Log.Error("save imported worktree", "err", err)

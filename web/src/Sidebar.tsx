@@ -11,7 +11,6 @@ import { useTransientIndicator } from "./useTransientIndicator";
 interface Props {
   onAddRepo: () => void;
   onNewWorktree: (repoId: string) => void;
-  onAttachWorktree: (repoId: string) => void;
 }
 
 // The persistent left sidebar: every registered repo, with its worktrees
@@ -23,7 +22,7 @@ interface Props {
 //
 // TODO (future, not this pass): nest repos under a "project" grouping —
 // for now a flat list of repos is enough.
-export default function Sidebar({ onAddRepo, onNewWorktree, onAttachWorktree }: Props) {
+export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   const {
     repos,
     reposLoading,
@@ -101,15 +100,6 @@ export default function Sidebar({ onAddRepo, onNewWorktree, onAttachWorktree }: 
                   >
                     ⚙
                   </Link>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`Attach existing worktree in ${r.name}`}
-                    title="Attach existing worktree by path"
-                    onClick={() => onAttachWorktree(r.id)}
-                  >
-                    📂
-                  </button>
                   <button
                     type="button"
                     className="icon-button"
