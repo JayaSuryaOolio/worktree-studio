@@ -5,12 +5,14 @@ import {
   importWorktree,
   listExternalWorktrees,
   listTerminalsForRepo,
+  Repo,
   TerminalSessionWithWorktree,
+  updateRepoBaseBranch,
   Worktree,
 } from "./api";
 import { useRepoContext } from "./RepoContext";
 
-type Tab = "worktrees" | "shells";
+type Tab = "general" | "worktrees" | "shells";
 
 // The per-repo "settings" page: reached via the gear icon on the repo's
 // sidebar row. Tab 1 is a bird's-eye view of every worktree git/DB knows
@@ -22,7 +24,8 @@ export default function RepoSettings() {
   const { repoId } = useParams<{ repoId: string }>();
   const { repos } = useRepoContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: Tab = searchParams.get("tab") === "shells" ? "shells" : "worktrees";
+  const tabParam = searchParams.get("tab");
+  const tab: Tab = tabParam === "shells" ? "shells" : tabParam === "general" ? "general" : "worktrees";
 
   const repo = repos.find((r) => r.id === repoId);
 
@@ -37,6 +40,15 @@ export default function RepoSettings() {
       <h1>{repo ? `${repo.name} — Settings` : "Repo settings"}</h1>
 
       <div className="settings-modal-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "general"}
+          className={tab === "general" ? "active" : ""}
+          onClick={() => setTab("general")}
+        >
+          General
+        </button>
         <button
           type="button"
           role="tab"
@@ -58,9 +70,74 @@ export default function RepoSettings() {
       </div>
 
       <div className="repo-settings-body">
-        {tab === "worktrees" ? <WorktreesTab repoId={repoId} /> : <ShellsTab repoId={repoId} />}
+        {tab === "general" && repo ? (
+          <GeneralTab repo={repo} />
+        ) : tab === "worktrees" ? (
+          <WorktreesTab repoId={repoId} />
+        ) : (
+          <ShellsTab repoId={repoId} />
+        )}
       </div>
     </div>
+  );
+}
+
+// Base-branch override for "+ New worktree": git's own default for
+// `git worktree add -b <branch> <path>` with no explicit start point is
+// whatever the main checkout's HEAD happens to be at that moment — not
+// necessarily the repo's actual main/default branch (e.g. if the main
+// checkout is itself left on a feature branch). worktree-studio
+// auto-detects a sensible default (origin's default branch, else local
+// main/master — see internal/gitops.DetectDefaultBranch) when this is left
+// blank, but a repo with an unconventional setup (no origin, an unusual
+// default-branch name) may need this set explicitly.
+function GeneralTab({ repo }: { repo: Repo }) {
+  const { refreshRepos } = useRepoContext();
+  const [baseBranch, setBaseBranch] = useState(repo.base_branch);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setBaseBranch(repo.base_branch);
+  }, [repo.base_branch]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await updateRepoBaseBranch(repo.id, baseBranch.trim());
+      refreshRepos();
+      setSaved(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <h3>New worktree base branch</h3>
+      <p className="muted">
+        New worktrees branch off this. Leave blank to auto-detect (origin's default branch, else local
+        main/master).
+      </p>
+      <div className="button-with-icon" style={{ gap: "0.5rem" }}>
+        <input
+          type="text"
+          placeholder="auto-detect"
+          value={baseBranch}
+          onChange={(e) => setBaseBranch(e.target.value)}
+        />
+        <button type="button" disabled={saving} onClick={handleSave}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {saved && !error && <p className="muted">Saved.</p>}
+    </section>
   );
 }
 

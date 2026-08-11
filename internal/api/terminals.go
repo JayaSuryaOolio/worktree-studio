@@ -222,6 +222,17 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		_ = cmd.Process.Kill() // kills the `tmux attach` client, NOT the tmux session it was attached to
 	}()
 
+	// Replays tmux's current pane title as a synthetic OSC 0 sequence right
+	// after attaching — see CurrentTitle's doc comment for why this is
+	// needed (tmux only emits the real escape sequence on a title *change*,
+	// not on a fresh client attaching to an already-running session).
+	// Best-effort: a lookup failure just means the tab keeps its default
+	// label until the pane's title next changes on its own, same as before
+	// this fix existed.
+	if title, terr := term.CurrentTitle(ts.TmuxSessionName); terr == nil && title != "" {
+		_ = conn.WriteMessage(websocket.BinaryMessage, []byte("\x1b]0;"+title+"\x07"))
+	}
+
 	// pty -> websocket
 	done := make(chan struct{})
 	go func() {

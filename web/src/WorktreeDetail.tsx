@@ -63,16 +63,32 @@ const TERMINAL_APP_ICONS: Record<TerminalAppKind, (props: { size?: number }) => 
 // so TerminalTab below knows which icon to render. Reverts to baseLabel
 // with no icon once the title stops matching anything known (e.g. the app
 // exited back to a plain shell).
+//
+// The .terminal-panel-inset wrapper below gives every pane its own inset,
+// not just the whole dockview area's outer edge (.terminal-area's padding
+// in style.css) — without it, a pane created via split-right/split-down
+// sits flush against the internal sash with zero left/top padding, since
+// that boundary is an internal dockview split, not the outer container edge.
 function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>) {
   function handleTitleChange(title: string) {
     const app = detectTerminalApp(title);
     if (props.params.appKind !== app?.kind) {
       props.api.updateParameters({ ...props.params, appKind: app?.kind });
     }
-    props.api.setTitle(app ? app.label : props.params.baseLabel);
+    // Falls back to "shell" (not an empty string) if this pane's baseLabel
+    // is itself blank — e.g. a terminal_sessions row from before the
+    // backend started defaulting an empty tab_label to "shell" on create
+    // (internal/api/terminals.go), which would otherwise render as a
+    // blank tab title forever once the pane's OSC title stops matching a
+    // known app.
+    props.api.setTitle(app ? app.label : props.params.baseLabel || "shell");
   }
 
-  return <Terminal terminalId={props.params.terminalId} onTitleChange={handleTitleChange} />;
+  return (
+    <div className="terminal-panel-inset">
+      <Terminal terminalId={props.params.terminalId} onTitleChange={handleTitleChange} />
+    </div>
+  );
 }
 
 // Renders the same look as dockview's own default tab, plus a leading
@@ -251,8 +267,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           id: ts.id,
           component: "terminal",
           tabComponent: "terminal-tab",
-          title: ts.tab_label,
-          params: { terminalId: ts.id, baseLabel: ts.tab_label },
+          title: ts.tab_label || "shell",
+          params: { terminalId: ts.id, baseLabel: ts.tab_label || "shell" },
         });
       }
     }
@@ -368,8 +384,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
         id: ts.id,
         component: "terminal",
         tabComponent: "terminal-tab",
-        title: ts.tab_label,
-        params: { terminalId: ts.id, baseLabel: ts.tab_label },
+        title: ts.tab_label || "shell",
+        params: { terminalId: ts.id, baseLabel: ts.tab_label || "shell" },
         position: reference ? { referencePanel: reference.id, direction } : undefined,
       });
     } catch (err) {

@@ -43,6 +43,8 @@ func (s *Server) Routes(r chi.Router) {
 		r.Get("/", s.handleListRepos)
 		r.Post("/", s.handleAddRepo)
 
+		r.Put("/{repoID}/settings", s.handleUpdateRepoSettings)
+
 		r.Route("/{repoID}/worktrees", func(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
 			r.Post("/", s.handleCreateWorktree)
@@ -189,6 +191,57 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, repo)
 }
 
+type updateRepoSettingsRequest struct {
+	BaseBranch string `json:"base_branch"`
+}
+
+// handleUpdateRepoSettings sets repo.BaseBranch, the explicit override for
+// which branch new worktrees are created from (see handleCreateWorktree and
+// gitops.DetectDefaultBranch). Posting "" reverts to auto-detection —
+// deliberately not validated against the repo's actual local/remote
+// branches here: a typo or a branch that doesn't exist yet just surfaces as
+// git's own "invalid reference" error on the next worktree-create attempt,
+// which is a clear enough signal without duplicating git's own branch
+// resolution logic here.
+func (s *Server) handleUpdateRepoSettings(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+
+	if _, err := s.Store.GetRepo(repoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	var req updateRepoSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := s.Store.UpdateRepoBaseBranch(repoID, req.BaseBranch); err != nil {
+		s.Log.Error("update repo base branch", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to update repo settings")
+		return
+	}
+
+	s.auditLog(audit.EventRepoUpdateBaseBranch, map[string]any{
+		"repo_id":     repoID,
+		"base_branch": req.BaseBranch,
+	})
+
+	repo, err := s.Store.GetRepo(repoID)
+	if err != nil {
+		s.Log.Error("get repo after update", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up updated repo")
+		return
+	}
+	writeJSON(w, http.StatusOK, repo)
+}
+
 // --- Worktrees ---
 
 func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +320,18 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	branch := slug
-	if err := gitops.AddWorktree(repo.Path, worktreePath, branch); err != nil {
+	// repo.BaseBranch is an explicit per-repo override (see
+	// handleUpdateRepoSettings); "" means auto-detect, and if that also
+	// comes up empty, AddWorktree falls back to its own implicit-HEAD
+	// default. Without this, every worktree silently branched off whatever
+	// the main checkout's HEAD happened to be at creation time, which is
+	// not reliably "the" base branch (e.g. if the main checkout itself was
+	// left on a feature branch).
+	baseBranch := repo.BaseBranch
+	if baseBranch == "" {
+		baseBranch = gitops.DetectDefaultBranch(repo.Path)
+	}
+	if err := gitops.AddWorktree(repo.Path, worktreePath, branch, baseBranch); err != nil {
 		s.Log.Error("git worktree add", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create git worktree: "+err.Error())
 		return
@@ -318,6 +382,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		"name":        wt.Name,
 		"branch":      wt.Branch,
 		"path":        wt.Path,
+		"base_branch": baseBranch,
 	})
 
 	writeJSON(w, http.StatusCreated, wt)

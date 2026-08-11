@@ -16,7 +16,8 @@ package audit
 type Event string
 
 const (
-	EventRepoAdd Event = "repo.add"
+	EventRepoAdd              Event = "repo.add"
+	EventRepoUpdateBaseBranch Event = "repo.update_base_branch"
 
 	EventWorktreeCreate    Event = "worktree.create"
 	EventWorktreeImport    Event = "worktree.import"

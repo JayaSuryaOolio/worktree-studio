@@ -77,7 +77,20 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/ \
   -d '{"name": "amber-ridge"}'
 ```
 
-This runs `git worktree add -b amber-ridge <path>` against the registered repo, placing the new worktree at `~/.worktree-studio/worktrees/<repoId>/amber-ridge` — **outside** the source repo's own directory tree (deliberate: keeps the main repo's `.gitignore`/tooling from getting confused by a nested worktree). List worktrees for a repo with `GET /api/repos/:repoId/worktrees/`.
+This runs `git worktree add -b amber-ridge <path> [startPoint]` against the registered repo, placing the new worktree at `~/.worktree-studio/worktrees/<repoId>/amber-ridge` — **outside** the source repo's own directory tree (deliberate: keeps the main repo's `.gitignore`/tooling from getting confused by a nested worktree). List worktrees for a repo with `GET /api/repos/:repoId/worktrees/`.
+
+**Base branch (`startPoint` above)**: without an explicit start point, git's own default is whatever the main repo checkout's HEAD happens to be at that moment — *not* reliably "the" base branch, since the main checkout could itself be left on a feature branch when a new worktree gets created. To avoid that, `handleCreateWorktree` resolves a start point before calling `AddWorktree`: it uses `Repo.BaseBranch` (an explicit per-repo override) if set, otherwise it auto-detects via `gitops.DetectDefaultBranch` — `origin/HEAD`'s target, else a local `main`, else a local `master`, else "" (falls back to git's implicit-HEAD default, same as before this existed). Set the override from the repo settings page (gear icon on a sidebar repo row → **General** tab), or directly:
+
+```bash
+curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
+  -H "Content-Type: application/json" \
+  -d '{"base_branch": "develop"}'
+
+# revert to auto-detect
+curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
+  -H "Content-Type: application/json" \
+  -d '{"base_branch": ""}'
+```
 
 ## Attaching an existing worktree (no git mutation)
 
@@ -151,12 +164,14 @@ Other useful local state:
 
 ## Using terminals
 
-Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktree/:worktreeId`). Terminals are arranged via **dockview**, not a plain tab strip — "+ New Terminal ▾" opens a dropdown with three placement actions:
+Click "Open" on a worktree row to get to its detail page (`/repo/:repoId/worktree/:worktreeId`). Terminals are arranged via **dockview**, not a plain tab strip — the toolbar's right-hand cluster has three placement buttons:
 
-- **New tab** — adds it as a tab within the currently active group; selecting that tab shows it full-size, other tabs in the same group hidden (classic single-visible-at-a-time behavior).
+- **+ (New terminal tab)** — adds it as a tab within the currently active group; selecting that tab shows it full-size, other tabs in the same group hidden (classic single-visible-at-a-time behavior).
 - **Split right** / **Split down** — adds it as a new tile shown *simultaneously* alongside the existing one. Drag the boundary between tiles to resize them (dockview's native split-view behavior).
 
 Each starts a real shell rooted in that worktree's directory — run anything in it, including `claude` itself; there's no special agent framing, it's just a shell. There is deliberately **no OS-level popout** into a separate browser window — that was considered and explicitly ruled out, not deferred.
+
+**Tab labels and app detection**: a tab's label defaults to `"shell"` (or `"claude"` for the auto-started terminal — see the claude session hook section below) via `tab_label` on `POST .../terminals/`; the backend always defaults an empty/omitted `tab_label` to `"shell"`, and the frontend mirrors that same fallback wherever it renders a tab, so a tab title should never render blank. Independently, a tab's icon and displayed title can change live: `web/src/terminalAppDetection.ts` watches the pane's OSC 0/2 window-title escape sequences (relayed through tmux via `set-titles on`, see `internal/term.CreateSession`) for known-app signatures — currently just `claude`, matched on the substring `"Claude Code"` it sets as its own title — and swaps in that app's icon/label while it's running, reverting to the tab's own base label once the title stops matching (e.g. the app exits back to a plain shell). Because tmux only *emits* that title escape sequence to a client on an actual change, not on a fresh attach, `internal/term.CurrentTitle` + `handleTerminalWS` replay the pane's current title as a synthetic escape sequence right after attaching — without this, reloading the page (or navigating back to a worktree) while `claude` is already running inside it would show the generic tab label/icon until something inside the pane happened to touch the title again.
 
 **The arrangement itself persists** — reload the page, or kill and restart the whole worktree-studio server, and the same split/tab layout comes back (verified both ways against a real server). It's saved server-side (`GET/PUT /api/repos/<repoId>/worktrees/<worktreeId>/layout`, debounced ~500ms after any drag/resize/tab-switch), not in browser storage — it'll follow you to a different browser or machine too.
 

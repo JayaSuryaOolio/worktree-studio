@@ -74,6 +74,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate terminal_sessions.created_at: %w", err)
 	}
+	if err := s.migrateAddRepoBaseBranch(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate repos.base_branch: %w", err)
+	}
 	return s, nil
 }
 
@@ -202,6 +206,23 @@ func (s *Store) migrateAddTerminalSessionCreatedAt() error {
 	return err
 }
 
+// migrateAddRepoBaseBranch adds the repos.base_branch column: the branch new
+// worktrees are created from (see gitops.AddWorktree's startPoint param).
+// Empty string means "auto-detect" (origin/HEAD, else local main/master,
+// else whatever the main checkout's HEAD happens to be) rather than a fixed
+// branch — see internal/api's handleCreateWorktree.
+func (s *Store) migrateAddRepoBaseBranch() error {
+	hasColumn, err := s.hasColumn("repos", "base_branch")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE repos ADD COLUMN base_branch TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
 // hasColumn reports whether table has a column named col.
 func (s *Store) hasColumn(table, col string) (bool, error) {
 	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
@@ -251,6 +272,9 @@ type Repo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
+	// BaseBranch is the branch new worktrees are created from. Empty means
+	// "auto-detect" — see migrateAddRepoBaseBranch's doc comment.
+	BaseBranch string `json:"base_branch"`
 }
 
 // Worktree is a git worktree created under a registered repo.
@@ -273,7 +297,7 @@ func (s *Store) AddRepo(r Repo) error {
 
 // ListRepos returns all registered repos.
 func (s *Store) ListRepos() ([]Repo, error) {
-	rows, err := s.db.Query(`SELECT id, name, path FROM repos ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, path, base_branch FROM repos ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +306,7 @@ func (s *Store) ListRepos() ([]Repo, error) {
 	var out []Repo
 	for rows.Next() {
 		var r Repo
-		if err := rows.Scan(&r.ID, &r.Name, &r.Path); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -293,8 +317,16 @@ func (s *Store) ListRepos() ([]Repo, error) {
 // GetRepo fetches a single repo by id. Returns sql.ErrNoRows if not found.
 func (s *Store) GetRepo(id string) (Repo, error) {
 	var r Repo
-	err := s.db.QueryRow(`SELECT id, name, path FROM repos WHERE id = ?`, id).Scan(&r.ID, &r.Name, &r.Path)
+	err := s.db.QueryRow(`SELECT id, name, path, base_branch FROM repos WHERE id = ?`, id).
+		Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch)
 	return r, err
+}
+
+// UpdateRepoBaseBranch sets the branch new worktrees are created from for
+// this repo. Pass "" to revert to auto-detection.
+func (s *Store) UpdateRepoBaseBranch(id, baseBranch string) error {
+	_, err := s.db.Exec(`UPDATE repos SET base_branch = ? WHERE id = ?`, baseBranch, id)
+	return err
 }
 
 // RepoPathExists reports whether a repo with the given path is already registered.

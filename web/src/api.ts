@@ -4,6 +4,10 @@ export interface Repo {
   id: string;
   name: string;
   path: string;
+  // Branch new worktrees are created from. "" means auto-detect (origin's
+  // default branch, else local main/master, else the main checkout's
+  // current HEAD) — see internal/gitops.DetectDefaultBranch.
+  base_branch: string;
 }
 
 // Not to be confused with WorktreeStatus below, which is git dirty/ahead-
@@ -123,6 +127,15 @@ export function addRepo(name: string, path: string): Promise<Repo> {
   return request<Repo>("/api/repos/", {
     method: "POST",
     body: JSON.stringify({ name, path }),
+  });
+}
+
+/** Sets the branch new worktrees are created from for this repo. Pass ""
+ * to revert to auto-detection — see Repo.base_branch. */
+export function updateRepoBaseBranch(repoId: string, baseBranch: string): Promise<Repo> {
+  return request<Repo>(`/api/repos/${repoId}/settings`, {
+    method: "PUT",
+    body: JSON.stringify({ base_branch: baseBranch }),
   });
 }
 

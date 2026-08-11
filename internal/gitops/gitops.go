@@ -74,16 +74,51 @@ func ListWorktrees(repoPath string) ([]WorktreeEntry, error) {
 	return entries, nil
 }
 
-// AddWorktree runs `git worktree add -b <branch> <worktreePath>` from
-// within repoPath, creating a new branch and worktree in one step.
-func AddWorktree(repoPath, worktreePath, branch string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", "-b", branch, worktreePath)
+// AddWorktree runs `git worktree add -b <branch> <worktreePath> [startPoint]`
+// from within repoPath, creating a new branch and worktree in one step. If
+// startPoint is empty, git falls back to its own default: the commit
+// repoPath's own checkout currently has as HEAD — which is whatever branch
+// happened to be checked out there at the moment of creation, not
+// necessarily any particular "base" branch. Callers that want new worktrees
+// to consistently branch off e.g. main/master regardless of what repoPath's
+// own working copy is on should resolve and pass a real startPoint instead
+// of relying on that default — see DetectDefaultBranch and
+// handleCreateWorktree's use of repo.BaseBranch.
+func AddWorktree(repoPath, worktreePath, branch, startPoint string) error {
+	args := []string{"-C", repoPath, "worktree", "add", "-b", branch, worktreePath}
+	if startPoint != "" {
+		args = append(args, startPoint)
+	}
+	cmd := exec.Command("git", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git worktree add %s (branch %s): %w: %s", worktreePath, branch, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("git worktree add %s (branch %s, start point %q): %w: %s", worktreePath, branch, startPoint, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// DetectDefaultBranch makes a best-effort guess at repoPath's "main" branch,
+// for use as AddWorktree's startPoint when a repo has no explicit
+// Repo.BaseBranch setting. Tries, in order: the remote `origin`'s own
+// advertised default branch (`git symbolic-ref refs/remotes/origin/HEAD` —
+// what `origin/HEAD -> main` in `git branch -r` reflects, and the same
+// signal `gh`/GitHub's own "default branch" concept is built on), then a
+// local `main` branch, then a local `master` branch. Returns "" if none of
+// those resolve, in which case the caller should fall back to git's own
+// implicit-HEAD-of-repoPath behavior (pass "" as AddWorktree's startPoint).
+func DetectDefaultBranch(repoPath string) string {
+	if out, err := exec.Command("git", "-C", repoPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output(); err == nil {
+		if ref := strings.TrimSpace(string(out)); ref != "" {
+			return strings.TrimPrefix(ref, "origin/")
+		}
+	}
+	for _, candidate := range []string{"main", "master"} {
+		if exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+candidate).Run() == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // DeleteBranch runs `git branch -D <branch>` from within repoPath. Note

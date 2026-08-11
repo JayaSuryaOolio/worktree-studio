@@ -417,6 +417,14 @@ code {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+/* Per-pane inset — see the comment above TerminalPanel in WorktreeDetail.tsx
+   for why this can't just live on .terminal-area alone. */
+.terminal-panel-inset {
+  box-sizing: border-box;
+  height: 100%;
+  width: 100%;
   padding: 0.5rem;
 }
 

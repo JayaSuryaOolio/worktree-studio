@@ -65,7 +65,7 @@ func TestAddListRemoveWorktree(t *testing.T) {
 	repo := newTestRepo(t)
 	wtPath := filepath.Join(t.TempDir(), "my-feature")
 
-	if err := AddWorktree(repo, wtPath, "my-feature"); err != nil {
+	if err := AddWorktree(repo, wtPath, "my-feature", ""); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 	if _, err := os.Stat(wtPath); err != nil {
@@ -122,7 +122,7 @@ func TestRemoveWorktreeDirtyWithoutForceFails(t *testing.T) {
 	repo := newTestRepo(t)
 	wtPath := filepath.Join(t.TempDir(), "dirty-feature")
 
-	if err := AddWorktree(repo, wtPath, "dirty-feature"); err != nil {
+	if err := AddWorktree(repo, wtPath, "dirty-feature", ""); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 
