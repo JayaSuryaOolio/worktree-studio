@@ -788,6 +788,13 @@ code {
   gap: 0.25rem;
 }
 
+.sidebar-repo-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
 .sidebar-repo-row .icon-button {
   opacity: 0;
 }

@@ -119,9 +119,10 @@ function WorktreesTab({ repoId }: { repoId: string }) {
         <p className="muted">
           Detected via <code>git worktree list</code> but not tracked here yet.
         </p>
-        {externalError && <p className="error">{externalError}</p>}
         {attachError && <p className="error">{attachError}</p>}
-        {external === null ? (
+        {externalError ? (
+          <p className="error">{externalError}</p>
+        ) : external === null ? (
           <p className="muted">Loading…</p>
         ) : external.length === 0 ? (
           <p className="muted">Nothing to attach — git and worktree-studio agree.</p>

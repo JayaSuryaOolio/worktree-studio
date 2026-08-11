@@ -92,23 +92,30 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                   <Link to={`/repo/${r.id}`} className="sidebar-repo">
                     {r.name}
                   </Link>
-                  <Link
-                    to={`/repo/${r.id}/settings`}
-                    className="icon-button"
-                    aria-label={`${r.name} settings`}
-                    title="Repo settings"
-                  >
-                    ⚙
-                  </Link>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`New worktree in ${r.name}`}
-                    title="New worktree"
-                    onClick={() => onNewWorktree(r.id)}
-                  >
-                    +
-                  </button>
+                  {/* Grouped in their own right-aligned cluster (rather than
+                      as two siblings of the row's justify-content:
+                      space-between) so the gear sits directly next to
+                      "+ new worktree" instead of floating in the middle of
+                      the row. */}
+                  <div className="sidebar-repo-row-actions">
+                    <Link
+                      to={`/repo/${r.id}/settings`}
+                      className="icon-button"
+                      aria-label={`${r.name} settings`}
+                      title="Repo settings"
+                    >
+                      ⚙
+                    </Link>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`New worktree in ${r.name}`}
+                      title="New worktree"
+                      onClick={() => onNewWorktree(r.id)}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
 
                 <ul className="sidebar-worktree-list">
