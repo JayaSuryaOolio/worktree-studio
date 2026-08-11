@@ -16,8 +16,10 @@ export type WorktreeLifecycle = "active" | "archived" | "deleted";
 
 // "created" = made through worktree-studio's own "+ New worktree" flow;
 // "imported" = an existing `git worktree` attached in via the repo settings
-// page's attach flow.
-export type WorktreeSource = "created" | "imported";
+// page's attach flow; "root" = the synthetic per-repo root-checkout
+// worktree (see rootWorktree.ts) — never created/imported/archived through
+// any of this UI.
+export type WorktreeSource = "created" | "imported" | "root";
 
 export interface Worktree {
   id: string;
@@ -28,6 +30,9 @@ export interface Worktree {
   created_at: string;
   status: WorktreeLifecycle;
   source: WorktreeSource;
+  // When this worktree was last archived (RFC3339), or "" if it isn't
+  // currently archived.
+  archived_at: string;
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
@@ -248,6 +253,14 @@ export function unarchiveWorktree(repoId: string, worktreeId: string): Promise<v
   return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/unarchive`, {
     method: "POST",
   });
+}
+
+/** Every archived worktree for a repo — the settings page's "Archived
+ * worktrees" section, where one can be unarchived back before the
+ * backend's retention sweep hard-removes it (git worktree + DB row) once
+ * it's been archived for worktreeActions.ts's ARCHIVED_RETENTION_DAYS. */
+export function listArchivedWorktrees(repoId: string): Promise<Worktree[]> {
+  return request<Worktree[]>(`/api/repos/${repoId}/worktrees/archived`);
 }
 
 export function deleteTerminal(

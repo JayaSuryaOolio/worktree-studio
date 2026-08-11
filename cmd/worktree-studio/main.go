@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -96,6 +97,21 @@ func main() {
 			srv.EnsureRootWorktree(repo)
 		}
 	}
+
+	// Removes worktrees archived for longer than api.ArchivedWorktreeRetention
+	// (git worktree + DB row, hard delete): once at startup, so anything that
+	// crossed the threshold while the server was down is cleaned up promptly,
+	// then on a running interval for as long as the server stays up. The
+	// interval doesn't need to be anywhere near the 60-day retention itself —
+	// it only controls how promptly an already-expired worktree gets noticed.
+	srv.SweepExpiredArchivedWorktrees()
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			srv.SweepExpiredArchivedWorktrees()
+		}
+	}()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)

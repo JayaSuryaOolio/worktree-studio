@@ -1,7 +1,11 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
@@ -22,6 +26,36 @@ func (s *Server) handleArchiveWorktree(w http.ResponseWriter, r *http.Request) {
 // handleUnarchiveWorktree reverses handleArchiveWorktree.
 func (s *Server) handleUnarchiveWorktree(w http.ResponseWriter, r *http.Request) {
 	s.setWorktreeStatus(w, r, store.WorktreeStatusActive, audit.EventWorktreeUnarchive)
+}
+
+// handleListArchivedWorktrees returns every archived worktree for a repo —
+// the settings page's "Archived worktrees" section, where an archived
+// worktree can be unarchived (handleUnarchiveWorktree) before
+// SweepExpiredArchivedWorktrees hard-removes it (git worktree + DB row)
+// once it's been archived for ArchivedWorktreeRetention.
+func (s *Server) handleListArchivedWorktrees(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+
+	if _, err := s.Store.GetRepo(repoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	worktrees, err := s.Store.ListWorktrees(repoID, store.WorktreeStatusArchived)
+	if err != nil {
+		s.Log.Error("list archived worktrees", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to list archived worktrees")
+		return
+	}
+	if worktrees == nil {
+		worktrees = []store.Worktree{}
+	}
+	writeJSON(w, http.StatusOK, worktrees)
 }
 
 func (s *Server) setWorktreeStatus(w http.ResponseWriter, r *http.Request, status string, event audit.Event) {

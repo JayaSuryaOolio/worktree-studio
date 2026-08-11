@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -51,6 +52,7 @@ func (s *Server) Routes(r chi.Router) {
 			r.Post("/import", s.handleImportWorktree)
 			r.Get("/new-name-suggestion", s.handleNewNameSuggestion)
 			r.Get("/external", s.handleListExternalWorktrees)
+			r.Get("/archived", s.handleListArchivedWorktrees)
 
 			r.Route("/{worktreeID}", func(r chi.Router) {
 				r.Delete("/", s.handleDeleteWorktree)
@@ -523,29 +525,8 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Close any terminal sessions for this worktree before removing it —
-	// otherwise the tmux session (a real OS process) becomes a permanent
-	// orphan: the terminal_sessions DB row disappears via this worktree's
-	// ON DELETE CASCADE below regardless, but nothing besides this call
-	// ever kills the actual tmux session behind it. Found by hand while
-	// testing step 7.4 (a stray tmux session survived a worktree delete
-	// with no trace in the DB pointing back to it).
-	sessions, err := s.Store.ListTerminalSessions(wt.ID)
-	if err != nil {
-		s.Log.Error("list terminal sessions before worktree delete", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to look up terminal sessions")
-		return
-	}
-	for _, ts := range sessions {
-		if err := s.Term.CloseSession(ts); err != nil {
-			s.Log.Error("close terminal session before worktree delete", "err", err, "terminal_id", ts.ID)
-			writeError(w, http.StatusInternalServerError, "failed to close terminal session "+ts.ID+" before deleting the worktree: "+err.Error())
-			return
-		}
-	}
-
 	force := r.URL.Query().Get("force") == "true"
-	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
+	if err := s.hardRemoveWorktree(repo, wt, force); err != nil {
 		if errors.Is(err, gitops.ErrWorktreeDirty) {
 			// Not a server error: the user needs to make a call (retry with
 			// force=true to discard changes, or go clean things up first),
@@ -553,15 +534,41 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "worktree has uncommitted changes or untracked files; retry with ?force=true to remove it anyway and discard them")
 			return
 		}
-		s.Log.Error("git worktree remove", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to remove git worktree: "+err.Error())
+		s.Log.Error("remove worktree", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to remove worktree: "+err.Error())
 		return
 	}
 
+	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+// hardRemoveWorktree does the actual destructive teardown shared by
+// handleDeleteWorktree (a user-initiated delete) and
+// SweepExpiredArchivedWorktrees (archive_sweep.go, the 60-day retention
+// cleanup for archived worktrees): close any terminal sessions (otherwise
+// the tmux session — a real OS process — becomes a permanent orphan once
+// its DB row disappears via ON DELETE CASCADE, found the hard way while
+// testing step 7.4), remove the git worktree checkout, and delete the DB
+// row outright. Does NOT delete the worktree's branch, same as this flow
+// has always done (see gitops.RemoveWorktree's own doc comment for why
+// that's a separate call).
+func (s *Server) hardRemoveWorktree(repo store.Repo, wt store.Worktree, force bool) error {
+	sessions, err := s.Store.ListTerminalSessions(wt.ID)
+	if err != nil {
+		return fmt.Errorf("list terminal sessions: %w", err)
+	}
+	for _, ts := range sessions {
+		if err := s.Term.CloseSession(ts); err != nil {
+			return fmt.Errorf("close terminal session %s: %w", ts.ID, err)
+		}
+	}
+
+	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
+		return err // may wrap gitops.ErrWorktreeDirty — callers check with errors.Is
+	}
+
 	if err := s.Store.RemoveWorktree(wt.ID); err != nil {
-		s.Log.Error("delete worktree record", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete worktree record")
-		return
+		return fmt.Errorf("delete worktree record: %w", err)
 	}
 
 	s.auditLog(audit.EventWorktreeRemove, map[string]any{
@@ -571,8 +578,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 		"branch":      wt.Branch,
 		"path":        wt.Path,
 	})
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+	return nil
 }
 
 // auditLog logs an audit event, warning to the server log (but not failing

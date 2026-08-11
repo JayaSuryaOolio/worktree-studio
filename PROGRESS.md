@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Bring back archived worktrees, auto-delete after 60 days
+
+Two requests: a way to unarchive a worktree from the UI (the backend endpoint already existed but nothing surfaced it), and auto-deleting a worktree's git checkout + DB record — hard delete, not another soft-delete flag — once it's sat archived for 60 days.
+
+- **`worktrees.archived_at`** (new column, migrated in) is stamped to now by `store.SetWorktreeStatus` whenever a worktree transitions to `archived`, and cleared back to `""` on unarchive — the signal the retention sweep reads. Existing rows already sitting at `status=archived` from before this column existed have no real archive time to recover, so the migration backfills them to the migration's own run time (same "best-available default" call as the existing `terminal_sessions.created_at` migration) — otherwise they'd sit at `""` forever, permanently exempt from ever being swept.
+- **`api.Server.SweepExpiredArchivedWorktrees`** (new, `internal/api/archive_sweep.go`) hard-removes (git worktree + DB row, via a `hardRemoveWorktree` helper now shared with `handleDeleteWorktree`) every worktree archived longer than `ArchivedWorktreeRetention` (60 days). Runs once at server startup and then every 6 hours for as long as the process stays up (`main.go`) — best-effort per worktree, one failure (e.g. an unregistered repo) doesn't stop the rest. Always force-removes (no dirty-worktree 409, unlike the user-initiated delete endpoint) since by 60 days archived there's no one left to ask.
+- **`GET /api/repos/:repoId/worktrees/archived`** (new) lists a repo's archived worktrees, backing the settings page's new "Archived worktrees" section (`RepoSettings.tsx`'s `WorktreesTab`) — shows path, days left until auto-delete (`daysUntilAutoDelete` in `worktreeActions.ts`, computed client-side from `archived_at` + the retention constant), and an Unarchive button (`unarchiveWorktreeSafe`, wired to the existing `POST .../unarchive` endpoint).
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 108 tests, including new `TestArchiveStampsAndClearsArchivedAt` (archive/unarchive round-trip, plus the `/worktrees/archived` listing) and `TestSweepExpiredArchivedWorktrees` (backdates one worktree's `archived_at` past the retention window via a new `Store.SetWorktreeArchivedAt`, runs the sweep, confirms it's gone from disk and the DB while a recently-archived sibling survives). `cd web && bun run build && bun run test` — 85 tests, clean typecheck. Also restarted the actual locally-running dev server against the real `~/.worktree-studio/studio.db` and confirmed the migration backfilled `archived_at` for the 13 worktrees already archived there, and that `GET .../worktrees/archived` returns them correctly over real HTTP.
+
+---
+
 ## 2026-08-11 — Repo-root worktree view, settings-page default tab
 
 Two small changes requested after the previous session's toolbar/settings work:

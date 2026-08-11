@@ -78,6 +78,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate repos.base_branch: %w", err)
 	}
+	if err := s.migrateAddWorktreeArchivedAt(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate worktrees.archived_at: %w", err)
+	}
 	return s, nil
 }
 
@@ -223,6 +227,40 @@ func (s *Store) migrateAddRepoBaseBranch() error {
 	return err
 }
 
+// migrateAddWorktreeArchivedAt adds the worktrees.archived_at column for
+// databases created before it existed. Its real archive time is long
+// lost for any row already sitting at status="archived", so rather than
+// leave those permanently ineligible for the retention sweep (archived_at
+// would stay "" forever — nothing else ever sets it for an
+// already-archived row), this backfills the migration time itself: the
+// same "best-available default, not a fabricated value" call
+// migrateAddTerminalSessionCreatedAt makes for its own column, and it
+// means these worktrees start their 60-day countdown today rather than
+// being silently exempted from ever being swept.
+func (s *Store) migrateAddWorktreeArchivedAt() error {
+	hasColumn, err := s.hasColumn("worktrees", "archived_at")
+	if err != nil {
+		return err
+	}
+	if !hasColumn {
+		if _, err := s.db.Exec(`ALTER TABLE worktrees ADD COLUMN archived_at TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	// Runs every startup, not just the one that adds the column above: an
+	// already-archived row's archived_at only ever gets set by
+	// SetWorktreeStatus on a *future* archive/unarchive call, so a row
+	// that's stayed continuously archived since before this column
+	// existed would otherwise sit at "" — permanently exempt from the
+	// retention sweep — forever. Harmless to re-run: it only touches rows
+	// still at "".
+	_, err = s.db.Exec(
+		`UPDATE worktrees SET archived_at = ? WHERE status = ? AND archived_at = ''`,
+		time.Now().UTC().Format(time.RFC3339), WorktreeStatusArchived,
+	)
+	return err
+}
+
 // hasColumn reports whether table has a column named col.
 func (s *Store) hasColumn(table, col string) (bool, error) {
 	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
@@ -298,6 +336,11 @@ type Worktree struct {
 	CreatedAt string `json:"created_at"`
 	Status    string `json:"status"`
 	Source    string `json:"source"`
+	// ArchivedAt is when this worktree was last archived (RFC3339), or ""
+	// if it's not currently archived. Set by SetWorktreeStatus and read by
+	// ListArchivedWorktreesOlderThan to find worktrees due for the
+	// retention sweep (see api.Server.SweepExpiredArchivedWorktrees).
+	ArchivedAt string `json:"archived_at"`
 }
 
 // AddRepo inserts a new repo row.
@@ -381,7 +424,7 @@ func (s *Store) WorktreePathExists(path string) (bool, error) {
 // status (used by ListAllWorktreesForRepo, e.g. a future settings-modal
 // datagrid) — the normal UI list calls this with WorktreeStatusActive only.
 func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, error) {
-	query := `SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees WHERE repo_id = ?`
+	query := `SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees WHERE repo_id = ?`
 	args := []any{repoID}
 	if len(statuses) > 0 {
 		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
@@ -400,7 +443,7 @@ func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, er
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -432,7 +475,7 @@ type WorktreeWithRepo struct {
 // the caller.
 func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	rows, err := s.db.Query(`
-		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, r.name
+		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, w.archived_at, r.name
 		FROM worktrees w JOIN repos r ON w.repo_id = r.id
 		ORDER BY w.created_at DESC`)
 	if err != nil {
@@ -443,7 +486,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	var out []WorktreeWithRepo
 	for rows.Next() {
 		var w WorktreeWithRepo
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.RepoName); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.RepoName); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -460,7 +503,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 // outcome: most claude sessions on this machine have nothing to do with
 // worktree-studio).
 func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
-	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees`)
+	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees`)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -468,7 +511,7 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
 			return Worktree{}, err
 		}
 		if cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/") {
@@ -485,18 +528,64 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 func (s *Store) GetWorktree(id string) (Worktree, error) {
 	var w Worktree
 	err := s.db.QueryRow(
-		`SELECT id, repo_id, name, branch, path, created_at, status, source FROM worktrees WHERE id = ?`, id,
-	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source)
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees WHERE id = ?`, id,
+	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt)
 	return w, err
 }
 
 // SetWorktreeStatus updates a worktree's status (active/archived/deleted).
 // Used by archive/unarchive (no git changes at all — purely a visibility
 // flag) and by the delete flow (status="deleted", after the git worktree
-// and branch have actually been removed from disk).
+// and branch have actually been removed from disk). Also stamps/clears
+// archived_at: set to now when transitioning to WorktreeStatusArchived,
+// cleared otherwise — that's what ListArchivedWorktreesOlderThan reads to
+// find worktrees due for the retention sweep, and what an unarchive (or a
+// re-archive later) should reset rather than leave stale.
 func (s *Store) SetWorktreeStatus(id, status string) error {
-	_, err := s.db.Exec(`UPDATE worktrees SET status = ? WHERE id = ?`, status, id)
+	archivedAt := ""
+	if status == WorktreeStatusArchived {
+		archivedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	_, err := s.db.Exec(`UPDATE worktrees SET status = ?, archived_at = ? WHERE id = ?`, status, archivedAt, id)
 	return err
+}
+
+// SetWorktreeArchivedAt overwrites a worktree's archived_at directly,
+// bypassing the normal "stamp to now on archive" behavior in
+// SetWorktreeStatus. Not used by any handler — its one real caller today
+// is the retention-sweep test, which needs an archived worktree that's
+// provably past ArchivedWorktreeRetention without actually waiting 60
+// days for it.
+func (s *Store) SetWorktreeArchivedAt(id, archivedAt string) error {
+	_, err := s.db.Exec(`UPDATE worktrees SET archived_at = ? WHERE id = ?`, archivedAt, id)
+	return err
+}
+
+// ListArchivedWorktreesOlderThan returns every worktree, across every
+// repo, that's been archived (status = WorktreeStatusArchived) since
+// before cutoff (an RFC3339 timestamp) — the retention sweep's input (see
+// api.Server.SweepExpiredArchivedWorktrees). Not scoped to one repo:
+// unlike ListWorktrees, this is a maintenance query over the whole DB.
+func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error) {
+	rows, err := s.db.Query(
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees
+		 WHERE status = ? AND archived_at != '' AND archived_at < ?`,
+		WorktreeStatusArchived, cutoff,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Worktree
+	for rows.Next() {
+		var w Worktree
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
 }
 
 // RemoveWorktree deletes a worktree row by id outright. Still what the

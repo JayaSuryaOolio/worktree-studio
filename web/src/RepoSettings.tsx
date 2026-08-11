@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ExternalWorktreeEntry,
   importWorktree,
+  listArchivedWorktrees,
   listExternalWorktrees,
   listTerminalsForRepo,
   Repo,
@@ -11,6 +12,7 @@ import {
   Worktree,
 } from "./api";
 import { useRepoContext } from "./RepoContext";
+import { daysUntilAutoDelete, unarchiveWorktreeSafe } from "./worktreeActions";
 
 type Tab = "general" | "worktrees" | "shells";
 
@@ -149,6 +151,8 @@ function WorktreesTab({ repoId }: { repoId: string }) {
   const [externalError, setExternalError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [archived, setArchived] = useState<Worktree[] | null>(null);
+  const [archivedError, setArchivedError] = useState<string | null>(null);
 
   const worktrees = worktreesByRepo[repoId] ?? [];
   const local = worktrees.filter((w) => w.source !== "imported");
@@ -160,8 +164,15 @@ function WorktreesTab({ repoId }: { repoId: string }) {
       .catch((err) => setExternalError((err as Error).message));
   }
 
+  function refreshArchived() {
+    listArchivedWorktrees(repoId)
+      .then(setArchived)
+      .catch((err) => setArchivedError((err as Error).message));
+  }
+
   useEffect(() => {
     refreshExternal();
+    refreshArchived();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId]);
 
@@ -191,6 +202,22 @@ function WorktreesTab({ repoId }: { repoId: string }) {
         <h3>Imported worktrees</h3>
         <p className="muted">Existing git worktrees attached from below.</p>
         <WorktreeTable worktrees={imported} loading={worktreesLoading} emptyText="No imported worktrees yet." />
+      </section>
+
+      <section className="settings-section">
+        <h3>Archived worktrees</h3>
+        <p className="muted">
+          Hidden from the normal list, but the git worktree and branch are still on disk — unarchive to bring one
+          back. Left archived too long, it's auto-deleted for good (git worktree removed, no DB record kept).
+        </p>
+        <ArchivedWorktreesTable
+          worktrees={archived}
+          error={archivedError}
+          onUnarchived={() => {
+            refreshWorktrees();
+            refreshArchived();
+          }}
+        />
       </section>
 
       <section className="settings-section">
@@ -232,6 +259,65 @@ function WorktreesTab({ repoId }: { repoId: string }) {
           </table>
         )}
       </section>
+    </>
+  );
+}
+
+function ArchivedWorktreesTable({
+  worktrees,
+  error,
+  onUnarchived,
+}: {
+  worktrees: Worktree[] | null;
+  error: string | null;
+  onUnarchived: () => void;
+}) {
+  const [unarchiving, setUnarchiving] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function handleUnarchive(wt: Worktree) {
+    setUnarchiving(wt.id);
+    setActionError(null);
+    await unarchiveWorktreeSafe(wt, { onDone: onUnarchived, onError: setActionError });
+    setUnarchiving(null);
+  }
+
+  if (error) return <p className="error">{error}</p>;
+  if (worktrees === null) return <p className="muted">Loading…</p>;
+  if (worktrees.length === 0) return <p className="muted">No archived worktrees.</p>;
+
+  return (
+    <>
+      {actionError && <p className="error">{actionError}</p>}
+      <table>
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Path</th>
+            <th>Auto-deletes in</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {worktrees.map((wt) => {
+            const daysLeft = daysUntilAutoDelete(wt.archived_at);
+            return (
+              <tr key={wt.id}>
+                <td>{wt.branch}</td>
+                <td>
+                  <code>{wt.path}</code>
+                </td>
+                <td>{daysLeft !== null && (daysLeft > 0 ? `${daysLeft} day(s)` : "any time now")}</td>
+                <td>
+                  <button type="button" disabled={unarchiving === wt.id} onClick={() => handleUnarchive(wt)}>
+                    {unarchiving === wt.id ? "…" : "Unarchive"}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </>
   );
 }
