@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Per-worktree source-branch picker, base-branch freshness note
+
+Follow-up to a question about whether new worktrees are guaranteed to branch off up-to-date remote state: confirmed they aren't — `gitops.DetectDefaultBranch`/`AddWorktree` always resolve to a bare local branch name (e.g. `"main"`, stripped of any `origin/` prefix) with no `git fetch` anywhere in the codebase, so a new worktree is only as fresh as whenever that local branch was last pulled. Rather than add an implicit fetch, the user asked for visibility + control instead:
+
+- **New-worktree dialog now has a "Create from" branch dropdown** (`NewWorktreeDialog.tsx`), populated from a new `GET /api/repos/:repoId/branches` endpoint (`gitops.ListBranches`, `git for-each-ref` over `refs/heads`+`refs/remotes`) and pre-selected to whatever would be used by default (`repo.base_branch`, else auto-detect). Picking a remote-tracking entry like `origin/main` explicitly bypasses the local-branch staleness problem for that one worktree. The chosen branch is sent as `source_branch` on create, which `handleCreateWorktree` now prefers over `repo.BaseBranch`/auto-detection, and is persisted on the worktree row (`worktrees.source_branch`, new column) — shown as a "Created from" column in the repo settings page's Local/Imported worktree tables.
+- **`GeneralTab`'s base-branch field** gained a note explaining the staleness caveat and suggesting an explicit `origin/<branch>` prefix (which already worked — `AddWorktree` just passes whatever string it's given straight to `git worktree add ... <startPoint>` — just wasn't discoverable).
+- **Bug found and fixed while testing `ListBranches` against a real repo** (not caught by a synthetic `git init` test repo — only shows up with a real clone/remote): git's `%(refname:short)` collapses a remote's symbolic HEAD pointer (`refs/remotes/origin/HEAD`) down to just `"origin"`, not `"origin/HEAD"` — so the original suffix-based exclusion silently let a fake `"origin"` "branch" leak into every repo's dropdown. Fixed by filtering on the ref's full name instead of its shortened display form.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 110 tests, including `TestListBranchesAndExplicitSourceBranch` (branch listing + an explicit `source_branch` actually changing what a worktree branches from, checked via `git rev-parse HEAD` inside the new worktree) and `TestListBranchesExcludesRemoteHEADPointer` (a real `git clone`, not just `git init`, since that's the only way to get a genuine `refs/remotes/origin/HEAD` to regress against). `cd web && bun run build && bun run test` — 85 tests, clean typecheck. Also restarted the real local dev server, confirmed the `source_branch` column migrated in, and hit `GET /api/repos/:id/branches` against an actual large real-world repo (116 branches) to confirm the fake `"origin"` entry is gone.
+
+---
+
 ## 2026-08-12 — Bring back archived worktrees, auto-delete after 60 days
 
 Two requests: a way to unarchive a worktree from the UI (the backend endpoint already existed but nothing surfaced it), and auto-deleting a worktree's git checkout + DB record — hard delete, not another soft-delete flag — once it's sat archived for 60 days.

@@ -82,6 +82,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate worktrees.archived_at: %w", err)
 	}
+	if err := s.migrateAddWorktreeSourceBranch(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate worktrees.source_branch: %w", err)
+	}
 	return s, nil
 }
 
@@ -261,6 +265,23 @@ func (s *Store) migrateAddWorktreeArchivedAt() error {
 	return err
 }
 
+// migrateAddWorktreeSourceBranch adds the worktrees.source_branch column
+// for databases created before it existed — same ALTER-if-missing
+// approach as the other single-column migrations above. Existing rows
+// have no recorded source branch to backfill, so they're left at "" (the
+// worktrees table for the settings page just shows "—" for those).
+func (s *Store) migrateAddWorktreeSourceBranch() error {
+	hasColumn, err := s.hasColumn("worktrees", "source_branch")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE worktrees ADD COLUMN source_branch TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
 // hasColumn reports whether table has a column named col.
 func (s *Store) hasColumn(table, col string) (bool, error) {
 	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
@@ -341,6 +362,14 @@ type Worktree struct {
 	// ListArchivedWorktreesOlderThan to find worktrees due for the
 	// retention sweep (see api.Server.SweepExpiredArchivedWorktrees).
 	ArchivedAt string `json:"archived_at"`
+	// SourceBranch is the branch this worktree's own Branch was created
+	// from — e.g. "main" or "origin/main" if the new-worktree dialog's
+	// branch dropdown was used to pick a specific (possibly
+	// remote-tracking) start point, otherwise whatever repo.BaseBranch/
+	// DetectDefaultBranch resolved to at creation time. "" for worktrees
+	// where that's not meaningful (imported, or the synthetic root
+	// worktree — see store.WorktreeSourceRoot).
+	SourceBranch string `json:"source_branch"`
 }
 
 // AddRepo inserts a new repo row.
@@ -403,8 +432,8 @@ func (s *Store) AddWorktree(w Worktree) error {
 		w.Source = WorktreeSourceCreated
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status, w.Source,
+		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status, source, source_branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status, w.Source, w.SourceBranch,
 	)
 	return err
 }
@@ -424,7 +453,7 @@ func (s *Store) WorktreePathExists(path string) (bool, error) {
 // status (used by ListAllWorktreesForRepo, e.g. a future settings-modal
 // datagrid) — the normal UI list calls this with WorktreeStatusActive only.
 func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, error) {
-	query := `SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees WHERE repo_id = ?`
+	query := `SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees WHERE repo_id = ?`
 	args := []any{repoID}
 	if len(statuses) > 0 {
 		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
@@ -443,7 +472,7 @@ func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, er
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -475,7 +504,7 @@ type WorktreeWithRepo struct {
 // the caller.
 func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	rows, err := s.db.Query(`
-		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, w.archived_at, r.name
+		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, w.archived_at, w.source_branch, r.name
 		FROM worktrees w JOIN repos r ON w.repo_id = r.id
 		ORDER BY w.created_at DESC`)
 	if err != nil {
@@ -486,7 +515,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 	var out []WorktreeWithRepo
 	for rows.Next() {
 		var w WorktreeWithRepo
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.RepoName); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.RepoName); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -503,7 +532,7 @@ func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
 // outcome: most claude sessions on this machine have nothing to do with
 // worktree-studio).
 func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
-	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees`)
+	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees`)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -511,7 +540,7 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
 			return Worktree{}, err
 		}
 		if cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/") {
@@ -528,8 +557,8 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 func (s *Store) GetWorktree(id string) (Worktree, error) {
 	var w Worktree
 	err := s.db.QueryRow(
-		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees WHERE id = ?`, id,
-	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt)
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees WHERE id = ?`, id,
+	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch)
 	return w, err
 }
 
@@ -568,7 +597,7 @@ func (s *Store) SetWorktreeArchivedAt(id, archivedAt string) error {
 // unlike ListWorktrees, this is a maintenance query over the whole DB.
 func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error) {
 	rows, err := s.db.Query(
-		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at FROM worktrees
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees
 		 WHERE status = ? AND archived_at != '' AND archived_at < ?`,
 		WorktreeStatusArchived, cutoff,
 	)
@@ -580,7 +609,7 @@ func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

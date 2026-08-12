@@ -45,6 +45,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/", s.handleAddRepo)
 
 		r.Put("/{repoID}/settings", s.handleUpdateRepoSettings)
+		r.Get("/{repoID}/branches", s.handleListBranches)
 
 		r.Route("/{repoID}/worktrees", func(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
@@ -281,6 +282,47 @@ func (s *Server) handleUpdateRepoSettings(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, repo)
 }
 
+// listBranchesResponse is handleListBranches's response shape: every
+// branch (local + remote-tracking) plus which one would currently be used
+// as a new worktree's start point if nothing else were specified — the
+// new-worktree dialog's branch dropdown pre-selects Default, but lets a
+// person deliberately pick any other entry in Branches (e.g. a fresher
+// "origin/<branch>" ref if nobody's fetched the local branch of the same
+// name recently).
+type listBranchesResponse struct {
+	Branches []string `json:"branches"`
+	Default  string   `json:"default"`
+}
+
+func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+
+	repo, err := s.Store.GetRepo(repoID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	branches, err := gitops.ListBranches(repo.Path)
+	if err != nil {
+		s.Log.Error("list branches", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to list branches: "+err.Error())
+		return
+	}
+
+	def := repo.BaseBranch
+	if def == "" {
+		def = gitops.DetectDefaultBranch(repo.Path)
+	}
+
+	writeJSON(w, http.StatusOK, listBranchesResponse{Branches: branches, Default: def})
+}
+
 // --- Worktrees ---
 
 func (s *Server) handleListWorktrees(w http.ResponseWriter, r *http.Request) {
@@ -332,6 +374,13 @@ func (s *Server) handleNewNameSuggestion(w http.ResponseWriter, r *http.Request)
 
 type createWorktreeRequest struct {
 	Name string `json:"name"`
+	// SourceBranch optionally overrides which branch/ref this worktree is
+	// created from — e.g. picked from the new-worktree dialog's branch
+	// dropdown (see handleListBranches), which can point at a remote-
+	// tracking ref like "origin/main" rather than the local branch of the
+	// same name. "" falls back to repo.BaseBranch, then auto-detection,
+	// same as before this field existed.
+	SourceBranch string `json:"source_branch"`
 }
 
 func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
@@ -368,14 +417,19 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	branch := slug
-	// repo.BaseBranch is an explicit per-repo override (see
-	// handleUpdateRepoSettings); "" means auto-detect, and if that also
-	// comes up empty, AddWorktree falls back to its own implicit-HEAD
-	// default. Without this, every worktree silently branched off whatever
-	// the main checkout's HEAD happened to be at creation time, which is
-	// not reliably "the" base branch (e.g. if the main checkout itself was
-	// left on a feature branch).
-	baseBranch := repo.BaseBranch
+	// Resolution order: an explicit per-request SourceBranch (the
+	// new-worktree dialog's branch dropdown) beats repo.BaseBranch (an
+	// explicit per-repo override, see handleUpdateRepoSettings) beats
+	// auto-detection, and if that also comes up empty, AddWorktree falls
+	// back to its own implicit-HEAD default. Without at least the
+	// repo/auto-detect fallback, every worktree would silently branch off
+	// whatever the main checkout's HEAD happened to be at creation time,
+	// which is not reliably "the" base branch (e.g. if the main checkout
+	// itself was left on a feature branch).
+	baseBranch := req.SourceBranch
+	if baseBranch == "" {
+		baseBranch = repo.BaseBranch
+	}
 	if baseBranch == "" {
 		baseBranch = gitops.DetectDefaultBranch(repo.Path)
 	}
@@ -386,14 +440,15 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wt := store.Worktree{
-		ID:        newID(),
-		RepoID:    repo.ID,
-		Name:      slug,
-		Branch:    branch,
-		Path:      worktreePath,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		Status:    store.WorktreeStatusActive,
-		Source:    store.WorktreeSourceCreated,
+		ID:           newID(),
+		RepoID:       repo.ID,
+		Name:         slug,
+		Branch:       branch,
+		Path:         worktreePath,
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+		Status:       store.WorktreeStatusActive,
+		Source:       store.WorktreeSourceCreated,
+		SourceBranch: baseBranch,
 	}
 	if err := s.Store.AddWorktree(wt); err != nil {
 		s.Log.Error("save worktree; rolling back the git worktree/branch just created", "err", err)

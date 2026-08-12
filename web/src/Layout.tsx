@@ -40,8 +40,8 @@ function LayoutShell() {
     navigate(`/repo/${repo.id}`);
   }
 
-  async function handleWorktreeCreate(repoId: string, name: string) {
-    const wt = await createWorktree(repoId, name);
+  async function handleWorktreeCreate(repoId: string, name: string, sourceBranch: string) {
+    const wt = await createWorktree(repoId, name, sourceBranch);
     refreshWorktrees();
     navigate(`/repo/${repoId}/worktree/${wt.id}`);
   }
@@ -73,7 +73,7 @@ function LayoutShell() {
       {newWorktreeRepoId && (
         <NewWorktreeDialog
           repoId={newWorktreeRepoId}
-          onCreate={(name) => handleWorktreeCreate(newWorktreeRepoId, name)}
+          onCreate={(name, sourceBranch) => handleWorktreeCreate(newWorktreeRepoId, name, sourceBranch)}
           onClose={() => setNewWorktreeRepoId(null)}
         />
       )}

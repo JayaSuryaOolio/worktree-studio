@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,40 @@ func newTestRepo(t *testing.T) string {
 	run("add", "README.md")
 	run("commit", "-q", "-m", "initial commit")
 	return dir
+}
+
+// TestListBranchesExcludesRemoteHEADPointer is a regression test: git's
+// own %(refname:short) collapses a remote's symbolic HEAD ref
+// ("refs/remotes/origin/HEAD") down to just "origin", not "origin/HEAD" —
+// found by hand against a real cloned repo, where it leaked into
+// ListBranches's result as a fake "origin" branch. A plain `git init`
+// repo (like newTestRepo) never has this ref at all, so this test clones
+// one instead, the only way to get a real remote-tracking HEAD symref to
+// exercise the exclusion against.
+func TestListBranchesExcludesRemoteHEADPointer(t *testing.T) {
+	requireGit(t)
+	origin := newTestRepo(t)
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	if out, err := exec.Command("git", "clone", "-q", origin, clone).CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v\n%s", err, out)
+	}
+
+	branches, err := ListBranches(clone)
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+	for _, b := range branches {
+		if b == "origin" {
+			t.Errorf("ListBranches(%v) includes bare %q — a remote's symbolic HEAD pointer leaked in as a fake branch", branches, "origin")
+		}
+	}
+	if !slices.Contains(branches, "main") {
+		t.Errorf("ListBranches(%v) missing local %q", branches, "main")
+	}
+	if !slices.Contains(branches, "origin/main") {
+		t.Errorf("ListBranches(%v) missing remote-tracking %q", branches, "origin/main")
+	}
 }
 
 func TestIsGitRepo(t *testing.T) {

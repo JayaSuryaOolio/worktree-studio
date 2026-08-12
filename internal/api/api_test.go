@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -296,6 +297,82 @@ func TestFullWorktreeLifecycle(t *testing.T) {
 	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
 		t.Errorf("worktree dir %q still exists after delete: err=%v", wt.Path, err)
 	}
+}
+
+// TestListBranchesAndExplicitSourceBranch verifies the new-worktree
+// dialog's branch dropdown support end to end: GET .../branches surfaces
+// every local/remote-tracking branch plus a sensible default, and passing
+// one explicitly as source_branch on create actually branches from it
+// (not just from repo.BaseBranch/auto-detection) and persists it on the
+// resulting worktree row.
+func TestListBranchesAndExplicitSourceBranch(t *testing.T) {
+	requireGit(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	// A second branch with a commit main doesn't have, so branching from
+	// it (vs. main) is actually distinguishable.
+	run("checkout", "-q", "-b", "side-branch")
+	if err := os.WriteFile(filepath.Join(repoPath, "side.txt"), []byte("side\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "side.txt")
+	run("commit", "-q", "-m", "side commit")
+	sideCommit := strings.TrimSpace(runOutput(t, repoPath, "rev-parse", "HEAD"))
+	run("checkout", "-q", "main")
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "adelaide", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/branches", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET branches: status = %d, want 200", resp.StatusCode)
+	}
+	var branchResp listBranchesResponse
+	decodeInto(t, resp, &branchResp)
+	if branchResp.Default != "main" {
+		t.Errorf("Default = %q, want %q", branchResp.Default, "main")
+	}
+	if !slices.Contains(branchResp.Branches, "main") || !slices.Contains(branchResp.Branches, "side-branch") {
+		t.Fatalf("Branches = %v, want it to contain both %q and %q", branchResp.Branches, "main", "side-branch")
+	}
+
+	// Explicit source_branch beats auto-detection.
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]any{
+		"name":          "feature",
+		"source_branch": "side-branch",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST worktrees with source_branch: status = %d, want 201", resp.StatusCode)
+	}
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+	if wt.SourceBranch != "side-branch" {
+		t.Errorf("SourceBranch = %q, want %q", wt.SourceBranch, "side-branch")
+	}
+	if got := strings.TrimSpace(runOutput(t, wt.Path, "rev-parse", "HEAD")); got != sideCommit {
+		t.Errorf("worktree HEAD = %q, want it to match side-branch's commit %q (i.e. actually branched from side-branch, not main)", got, sideCommit)
+	}
+}
+
+func runOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
 }
 
 // TestDeleteWorktreeClosesItsTerminalSessions is a regression test for a

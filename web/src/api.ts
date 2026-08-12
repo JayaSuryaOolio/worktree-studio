@@ -33,6 +33,10 @@ export interface Worktree {
   // When this worktree was last archived (RFC3339), or "" if it isn't
   // currently archived.
   archived_at: string;
+  // The branch/ref this worktree's own branch was created from (e.g.
+  // "main" or "origin/main"), or "" for worktrees where that's not
+  // recorded (imported, or the synthetic root worktree).
+  source_branch: string;
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
@@ -154,11 +158,30 @@ export function newNameSuggestion(repoId: string): Promise<string> {
   ).then((r) => r.name);
 }
 
-export function createWorktree(repoId: string, name: string): Promise<Worktree> {
+/** sourceBranch optionally picks which branch/ref (local or remote-
+ * tracking, e.g. "origin/main") to create the worktree from — see
+ * listBranches() below. Omitted/"" falls back to the repo's base-branch
+ * setting, then auto-detection, same as before this param existed. */
+export function createWorktree(repoId: string, name: string, sourceBranch?: string): Promise<Worktree> {
   return request<Worktree>(`/api/repos/${repoId}/worktrees/`, {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, source_branch: sourceBranch }),
   });
+}
+
+export interface RepoBranches {
+  branches: string[];
+  /** Whichever branch would currently be used as a new worktree's start
+   * point if nothing else were specified (repo.base_branch, else
+   * auto-detected) — the new-worktree dialog's branch dropdown pre-selects
+   * this. "" if none could be resolved. */
+  default: string;
+}
+
+/** Every local + remote-tracking branch for a repo, for the new-worktree
+ * dialog's "branch to create from" dropdown. */
+export function listBranches(repoId: string): Promise<RepoBranches> {
+  return request<RepoBranches>(`/api/repos/${repoId}/branches`);
 }
 
 /** Registers an existing, already-on-disk git worktree of this repo — no

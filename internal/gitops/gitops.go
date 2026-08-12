@@ -121,6 +121,38 @@ func DetectDefaultBranch(repoPath string) string {
 	return ""
 }
 
+// ListBranches returns every local and remote-tracking branch name for
+// repoPath (e.g. "main", "origin/main", "origin/feature-x"), via `git
+// for-each-ref` — the new-worktree dialog's "branch to create from"
+// dropdown, so a person can deliberately pick a remote-tracking ref
+// (fresher than the local branch of the same name if nobody's fetched
+// recently) instead of only ever seeing local branches. Excludes
+// "origin/HEAD" and similar symbolic-ref pointers — not a real branch,
+// just an alias DetectDefaultBranch already resolves separately.
+func ListBranches(repoPath string) ([]string, error) {
+	// Filtering has to happen on the *full* refname, not the shortened
+	// one: git's own %(refname:short) collapses a remote's symbolic HEAD
+	// pointer ("refs/remotes/origin/HEAD") down to just "origin" — not
+	// "origin/HEAD" — so a suffix check against the short name alone
+	// never matches it and it leaks into the list as a fake "origin"
+	// branch. Found by hand testing against a real repo, not a hypothetical.
+	cmd := exec.Command("git", "-C", repoPath, "for-each-ref", "--format=%(refname)\t%(refname:short)", "refs/heads", "refs/remotes")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git for-each-ref: %w", err)
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		full, short, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok || full == "" || strings.HasSuffix(full, "/HEAD") {
+			continue
+		}
+		branches = append(branches, short)
+	}
+	return branches, nil
+}
+
 // DeleteBranch runs `git branch -D <branch>` from within repoPath. Note
 // that RemoveWorktree does NOT delete the branch a worktree was created
 // with — `git worktree remove` only removes the checkout, leaving the
