@@ -4,6 +4,19 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Light theme + modular CSS, Logs tab, spotlight investigation
+
+Three requests in one session:
+
+- **`web/src/style.css` (1136 lines, one file) split into `web/src/styles/*.css`** — tokens, base, dialogs, badges, dependency, settings-tabs, sidebar, worktree-detail, file-tree, editor-panel, actions-menu, command-palette — with `style.css` reduced to an `@import` manifest. Verified selector-for-selector against the original (a diff of every top-level selector name) that nothing was dropped in the split.
+- **Light theme.** Every stylesheet already referenced colors exclusively via `tokens.css`'s custom properties (no raw hex anywhere else — checked), so adding one was just a `:root[data-theme="light"]` override block with a re-tuned (not straight-inverted) palette: the dark theme's amber/cyan/green wash out on a light background, so light's accents are darker/more saturated versions of the same three. Dark stays the default (needs no attribute at all). Theme is an explicit, stored choice (`theme.ts`, localStorage) — no `prefers-color-scheme` involved — switched from a new **Appearance** tab in the main `SettingsModal`. An inline snippet in `index.html` applies a stored light preference before first paint to avoid a flash of dark-then-light.
+- **New Logs tab in the same settings modal**, showing this server's own recent `ERROR`-level lines plus the log file's path. Backend: `main.go` now mirrors its `slog` output to `~/.worktree-studio/server.log` (previously stdout-only — meant no durable record existed once a backgrounded/headless run's stdout was gone) via `io.MultiWriter`, and a new `GET /api/settings/logs` (`internal/api/logs.go`) tails the last 200 lines containing the literal substring `level=ERROR` (a plain substring check, not a real parser — matches slog's text-handler output exactly, same "deliberately basic" call `internal/audit.Logger` already makes for the audit log).
+- **Investigated a "spotlight wouldn't start" report** — not a bug: the server log showed a real `409` from `POST .../spotlight/start` for the `pos` repo, and `git status` confirmed its root checkout genuinely has 422 uncommitted/deleted files. The spotlight CLI correctly refuses to auto-stash that without explicit confirmation; the frontend's `startSpotlightWithFriendlyError` shows a `confirm()` for exactly this, but no follow-up call to `startSpotlight(..., true)` appears in the log — most likely canceled, after which the code intentionally does nothing (no error banner) since a user-declined stash isn't a failure. Flagged the resulting UX gap (canceling looks identical to nothing happening) but did not change it — not asked for yet.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 114 tests, including 4 new ones for the logs endpoint/tailing (`TestGetLogsReturnsErrorLinesAndPath`, `TestGetLogsWithNoLogFileConfigured`, `TestTailErrorLinesCapsAtMax`, `TestTailErrorLinesMissingFile`). `cd web && bun run build && bun run test` — 92 tests (5 new: theme.ts's own suite, plus Appearance/Logs tab coverage in `SettingsModal.test.tsx`), clean typecheck. Restarted the real local dev server and confirmed `~/.worktree-studio/server.log` actually gets created and `GET /api/settings/logs` returns its real path over live HTTP.
+
+---
+
 ## 2026-08-12 — Per-worktree source-branch picker, base-branch freshness note
 
 Follow-up to a question about whether new worktrees are guaranteed to branch off up-to-date remote state: confirmed they aren't — `gitops.DetectDefaultBranch`/`AddWorktree` always resolve to a bare local branch name (e.g. `"main"`, stripped of any `origin/` prefix) with no `git fetch` anywhere in the codebase, so a new worktree is only as fresh as whenever that local branch was last pulled. Rather than add an implicit fetch, the user asked for visibility + control instead:

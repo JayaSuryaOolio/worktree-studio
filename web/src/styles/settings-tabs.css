@@ -1,5 +1,4 @@
-/* SettingsModal's Appearance tab — the theme toggle (see ThemeToggle in
-   SettingsModal.tsx and theme.ts). */
+/* SettingsModal's Appearance and Logs tabs. */
 
 .theme-option-list {
   display: flex;
@@ -32,4 +31,28 @@
 .theme-option-hint {
   color: var(--text-dim);
   font-size: 0.85em;
+}
+
+/* SettingsModal's Logs tab. */
+
+.logs-tab-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.logs-tab-lines {
+  margin-top: 0.5rem;
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--red);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

@@ -448,6 +448,23 @@ export function installSkill(): Promise<void> {
   return request<void>("/api/settings/dependencies/skill/install", { method: "POST" });
 }
 
+export interface ServerLogs {
+  /** "" if the server has no durable log file to read from (its home
+   * directory couldn't be resolved at startup) — Lines is always empty
+   * in that case too. */
+  path: string;
+  /** The most recent ERROR-level lines from the server's own log file,
+   * oldest first — see internal/api/logs.go's tailErrorLines. Bounded
+   * (currently 200); Path is shown in the UI so a person can open/tail/
+   * grep the real file directly for anything this leaves out. */
+  lines: string[];
+}
+
+/** The main settings modal's Logs tab. */
+export function getServerLogs(): Promise<ServerLogs> {
+  return request<ServerLogs>("/api/settings/logs");
+}
+
 /** Returns a claude session's human-readable title (its first real user
  * message, clipped), or `null` if no local transcript is found for that
  * session id — not routed through request()'s generic error handling

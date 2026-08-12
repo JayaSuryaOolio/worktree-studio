@@ -4,6 +4,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -36,8 +38,45 @@ func addrPort(addr string) string {
 	return ":" + addr
 }
 
+// logFilePath returns ~/.worktree-studio/server.log — this process's own
+// log output, mirrored to disk so the main settings modal's Logs tab (and
+// anyone debugging after the fact) has something durable to read even
+// when the server was started headless/backgrounded and its stdout went
+// nowhere anyone can get back to. Deliberately basic, no rotation — same
+// call internal/audit.Logger makes for the audit log.
+func logFilePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".worktree-studio", "server.log"), nil
+}
+
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logPath, err := logFilePath()
+	if err != nil {
+		// No file to log to yet, but stdout still works — a log
+		// destination failing isn't itself worth crashing over.
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		logger.Warn("resolve log file path, logging to stdout only", "err", err)
+		logPath = ""
+	}
+
+	logWriter := io.Writer(os.Stdout)
+	if logPath != "" {
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+			logWriter = os.Stdout
+			logPath = ""
+		} else if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			// Never closed: this file needs to stay open for the entire
+			// process lifetime, and the OS reclaims the descriptor on exit.
+			logWriter = io.MultiWriter(os.Stdout, f)
+		} else {
+			logWriter = os.Stdout
+			logPath = ""
+		}
+	}
+	logger := slog.New(slog.NewTextHandler(logWriter, nil))
 
 	st, err := store.OpenDefault()
 	if err != nil {
@@ -81,6 +120,7 @@ func main() {
 		Files:        files.NewManager(),
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
+		LogFilePath:  logPath,
 		// The hook always runs on the same machine as the server (a
 		// script Claude Code invokes as a local subprocess), so localhost
 		// is correct regardless of what host `addr` itself binds to.

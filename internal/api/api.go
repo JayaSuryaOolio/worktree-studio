@@ -32,6 +32,11 @@ type Server struct {
 	Files        *files.Manager
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
+	// LogFilePath is where Log's own output is mirrored on disk (see
+	// main.go's logFilePath), or "" if that file couldn't be opened (Log
+	// output still goes to stdout in that case, just not durably). Read by
+	// handleGetLogs for the main settings modal's Logs tab.
+	LogFilePath string
 	// SelfBaseURL is this server's own reachable base URL (e.g.
 	// "http://localhost:8787"), embedded into the installed claude hook
 	// script so it knows where to POST — see internal/claudehook/install.go.
@@ -101,6 +106,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/dependencies/claude-hook/install", s.handleInstallClaudeHook)
 		r.Post("/dependencies/claude-hook/uninstall", s.handleUninstallClaudeHook)
 		r.Post("/dependencies/skill/install", s.handleInstallSkill)
+		r.Get("/logs", s.handleGetLogs)
 	})
 }
 

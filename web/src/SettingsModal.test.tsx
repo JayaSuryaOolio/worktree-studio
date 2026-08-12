@@ -9,11 +9,13 @@ vi.mock("./api", () => ({
   installClaudeHook: vi.fn(),
   uninstallClaudeHook: vi.fn(),
   installSkill: vi.fn(),
+  getServerLogs: vi.fn(),
 }));
 
 import {
   getAllWorktrees,
   getDependencyStatus,
+  getServerLogs,
   installClaudeHook,
   installSkill,
   uninstallClaudeHook,
@@ -46,6 +48,10 @@ beforeEach(() => {
   vi.mocked(installClaudeHook).mockResolvedValue(undefined);
   vi.mocked(uninstallClaudeHook).mockResolvedValue(undefined);
   vi.mocked(installSkill).mockResolvedValue(undefined);
+  vi.mocked(getServerLogs).mockResolvedValue({
+    path: "/home/user/.worktree-studio/server.log",
+    lines: ['time=2026-01-01T00:00:00Z level=ERROR msg="list repos" err="boom"'],
+  });
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
 });
@@ -104,6 +110,27 @@ describe("SettingsModal", () => {
     expect(light).toBeChecked();
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("worktree-studio-theme")).toBe("light");
+  });
+
+  it("switches to Logs and shows the log file path plus recent errors", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={() => {}} />);
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+
+    expect(await screen.findByText("/home/user/.worktree-studio/server.log")).toBeInTheDocument();
+    expect(screen.getByText(/list repos.*err="boom"/)).toBeInTheDocument();
+    expect(getServerLogs).toHaveBeenCalled();
+  });
+
+  it("Logs tab's Refresh button re-fetches", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={() => {}} />);
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    await screen.findByText("/home/user/.worktree-studio/server.log");
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(getServerLogs).toHaveBeenCalledTimes(2);
   });
 
   it("calls onClose when the close button is clicked", async () => {

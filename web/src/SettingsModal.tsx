@@ -5,8 +5,10 @@ import {
   DependencyStatusMap,
   getAllWorktrees,
   getDependencyStatus,
+  getServerLogs,
   installClaudeHook,
   installSkill,
+  ServerLogs,
   uninstallClaudeHook,
   WorktreeWithRepo,
 } from "./api";
@@ -16,16 +18,17 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "worktrees" | "installation" | "appearance";
+type Tab = "worktrees" | "installation" | "appearance" | "logs";
 
-// Three tabs, per direct request: a cross-repo worktree list (any
+// Four tabs, per direct request: a cross-repo worktree list (any
 // status — a bird's-eye view the per-repo pages don't give you), an
 // installation/dependency-status page (tmux/spotlight detection, plus
-// actionable install/uninstall for the claude hook and the skill), and
-// appearance (the dark/light theme switch — see theme.ts). A
-// bulk-select/bulk-delete datagrid on the worktrees tab is a separate,
-// larger PLAN.md TODO — this is the read-only list it'll eventually grow
-// into, not that feature itself.
+// actionable install/uninstall for the claude hook and the skill),
+// appearance (the dark/light theme switch — see theme.ts), and logs (this
+// server's own recent error output, plus the log file's path — see
+// internal/api/logs.go). A bulk-select/bulk-delete datagrid on the
+// worktrees tab is a separate, larger PLAN.md TODO — this is the
+// read-only list it'll eventually grow into, not that feature itself.
 export default function SettingsModal({ onClose }: Props) {
   const [tab, setTab] = useState<Tab>("worktrees");
 
@@ -66,14 +69,25 @@ export default function SettingsModal({ onClose }: Props) {
           >
             Appearance
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "logs"}
+            className={tab === "logs" ? "active" : ""}
+            onClick={() => setTab("logs")}
+          >
+            Logs
+          </button>
         </div>
         <div className="settings-modal-body">
           {tab === "worktrees" ? (
             <WorktreesTab />
           ) : tab === "installation" ? (
             <InstallationTab />
-          ) : (
+          ) : tab === "appearance" ? (
             <AppearanceTab />
+          ) : (
+            <LogsTab />
           )}
         </div>
       </div>
@@ -278,6 +292,60 @@ function AppearanceTab() {
           </label>
         ))}
       </div>
+    </section>
+  );
+}
+
+// This server's own recent ERROR-level output (internal/api/logs.go),
+// plus the real file path — shown so a person can open/tail/grep it
+// directly for anything this bounded, errors-only view leaves out.
+function LogsTab() {
+  const [logs, setLogs] = useState<ServerLogs | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  function refresh() {
+    setRefreshing(true);
+    setError(null);
+    return getServerLogs()
+      .then(setLogs)
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setRefreshing(false));
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  return (
+    <section className="settings-section">
+      <div className="logs-tab-header">
+        <h3>Application logs</h3>
+        <button type="button" disabled={refreshing} onClick={refresh}>
+          {refreshing ? "…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+
+      {logs === null ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <>
+          {logs.path ? (
+            <p className="muted">
+              Full log: <code>{logs.path}</code>
+            </p>
+          ) : (
+            <p className="muted">No log file — this server has no durable log destination configured.</p>
+          )}
+          {logs.lines.length === 0 ? (
+            <p className="muted">No errors logged yet.</p>
+          ) : (
+            <pre className="logs-tab-lines">{logs.lines.join("\n")}</pre>
+          )}
+        </>
+      )}
     </section>
   );
 }
