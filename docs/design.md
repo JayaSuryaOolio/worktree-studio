@@ -1,6 +1,6 @@
 # Command Deck — visual design system
 
-The only theme worktree-studio has (see `PLAN.md`'s theme-switching TODO for why there's no switcher yet). Dark, high-density, mission-control-for-coordinating-parallel-worktrees. Defined as CSS custom properties in `web/src/style.css`'s `:root` block — this doc is the rationale, the stylesheet is the source of truth for exact values.
+Dark, high-density, mission-control-for-coordinating-parallel-worktrees — the default theme (and, until a light theme shipped, the only one). Defined as CSS custom properties in `web/src/styles/tokens.css`'s `:root` block — this doc is the rationale, the stylesheet is the source of truth for exact values. `web/src/style.css` itself is just an `@import` manifest over `web/src/styles/*.css`, split by feature area (tokens, base, dialogs, sidebar, worktree-detail, file-tree, ...) — see that file's own header comment.
 
 ## Why this direction
 
@@ -39,7 +39,10 @@ Space Grotesk and Inter load from the Google Fonts CDN (`web/index.html`) — ev
 
 Originally `Sidebar.tsx` set `data-dirty="true"|"false"` on each row and CSS colored the left-edge tab red/green from it, with the *active* row getting a third amber color on top. In practice all three colors on every row at once read as noise, not signal — reported directly after the first real look at the built UI. Simplified to: every row is neutral gray (`--border`) by default, and only `.sidebar-worktree.active` (the currently-selected worktree, via the router's `NavLink` active state) gets the accent — a `--green` left-edge tab plus a subtle `--green-dim` inset box-shadow. Dirty/clean is still visible in the row (via the ahead/behind ticks, sourced the same way from `internal/gitops.Status`), it's just no longer encoded as the row's border color.
 
+## Light theme
+
+Built exactly the way the section below once predicted it would be: a second block, `:root[data-theme="light"]` (also in `tokens.css`), redefining the same variable names — nothing else in the codebase needed to change, since every other stylesheet already consumed colors exclusively via these custom properties. Not a straight invert: the light palette's amber/cyan/green are noticeably darker/more saturated than their dark-theme counterparts, since the dark theme's versions wash out on a near-white background. Dark stays the default and needs no `data-theme` attribute at all; picking light sets it via `web/src/theme.ts` (`localStorage`-backed, not tied to `prefers-color-scheme` — an explicit choice, not one that silently follows the OS), switched from a toggle in the main `SettingsModal.tsx`'s Appearance tab. `web/index.html` has a small inline script that applies a stored light preference before first paint, to avoid a flash of dark-then-light.
+
 ## Extending this later
 
-- **Theme switching** (TODO, not built): the token structure already makes a second theme cheap — define an alternate `:root[data-theme="..."]` block with the same variable names, add a toggle. Not worth building until there's a second theme to switch to.
-- **Dockview's own theme** (step 7.4): override its `--dv-*` custom properties with these same tokens rather than fighting its DOM structure — see `docs/ui-overhaul-plan.md`.
+- **Dockview's own theme** (step 7.4): override its `--dv-*` custom properties with these same tokens rather than fighting its DOM structure — see `docs/ui-overhaul-plan.md`. Note this needs to cover the *inactive*-tab variables too (`--dv-activegroup-hiddenpanel-tab-*`/`--dv-inactivegroup-hiddenpanel-tab-*`), not just the active/visible ones — a real bug (missing those four) left every non-selected terminal tab on the built-in "abyss" theme's hardcoded near-black/white colors regardless of which theme was actually selected.

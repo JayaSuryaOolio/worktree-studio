@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-13 — Caught up docs/architecture.md, docs/design.md, and PLAN.md
+
+Asked directly whether docs were kept current alongside the code. `PROGRESS.md` had been — every commit in the 2026-08-11/12 run touched it — but `docs/architecture.md` and `docs/design.md` hadn't been updated since well before that run started (their last commits predate this whole batch of work), despite `PLAN.md`'s own stated convention ("every step... ends with a matching update to `docs/`"). Brought all three current:
+
+- **`docs/design.md`**: added a "Light theme" section (palette re-tuning rationale, the `data-theme` mechanism), updated the stale "the only theme, no switcher" framing and the `style.css` file reference (now `styles/tokens.css` + an `@import` manifest).
+- **`docs/architecture.md`**: removed every reference to the now-deleted `Workspace.tsx`/`WorktreeList.tsx`; added new sections for the root worktree, the sidebar hover popover + `internal/gh`, the file-tree header redesign, the terminal cwd-mismatch check, and the archived-worktree retention sweep; updated the settings-modal section (3 tabs now, not 2, Worktrees tab removed) and added a per-repo settings page section (didn't have one before); corrected the git/spotlight poll interval (was documented as 5s, actually 15s — stale even before this pass) and the storage section's schema/log-file list; updated "what's not built yet" (theme switching is now built, removed that line).
+- **`PLAN.md`**: added a new "step 8" recording the whole post-overhaul batch as its own build-order entry (root worktree, archive retention, source-branch picker, light theme, settings-modal reshape, hover popover/file-tree header, cwd-mismatch check, the two real bugs found along the way), and closed out the long-deferred theme-switching TODO by pointing at it.
+
+No code changed in this pass — purely bringing the three docs back in line with what commits `47fddf0` through `3e7861a` actually shipped.
+
+---
+
 ## 2026-08-12 — Popover stays open on hover, file-tree header redesign, and a real crash fix
 
 Three requests, plus a live bug caught mid-session:
