@@ -7,6 +7,18 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0b0f14" />
+    <!-- Applies a stored light-theme choice before first paint (see
+         theme.ts) — without this, the page would flash dark (tokens.css's
+         default) and then repaint light a beat later, once main.tsx's own
+         JS has loaded and run. Duplicated here rather than imported from
+         theme.ts deliberately: this has to run synchronously, inline,
+         before any CSS paints — importing a module would mean waiting on
+         the module graph first. -->
+    <script>
+      if (localStorage.getItem("worktree-studio-theme") === "light") {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    </script>
     <!-- Command Deck's display/UI typefaces (Space Grotesk / Inter) — via
          Google Fonts CDN. Fully optional: every rule that uses them lists
          a real system-font fallback first in the stack, so working

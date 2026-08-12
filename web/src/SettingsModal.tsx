@@ -10,17 +10,19 @@ import {
   uninstallClaudeHook,
   WorktreeWithRepo,
 } from "./api";
+import { getStoredTheme, setTheme, Theme } from "./theme";
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = "worktrees" | "installation";
+type Tab = "worktrees" | "installation" | "appearance";
 
-// Two tabs for now, per direct request: a cross-repo worktree list (any
-// status — a bird's-eye view the per-repo pages don't give you), and an
+// Three tabs, per direct request: a cross-repo worktree list (any
+// status — a bird's-eye view the per-repo pages don't give you), an
 // installation/dependency-status page (tmux/spotlight detection, plus
-// actionable install/uninstall for the claude hook and the skill). A
+// actionable install/uninstall for the claude hook and the skill), and
+// appearance (the dark/light theme switch — see theme.ts). A
 // bulk-select/bulk-delete datagrid on the worktrees tab is a separate,
 // larger PLAN.md TODO — this is the read-only list it'll eventually grow
 // into, not that feature itself.
@@ -55,9 +57,24 @@ export default function SettingsModal({ onClose }: Props) {
           >
             Installation
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "appearance"}
+            className={tab === "appearance" ? "active" : ""}
+            onClick={() => setTab("appearance")}
+          >
+            Appearance
+          </button>
         </div>
         <div className="settings-modal-body">
-          {tab === "worktrees" ? <WorktreesTab /> : <InstallationTab />}
+          {tab === "worktrees" ? (
+            <WorktreesTab />
+          ) : tab === "installation" ? (
+            <InstallationTab />
+          ) : (
+            <AppearanceTab />
+          )}
         </div>
       </div>
     </div>
@@ -222,5 +239,45 @@ function DependencyRow({
         </span>
       )}
     </li>
+  );
+}
+
+const THEME_OPTIONS: { value: Theme; label: string; hint: string }[] = [
+  { value: "dark", label: "Dark", hint: "Command Deck's default look." },
+  { value: "light", label: "Light", hint: "Same layout, a light palette." },
+];
+
+// The theme itself lives outside React state — applyTheme/setTheme (see
+// theme.ts) toggle a data-theme attribute on <html> that styles/tokens.css
+// reads directly, so every already-mounted component re-themes for free
+// without needing to re-render. This component's own state is just for
+// which radio button shows as selected.
+function AppearanceTab() {
+  const [theme, setThemeState] = useState<Theme>(getStoredTheme);
+
+  function handleChange(next: Theme) {
+    setTheme(next);
+    setThemeState(next);
+  }
+
+  return (
+    <section className="settings-section">
+      <h3>Theme</h3>
+      <div className="theme-option-list" role="radiogroup" aria-label="Theme">
+        {THEME_OPTIONS.map((opt) => (
+          <label key={opt.value} className="theme-option">
+            <input
+              type="radio"
+              name="theme"
+              value={opt.value}
+              checked={theme === opt.value}
+              onChange={() => handleChange(opt.value)}
+            />
+            <span className="theme-option-label">{opt.label}</span>
+            <span className="theme-option-hint">{opt.hint}</span>
+          </label>
+        ))}
+      </div>
+    </section>
   );
 }

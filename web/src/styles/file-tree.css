@@ -1,0 +1,140 @@
+/* FileTree.tsx — the worktree-detail sidebar's file/folder tree, see
+   docs/editor-plan.md. */
+
+.worktree-sidebar {
+  width: 15rem;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tree-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.file-tree-heading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.file-tree-heading-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-tree-collapse-all {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  width: 1.4rem;
+  height: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.file-tree-collapse-all:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.file-tree-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem 0.6rem;
+}
+
+.file-tree-loading,
+.file-tree-error,
+.file-tree-empty {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.5rem;
+}
+
+.file-tree-error {
+  color: var(--red);
+}
+
+.file-tree-loading,
+.file-tree-empty {
+  color: var(--text-dim);
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.file-tree-row:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-row-selected {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.file-tree-row-opaque {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.file-tree-disclosure {
+  display: inline-block;
+  width: 1rem;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.file-tree-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-opaque-note {
+  flex-shrink: 0;
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-dim);
+}

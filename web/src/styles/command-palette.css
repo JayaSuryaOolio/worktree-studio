@@ -1,0 +1,79 @@
+/* Command palette (cmdk) — CommandPalette.tsx. */
+
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--overlay);
+}
+
+.command-palette-content {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  width: min(34rem, 90vw);
+  max-height: 60vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px var(--shadow-strong);
+}
+
+.command-palette [cmdk-input] {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
+
+.command-palette [cmdk-input]::placeholder {
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+}
+
+.command-palette [cmdk-list] {
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+
+.command-palette [cmdk-group-heading] {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 0.5rem 0.6rem 0.2rem;
+}
+
+.command-palette [cmdk-item] {
+  font-family: var(--font-mono);
+  padding: 0.5rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.command-palette [cmdk-item][data-selected="true"] {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.command-palette [cmdk-empty] {
+  font-family: var(--font-ui);
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}

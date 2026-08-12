@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsModal from "./SettingsModal";
 
 vi.mock("./api", () => ({
@@ -46,6 +46,13 @@ beforeEach(() => {
   vi.mocked(installClaudeHook).mockResolvedValue(undefined);
   vi.mocked(uninstallClaudeHook).mockResolvedValue(undefined);
   vi.mocked(installSkill).mockResolvedValue(undefined);
+  localStorage.clear();
+  document.documentElement.removeAttribute("data-theme");
+});
+
+afterEach(() => {
+  localStorage.clear();
+  document.documentElement.removeAttribute("data-theme");
 });
 
 describe("SettingsModal", () => {
@@ -82,6 +89,21 @@ describe("SettingsModal", () => {
 
     expect(installClaudeHook).toHaveBeenCalledTimes(1);
     expect(await within(hookRow).findByRole("button", { name: "Uninstall" })).toBeInTheDocument();
+  });
+
+  it("switches to Appearance and toggling to Light applies data-theme", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={() => {}} />);
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    const light = await screen.findByRole("radio", { name: /light/i });
+    expect(screen.getByRole("radio", { name: /dark/i })).toBeChecked();
+
+    await user.click(light);
+
+    expect(light).toBeChecked();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(localStorage.getItem("worktree-studio-theme")).toBe("light");
   });
 
   it("calls onClose when the close button is clicked", async () => {

@@ -1,0 +1,127 @@
+/* Global element defaults: resets, typography, the small set of plain-HTML
+   elements (table/button/input/form) shared across every page rather than
+   scoped to one feature. */
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.container {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+h1 {
+  font-size: 1.4rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin-top: 2rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+/* Data columns (branch, path) read like telemetry; non-data columns stay
+   in the UI face. */
+td:nth-child(1),
+td:nth-child(2) {
+  font-family: var(--font-mono);
+}
+
+th {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.35rem 0.8rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+button:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-dim);
+}
+
+button.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+input[type="text"] {
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  min-width: 20rem;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px var(--amber-dim);
+}
+
+form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.error {
+  color: var(--red);
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.repo-link {
+  color: var(--cyan);
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.muted {
+  opacity: 0.6;
+  font-style: italic;
+  color: var(--text-dim);
+}

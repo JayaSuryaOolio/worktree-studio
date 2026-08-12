@@ -1,0 +1,140 @@
+/* WorktreeDetail.tsx: the terminal toolbar, the dockview host (terminal +
+   editor panels), and dockview's own theme-variable overrides. */
+
+.worktree-detail {
+  max-width: none;
+  height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.terminal-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.new-terminal-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.new-terminal-menu-list {
+  left: 0;
+  min-width: 10rem;
+}
+
+.terminal-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.button-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.terminal-area {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Per-pane inset — see the comment above TerminalPanel in WorktreeDetail.tsx
+   for why this can't just live on .terminal-area alone. */
+.terminal-panel-inset {
+  box-sizing: border-box;
+  height: 100%;
+  width: 100%;
+  padding: 0.5rem;
+}
+
+/* dockview host: override its generic --dv-* variables with Command Deck
+   tokens rather than fighting its DOM structure (the layout/drag/resize
+   logic itself is exactly what's not worth reimplementing). Started from
+   the built-in "abyss" theme (closest existing base to this palette) —
+   see web/node_modules/dockview-react/dist/styles/dockview.css for every
+   variable this theme otherwise sets. Reads tokens.css's variables, so it
+   re-themes for free on a light/dark switch — no separate light overrides
+   needed here. */
+.command-deck-dockview {
+  height: 100%;
+  --dv-group-view-background-color: var(--bg);
+  --dv-tabs-and-actions-container-background-color: var(--bg-elevated);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-elevated);
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text-dim);
+  --dv-tab-divider-color: var(--border);
+  --dv-separator-border: var(--border);
+  --dv-sash-color: var(--border);
+  --dv-active-sash-color: var(--amber);
+  --dv-icon-hover-background-color: var(--bg-hover);
+  --dv-tab-group-color: var(--amber);
+  --dv-floating-box-shadow: 0 8px 24px var(--shadow-soft);
+  --dv-floating-border: 1px solid var(--border);
+  font-family: var(--font-mono);
+}
+
+.dockview-watermark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+}
+
+.dockview-watermark-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.terminal-pane {
+  height: 100%;
+}
+
+/* Wraps dockview's own DockviewDefaultTab (unchanged) with a leading app
+   icon — see WorktreeDetail.tsx's TerminalTab. flex:1/min-width:0 on the
+   nested default-tab makes it fill the remaining space exactly as it
+   would as a direct child, so its own text-truncation and close-button
+   layout aren't affected by this wrapper. */
+.terminal-tab-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 100%;
+  padding-left: 0.5rem;
+  min-width: 0;
+}
+
+.terminal-tab-with-icon svg {
+  flex-shrink: 0;
+}
+
+.terminal-tab-with-icon .dv-default-tab {
+  flex: 1;
+  min-width: 0;
+}
+
+.worktree-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0.5rem;
+}

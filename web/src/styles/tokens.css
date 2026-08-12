@@ -1,0 +1,80 @@
+/* "Command Deck" — see docs/design.md for the full rationale. High-
+   density, mission-control-for-parallel-tasks. Named color tokens (not
+   generic grays), a 3-tier type system (display/UI/data), and one
+   subject-derived signature element: sidebar worktree rows styled as
+   flight strips — the paper strips air-traffic controllers use to track
+   simultaneous in-progress flights.
+
+   Every other stylesheet in styles/ consumes these custom properties
+   only — never a raw hex color — which is what makes the theme switch
+   below (see ThemeToggle in SettingsModal.tsx) a matter of overriding
+   this one file's variables rather than hunting through every component's
+   rules. Dark is the default and needs no attribute; picking light in
+   Settings sets `data-theme="light"` on <html> (see theme.ts), which the
+   `:root[data-theme="light"]` block below overrides. There's no
+   `prefers-color-scheme` media query — the theme is an explicit, stored
+   choice, not one that silently follows the OS. */
+
+:root {
+  color-scheme: dark;
+
+  /* Color */
+  --bg: #0b0f14; /* deep blue-black, "cockpit at night" — not near-black */
+  --bg-elevated: #12181f; /* sidebar / dialogs / dockview group headers */
+  --bg-hover: #1a212b;
+  --border: #232b35; /* hairline seams, avionics-panel-seam feel */
+  --text: #d9e1e8; /* soft instrument-white, not pure #fff */
+  --text-dim: #6b7684;
+  --amber: #e8a33d; /* primary accent: selected / active / focus */
+  --amber-dim: #e8a33d33;
+  --cyan: #4fb6c7; /* secondary accent: links, spotlight-active, info */
+  --cyan-dim: #4fb6c733;
+  --green: #5fa777; /* status: clean / in-sync; also the sidebar's "currently selected worktree" accent */
+  --green-dim: #5fa77733;
+  --red: #d9534f; /* status: dirty / error / conflict */
+  --red-dim: #d9534f33;
+
+  /* Modal backdrops and elevation shadows — dark in both themes (a
+     shadow reads as a shadow regardless of surrounding theme), but
+     tokenized anyway so nothing in styles/ reaches for a raw hex. */
+  --overlay: #000000cc;
+  --shadow-soft: #00000066;
+  --shadow-strong: #000000aa;
+
+  /* Type — three tiers, deliberately not one display font slapped on
+     everything: display for page/section titles only, UI for chrome
+     (buttons/labels/nav), data (mono) for anything that's actually data —
+     branch names, paths, status figures, terminal content. */
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Light theme — same token names, same semantic meaning per accent
+   (amber = active/focus, cyan = link/info, green = clean/selected,
+   red = dirty/error), re-tuned for contrast on a light background rather
+   than a straight invert. Accents are noticeably darker/more saturated
+   than their dark-theme counterparts: the dark theme's amber/cyan/green
+   read fine on near-black but wash out badly on near-white. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f7f8fa;
+  --bg-elevated: #ffffff;
+  --bg-hover: #edf0f3;
+  --border: #dde2e7;
+  --text: #1b232c;
+  --text-dim: #5b6672;
+  --amber: #a3650a;
+  --amber-dim: #a3650a24;
+  --cyan: #0f7285;
+  --cyan-dim: #0f728524;
+  --green: #2f7a4f;
+  --green-dim: #2f7a4f24;
+  --red: #b93a35;
+  --red-dim: #b93a3524;
+}

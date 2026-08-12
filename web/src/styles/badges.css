@@ -1,0 +1,38 @@
+/* Small status badges — worktree lifecycle status, git dirty/clean,
+   dependency-installed checks. */
+
+.badge-status-active {
+  color: var(--green);
+}
+
+.badge-status-archived {
+  color: var(--text-dim);
+}
+
+.badge-status-deleted {
+  color: var(--red);
+}
+
+.git-status-badges {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-family: var(--font-mono);
+}
+
+.badge {
+  font-size: 0.85em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.badge-dirty {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.badge-clean {
+  color: var(--text-dim);
+}

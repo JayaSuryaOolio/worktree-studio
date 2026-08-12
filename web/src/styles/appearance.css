@@ -1,0 +1,35 @@
+/* SettingsModal's Appearance tab — the theme toggle (see ThemeToggle in
+   SettingsModal.tsx and theme.ts). */
+
+.theme-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.theme-option:hover {
+  background: var(--bg-hover);
+}
+
+.theme-option input[type="radio"] {
+  accent-color: var(--amber);
+}
+
+.theme-option-label {
+  font-family: var(--font-ui);
+}
+
+.theme-option-hint {
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
