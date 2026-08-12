@@ -78,37 +78,6 @@ func TestClaudeHookIgnoresMalformedBody(t *testing.T) {
 	}
 }
 
-func TestListAllWorktreesSpansRepos(t *testing.T) {
-	requireGit(t)
-	ts, _ := newTestServer(t)
-	repo1Path := newTestGitRepo(t)
-	repo2Path := newTestGitRepo(t)
-
-	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "r1", "path": repo1Path})
-	var repo1 store.Repo
-	decodeInto(t, resp, &repo1)
-	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "r2", "path": repo2Path})
-	var repo2 store.Repo
-	decodeInto(t, resp, &repo2)
-
-	doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo1.ID+"/worktrees/", map[string]string{"name": "a"}).Body.Close()
-	doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo2.ID+"/worktrees/", map[string]string{"name": "b"}).Body.Close()
-
-	resp = doJSON(t, http.MethodGet, ts.URL+"/api/worktrees/all", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/worktrees/all: status = %d, want 200", resp.StatusCode)
-	}
-	var all []store.WorktreeWithRepo
-	decodeInto(t, resp, &all)
-	if len(all) != 2 {
-		t.Fatalf("got %d worktrees, want 2 across both repos", len(all))
-	}
-	names := map[string]bool{all[0].RepoName: true, all[1].RepoName: true}
-	if !names["r1"] || !names["r2"] {
-		t.Errorf("expected both repo names present, got %+v", all)
-	}
-}
-
 func TestClaudeSessionTitleNotFound(t *testing.T) {
 	ts, _ := newTestServer(t)
 	t.Setenv("HOME", t.TempDir()) // isolate from the real ~/.claude

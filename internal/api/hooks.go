@@ -13,7 +13,6 @@ import (
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/claudehook"
-	"worktree-studio/internal/store"
 )
 
 // handleClaudeHook receives a Claude Code SessionStart hook's stdin JSON,
@@ -87,26 +86,4 @@ func (s *Server) handleClaudeSessionTitle(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"title": title})
-}
-
-// handleListAllWorktrees returns every worktree across every registered
-// repo (any status), for the settings modal's cross-repo "Worktrees" tab.
-// Excludes the synthetic root worktrees (see EnsureRootWorktree) — same
-// reasoning as handleListWorktrees.
-func (s *Server) handleListAllWorktrees(w http.ResponseWriter, r *http.Request) {
-	worktrees, err := s.Store.ListAllWorktreesWithRepo()
-	if err != nil {
-		s.Log.Error("list all worktrees", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to list worktrees")
-		return
-	}
-
-	out := make([]store.WorktreeWithRepo, 0, len(worktrees))
-	for _, wt := range worktrees {
-		if wt.Source == store.WorktreeSourceRoot {
-			continue
-		}
-		out = append(out, wt)
-	}
-	writeJSON(w, http.StatusOK, out)
 }

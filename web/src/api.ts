@@ -46,10 +46,6 @@ export interface ExternalWorktreeEntry {
   branch: string;
 }
 
-export interface WorktreeWithRepo extends Worktree {
-  repo_name: string;
-}
-
 export interface DependencyStatus {
   installed: boolean;
   detail?: string;
@@ -423,13 +419,6 @@ export function saveFileContent(
     `/api/repos/${repoId}/worktrees/${worktreeId}/files/content?path=${encodeURIComponent(path)}`,
     { method: "PUT", body: JSON.stringify({ content }) }
   );
-}
-
-/** Every worktree across every registered repo, any status — used by the
- * settings modal's "Worktrees" tab, not the normal per-repo views (which
- * default to active-only via listWorktrees). */
-export function getAllWorktrees(): Promise<WorktreeWithRepo[]> {
-  return request<WorktreeWithRepo[]>("/api/worktrees/all");
 }
 
 export function getDependencyStatus(): Promise<DependencyStatusMap> {

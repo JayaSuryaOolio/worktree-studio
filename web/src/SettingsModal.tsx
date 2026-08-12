@@ -3,14 +3,12 @@ import {
   DependencyName,
   DependencyStatus,
   DependencyStatusMap,
-  getAllWorktrees,
   getDependencyStatus,
   getServerLogs,
   installClaudeHook,
   installSkill,
   ServerLogs,
   uninstallClaudeHook,
-  WorktreeWithRepo,
 } from "./api";
 import { getStoredTheme, setTheme, Theme } from "./theme";
 
@@ -18,19 +16,17 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "worktrees" | "installation" | "appearance" | "logs";
+type Tab = "installation" | "appearance" | "logs";
 
-// Four tabs, per direct request: a cross-repo worktree list (any
-// status — a bird's-eye view the per-repo pages don't give you), an
-// installation/dependency-status page (tmux/spotlight detection, plus
-// actionable install/uninstall for the claude hook and the skill),
-// appearance (the dark/light theme switch — see theme.ts), and logs (this
-// server's own recent error output, plus the log file's path — see
-// internal/api/logs.go). A bulk-select/bulk-delete datagrid on the
-// worktrees tab is a separate, larger PLAN.md TODO — this is the
-// read-only list it'll eventually grow into, not that feature itself.
+// Three tabs: an installation/dependency-status page (tmux/spotlight
+// detection, plus actionable install/uninstall for the claude hook and
+// the skill), appearance (the dark/light theme switch — see theme.ts),
+// and logs (this server's own recent error output, plus the log file's
+// path — see internal/api/logs.go). The cross-repo worktree list that
+// used to live here was removed per direct request — the per-repo
+// settings page's own Worktrees tab already covers that.
 export default function SettingsModal({ onClose }: Props) {
-  const [tab, setTab] = useState<Tab>("worktrees");
+  const [tab, setTab] = useState<Tab>("installation");
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -42,15 +38,6 @@ export default function SettingsModal({ onClose }: Props) {
           </button>
         </div>
         <div className="settings-modal-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "worktrees"}
-            className={tab === "worktrees" ? "active" : ""}
-            onClick={() => setTab("worktrees")}
-          >
-            Worktrees
-          </button>
           <button
             type="button"
             role="tab"
@@ -80,62 +67,10 @@ export default function SettingsModal({ onClose }: Props) {
           </button>
         </div>
         <div className="settings-modal-body">
-          {tab === "worktrees" ? (
-            <WorktreesTab />
-          ) : tab === "installation" ? (
-            <InstallationTab />
-          ) : tab === "appearance" ? (
-            <AppearanceTab />
-          ) : (
-            <LogsTab />
-          )}
+          {tab === "installation" ? <InstallationTab /> : tab === "appearance" ? <AppearanceTab /> : <LogsTab />}
         </div>
       </div>
     </div>
-  );
-}
-
-function WorktreesTab() {
-  const [worktrees, setWorktrees] = useState<WorktreeWithRepo[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getAllWorktrees()
-      .then(setWorktrees)
-      .catch((err) => setError((err as Error).message));
-  }, []);
-
-  if (error) return <p className="error">{error}</p>;
-  if (worktrees === null) return <p className="muted">Loading…</p>;
-  if (worktrees.length === 0) return <p className="muted">No worktrees created yet, in any repo.</p>;
-
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Repo</th>
-          <th>Branch</th>
-          <th>Path</th>
-          <th>Status</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {worktrees.map((wt) => (
-          <tr key={wt.id}>
-            <td>{wt.repo_name}</td>
-            <td>{wt.branch}</td>
-            <td>
-              <code>{wt.path}</code>
-            </td>
-            <td>
-              <span className={`badge badge-status-${wt.status}`}>{wt.status}</span>
-            </td>
-            <td>{new Date(wt.created_at).toLocaleString()}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

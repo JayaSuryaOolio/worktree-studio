@@ -488,41 +488,6 @@ func placeholders(n int) string {
 	return s
 }
 
-// WorktreeWithRepo is a Worktree joined with its parent repo's display
-// name — used by views that span every repo at once (the settings
-// modal's "Worktrees" tab), where showing just a bare repo_id isn't useful.
-type WorktreeWithRepo struct {
-	Worktree
-	RepoName string `json:"repo_name"`
-}
-
-// ListAllWorktreesWithRepo returns every worktree across every registered
-// repo, any status, newest first, joined with its repo's name. Distinct
-// from ListWorktrees (scoped to one repo, defaults to filtering status)
-// deliberately: this is for a global cross-repo view, not the normal
-// per-repo list, so it makes no assumption about which statuses matter to
-// the caller.
-func (s *Store) ListAllWorktreesWithRepo() ([]WorktreeWithRepo, error) {
-	rows, err := s.db.Query(`
-		SELECT w.id, w.repo_id, w.name, w.branch, w.path, w.created_at, w.status, w.source, w.archived_at, w.source_branch, r.name
-		FROM worktrees w JOIN repos r ON w.repo_id = r.id
-		ORDER BY w.created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []WorktreeWithRepo
-	for rows.Next() {
-		var w WorktreeWithRepo
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.RepoName); err != nil {
-			return nil, err
-		}
-		out = append(out, w)
-	}
-	return out, rows.Err()
-}
-
 // FindWorktreeByPath returns the worktree whose path exactly equals the
 // given path, or whose path is a parent directory of it (cwd inside a
 // subdirectory of the worktree still counts). Used to resolve a claude

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsModal from "./SettingsModal";
 
 vi.mock("./api", () => ({
-  getAllWorktrees: vi.fn(),
   getDependencyStatus: vi.fn(),
   installClaudeHook: vi.fn(),
   uninstallClaudeHook: vi.fn(),
@@ -12,27 +11,7 @@ vi.mock("./api", () => ({
   getServerLogs: vi.fn(),
 }));
 
-import {
-  getAllWorktrees,
-  getDependencyStatus,
-  getServerLogs,
-  installClaudeHook,
-  installSkill,
-  uninstallClaudeHook,
-} from "./api";
-
-const worktrees = [
-  {
-    id: "w1",
-    repo_id: "r1",
-    repo_name: "adelaide",
-    name: "feature",
-    branch: "feature",
-    path: "/tmp/adelaide-wt/feature",
-    created_at: "2026-01-01T00:00:00Z",
-    status: "active" as const,
-  },
-];
+import { getDependencyStatus, getServerLogs, installClaudeHook, installSkill, uninstallClaudeHook } from "./api";
 
 const depsAllMissing = {
   tmux: { installed: false, install_hint: "brew install tmux" },
@@ -43,7 +22,6 @@ const depsAllMissing = {
 };
 
 beforeEach(() => {
-  vi.mocked(getAllWorktrees).mockResolvedValue(worktrees);
   vi.mocked(getDependencyStatus).mockResolvedValue(depsAllMissing);
   vi.mocked(installClaudeHook).mockResolvedValue(undefined);
   vi.mocked(uninstallClaudeHook).mockResolvedValue(undefined);
@@ -62,27 +40,17 @@ afterEach(() => {
 });
 
 describe("SettingsModal", () => {
-  it("shows the Worktrees tab by default with a cross-repo table", async () => {
+  it("shows the Installation tab by default with dependency status", async () => {
     render(<SettingsModal onClose={() => {}} />);
-    expect(await screen.findByText("adelaide")).toBeInTheDocument();
-    expect(screen.getByText("feature")).toBeInTheDocument();
-    expect(getAllWorktrees).toHaveBeenCalled();
-  });
-
-  it("switches to the Installation tab and shows dependency status", async () => {
-    const user = userEvent.setup();
-    render(<SettingsModal onClose={() => {}} />);
-    await user.click(screen.getByRole("tab", { name: "Installation" }));
-
     expect(await screen.findByText("tmux")).toBeInTheDocument();
     expect(screen.getByText("Claude session-tracking hook")).toBeInTheDocument();
     expect(screen.getByText("worktree-studio skill (global)")).toBeInTheDocument();
+    expect(getDependencyStatus).toHaveBeenCalled();
   });
 
   it("installs the claude hook from its own row and refreshes status", async () => {
     const user = userEvent.setup();
     render(<SettingsModal onClose={() => {}} />);
-    await user.click(screen.getByRole("tab", { name: "Installation" }));
     const hookLabel = await screen.findByText("Claude session-tracking hook");
     const hookRow = hookLabel.closest("li")!;
 

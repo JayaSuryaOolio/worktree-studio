@@ -98,7 +98,6 @@ func (s *Server) Routes(r chi.Router) {
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
-	r.Get("/api/worktrees/all", s.handleListAllWorktrees)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)
 
 	r.Route("/api/settings", func(r chi.Router) {

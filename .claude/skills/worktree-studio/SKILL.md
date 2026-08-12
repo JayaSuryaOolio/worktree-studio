@@ -308,11 +308,11 @@ Once installed, a `claude.session.create` entry with `"source": "hook"` appears 
 
 ## Global settings
 
-A gear icon in the sidebar header opens a settings modal with two tabs: **Worktrees** (every worktree across every repo, any status — including archived ones, which don't show up anywhere else right now) and **Installation** (status for tmux, the spotlight CLI, the globally-installed skill, and the claude hook above, with Install/Uninstall buttons for the latter two). Via the API:
+A gear icon in the sidebar header opens a settings modal with three tabs: **Installation** (status for tmux, the spotlight CLI, the globally-installed skill, and the claude hook above, with Install/Uninstall buttons for the latter two), **Appearance** (dark/light theme — dark is the default, stored in `localStorage`, not tied to OS preference), and **Logs** (this server's own recent `ERROR`-level lines, plus the log file's real path — `~/.worktree-studio/server.log`). Via the API:
 
 ```bash
-curl http://localhost:8787/api/worktrees/all           # cross-repo worktree list
 curl http://localhost:8787/api/settings/dependencies   # dependency status
+curl http://localhost:8787/api/settings/logs           # recent error lines + log file path
 ```
 
 Installing the skill globally (`~/.claude/skills/worktree-studio/`, distinct from this project's own `.claude/skills/worktree-studio/`) makes it available from any project, not just when working inside this repo's own checkout:
@@ -321,7 +321,7 @@ Installing the skill globally (`~/.claude/skills/worktree-studio/`, distinct fro
 curl -X POST http://localhost:8787/api/settings/dependencies/skill/install
 ```
 
-No bulk-select/bulk-delete on the Worktrees tab yet — that's a recorded `PLAN.md` TODO, blocked on resolving a `path UNIQUE` collision that soft-deleting a row would hit.
+There's no cross-repo worktree view anymore (removed per direct request — it duplicated each repo's own settings page). Every worktree, including archived ones, is scoped to its repo: see each repo's settings page (gear icon on its sidebar row), whose **Worktrees** tab has Local/Imported/Archived sections, the last with an Unarchive button and a days-until-auto-delete column (archived worktrees are hard-removed — git worktree + DB row, no soft-delete — after 60 days; see `internal/api/archive_sweep.go`).
 
 Via the API directly:
 
