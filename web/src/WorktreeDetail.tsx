@@ -13,6 +13,7 @@ import {
   createTerminal,
   deleteTerminal,
   getDependencyStatus,
+  getTerminalCwd,
   getWorktreeLayout,
   listTerminals,
   openInVSCode,
@@ -30,9 +31,16 @@ import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
+import { getStoredFilesOpen, setStoredFilesOpen } from "./filesPanelPreference";
 
 interface TerminalPanelParams {
   terminalId: string;
+  repoId: string;
+  worktreeId: string;
+  // The worktree's own path, for TerminalPanel's one-shot cwd-mismatch
+  // check below — undefined only in the brief window before the root
+  // worktree's repo has loaded (see WorktreeDetailInner's worktreePath).
+  worktreePath: string | undefined;
   // What the tab reverts to once the pane's title no longer matches a
   // known app — the tab_label this terminal was created with (see
   // createTerminal/handleNewTerminal), not something recomputed later.
@@ -71,6 +79,36 @@ const TERMINAL_APP_ICONS: Record<TerminalAppKind, (props: { size?: number }) => 
 // sits flush against the internal sash with zero left/top padding, since
 // that boundary is an internal dockview split, not the outer container edge.
 function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>) {
+  const { terminalId, repoId, worktreeId, worktreePath } = props.params;
+  // A one-shot check (not polled — see getTerminalCwd's own doc comment):
+  // null until fetched, then true/false. Left null (no border either way)
+  // on a fetch failure or while worktreePath itself isn't known yet,
+  // rather than guessing.
+  const [cwdMismatch, setCwdMismatch] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!worktreePath) return;
+    let cancelled = false;
+    getTerminalCwd(repoId, worktreeId, terminalId)
+      .then(({ cwd }) => {
+        if (cancelled) return;
+        setCwdMismatch(!(cwd === worktreePath || cwd.startsWith(worktreePath + "/")));
+      })
+      .catch(() => {
+        // Best-effort: a lookup failure just means no border either way,
+        // same as this check never having run.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // terminalId alone identifies this pane for the lifetime of the
+    // component; repoId/worktreeId/worktreePath are constant for as long
+    // as this panel exists (its parent WorktreeDetailInner instance is
+    // itself remounted whole on worktree switch — see WorktreeDetail's own
+    // doc comment on why).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalId]);
+
   function handleTitleChange(title: string) {
     const app = detectTerminalApp(title);
     if (props.params.appKind !== app?.kind) {
@@ -86,8 +124,11 @@ function TerminalPanel(props: IDockviewPanelProps<TerminalPanelParams>) {
   }
 
   return (
-    <div className="terminal-panel-inset">
-      <Terminal terminalId={props.params.terminalId} onTitleChange={handleTitleChange} />
+    <div
+      className={cwdMismatch ? "terminal-panel-inset cwd-mismatch" : "terminal-panel-inset"}
+      title={cwdMismatch ? "This shell's directory is outside the worktree" : undefined}
+    >
+      <Terminal terminalId={terminalId} onTitleChange={handleTitleChange} />
     </div>
   );
 }
@@ -184,6 +225,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   // name instead of a worktree's.
   const repo = repos.find((r) => r.id === repoId);
   const folderName = isRootWorktreeId(worktreeId) ? repo?.name ?? "root" : worktree?.name ?? worktreeId;
+  // Same root-vs-real-worktree split as folderName above — TerminalPanel
+  // uses this to flag (a faint red border) a shell whose cwd has drifted
+  // outside it.
+  const worktreePath = isRootWorktreeId(worktreeId) ? repo?.path : worktree?.path;
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   // Distinguishes "haven't fetched terminals yet" from "fetched, there are
   // none" — the initial-layout effect below must not run until this is
@@ -195,7 +240,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const deepLinkTerminalId = searchParams.get("terminal");
   const deepLinkAppliedRef = useRef(false);
   const [logOpen, setLogOpen] = useState(false);
-  const [filesOpen, setFilesOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(getStoredFilesOpen);
   const [vscodeAvailable, setVscodeAvailable] = useState(false);
   const [vscodeError, setVscodeError] = useState<string | null>(null);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -275,7 +320,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           component: "terminal",
           tabComponent: "terminal-tab",
           title: ts.tab_label || "shell",
-          params: { terminalId: ts.id, baseLabel: ts.tab_label || "shell" },
+          params: { terminalId: ts.id, repoId, worktreeId, worktreePath, baseLabel: ts.tab_label || "shell" },
         });
       }
     }
@@ -392,7 +437,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
         component: "terminal",
         tabComponent: "terminal-tab",
         title: ts.tab_label || "shell",
-        params: { terminalId: ts.id, baseLabel: ts.tab_label || "shell" },
+        params: { terminalId: ts.id, repoId, worktreeId, worktreePath, baseLabel: ts.tab_label || "shell" },
         position: reference ? { referencePanel: reference.id, direction } : undefined,
       });
     } catch (err) {
@@ -436,7 +481,13 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
         <div className="terminal-toolbar-left">
           <button
             title="Toggle the file tree sidebar"
-            onClick={() => setFilesOpen((o) => !o)}
+            onClick={() =>
+              setFilesOpen((o) => {
+                const next = !o;
+                setStoredFilesOpen(next);
+                return next;
+              })
+            }
             aria-pressed={filesOpen}
           >
             📁 Files

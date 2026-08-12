@@ -71,6 +71,7 @@ func (s *Server) Routes(r chi.Router) {
 					r.Get("/", s.handleListTerminals)
 					r.Post("/", s.handleCreateTerminal)
 					r.Delete("/{terminalID}", s.handleDeleteTerminal)
+					r.Get("/{terminalID}/cwd", s.handleGetTerminalCwd)
 				})
 
 				r.Route("/spotlight", func(r chi.Router) {

@@ -4,6 +4,20 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Files-panel persistence, theme switch redesign, fixed modal height, cwd-mismatch border
+
+A batch of UI feedback items, plus an audit of the status-polling scheduler:
+
+- **Audited `RepoContext.tsx`'s `StatusScheduler` for leaks** (raised as a concern, not a reported bug): its `setInterval` is disposed on unmount, every `subscribe()` call's own listener is unsubscribed on cleanup, and it's paused entirely while the tab is hidden — clean. It's also a true app-lifetime singleton (`RepoProvider` mounts once in `Layout.tsx`, never remounted per navigation), so the interval isn't recreated on every page switch. The previous session's spotlight-start/stop fix already used a single one-off `refreshNow()` call rather than adding a new poll loop, matching the stated preference for that specific case; the general 15s background poller itself (which is what lets the sidebar notice spotlight/git state changed from outside the app) was left as-is pending more explicit direction, since replacing it with a long-held-request model is a much bigger architectural change with its own tradeoffs.
+- **File tree visibility is now a global `localStorage` preference** (`filesPanelPreference.ts`), not per-worktree component state — it used to reset to "open" every time `WorktreeDetail`'s `key`-triggered remount fired on switching worktrees (a real reported bug: collapsing it didn't stay collapsed).
+- **Theme switch redesigned** as an actual sliding pill toggle (sun/moon icons, `role="switch"`) in place of the two-row radio list, per direct feedback that the radio version didn't look like "a beautiful toggle button."
+- **Settings modal now has a fixed height** (`height` instead of `max-height` on `.settings-modal-body`) — it used to visibly resize between tabs of different content length, which read as unstable.
+- **Terminal panes get a faint red border when their shell's cwd has drifted outside the worktree** (e.g. someone `cd ..`d out). New `internal/term.CurrentPath` (`tmux display-message -p "#{pane_current_path}"`, the same live-tracked-by-tmux mechanism `CurrentTitle` already uses) backs a new `GET .../terminals/:id/cwd`, checked once when a terminal panel opens (`WorktreeDetail.tsx`'s `TerminalPanel`) — deliberately a one-shot check, not polled, consistent with the scheduler audit above.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 116 tests, including `TestCurrentPath`/`TestCurrentPathAfterCd` (the latter needed a full 1s wait after `tmux send-keys` before `pane_current_path` reliably reflected a real `cd` — confirmed empirically against a live tmux session, not assumed) and `TestGetTerminalCwd` (end-to-end through the HTTP API, polling with a 3s deadline for the post-`cd` value to land). `cd web && bun run build && bun run test` — 101 tests, including new coverage for `filesPanelPreference.ts`, the redesigned theme switch, and both the mismatch and non-mismatch (subdirectory-of-the-worktree) cases for the new cwd border. Restarted the real local dev server to pick up the new endpoint.
+
+---
+
 ## 2026-08-12 — Fixed spotlight start/stop appearing to hang
 
 Reported as "spotlight start/stop takes almost a minute" — the user's own follow-up hypothesis was right: it's not the action itself that's slow (the backend POST resolves in well under a second, per earlier server-log timings), it's that the sidebar's spotlight dot had no way to reflect a just-completed action except waiting for `RepoContext.tsx`'s background poller to naturally re-fetch that worktree's status, which only happens once every `STATUS_POLL_INTERVAL_MS` (15s) — worst case landing right after the action, so the wait could stretch close to the full interval, and with no visual feedback in the meantime it read as the action hanging.

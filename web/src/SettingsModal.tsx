@@ -191,20 +191,16 @@ function DependencyRow({
   );
 }
 
-const THEME_OPTIONS: { value: Theme; label: string; hint: string }[] = [
-  { value: "dark", label: "Dark", hint: "Command Deck's default look." },
-  { value: "light", label: "Light", hint: "Same layout, a light palette." },
-];
-
 // The theme itself lives outside React state — applyTheme/setTheme (see
 // theme.ts) toggle a data-theme attribute on <html> that styles/tokens.css
 // reads directly, so every already-mounted component re-themes for free
 // without needing to re-render. This component's own state is just for
-// which radio button shows as selected.
+// which side the switch shows as on.
 function AppearanceTab() {
   const [theme, setThemeState] = useState<Theme>(getStoredTheme);
 
-  function handleChange(next: Theme) {
+  function handleToggle() {
+    const next: Theme = theme === "dark" ? "light" : "dark";
     setTheme(next);
     setThemeState(next);
   }
@@ -212,20 +208,24 @@ function AppearanceTab() {
   return (
     <section className="settings-section">
       <h3>Theme</h3>
-      <div className="theme-option-list" role="radiogroup" aria-label="Theme">
-        {THEME_OPTIONS.map((opt) => (
-          <label key={opt.value} className="theme-option">
-            <input
-              type="radio"
-              name="theme"
-              value={opt.value}
-              checked={theme === opt.value}
-              onChange={() => handleChange(opt.value)}
-            />
-            <span className="theme-option-label">{opt.label}</span>
-            <span className="theme-option-hint">{opt.hint}</span>
-          </label>
-        ))}
+      <div className="theme-switch-row">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={theme === "light"}
+          aria-label="Light theme"
+          className="theme-switch"
+          onClick={handleToggle}
+        >
+          <span className="theme-switch-icon theme-switch-icon-moon" aria-hidden="true">
+            🌙
+          </span>
+          <span className="theme-switch-icon theme-switch-icon-sun" aria-hidden="true">
+            ☀️
+          </span>
+          <span className="theme-switch-thumb" />
+        </button>
+        <span className="theme-switch-label">{theme === "dark" ? "Dark" : "Light"}</span>
       </div>
     </section>
   );

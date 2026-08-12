@@ -156,8 +156,12 @@
   border-bottom-color: var(--amber);
 }
 
+/* A fixed height, not max-height: the modal used to visibly resize
+   between tabs (Installation's dependency list is much taller than
+   Appearance's toggle), which read as jumpy/unstable — a real reported
+   bug. Fixed height + scroll for whichever tab overflows it instead. */
 .settings-modal-body {
-  max-height: 60vh;
+  height: 60vh;
   overflow-y: auto;
 }
 

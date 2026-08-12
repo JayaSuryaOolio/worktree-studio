@@ -65,19 +65,26 @@ describe("SettingsModal", () => {
     expect(await within(hookRow).findByRole("button", { name: "Uninstall" })).toBeInTheDocument();
   });
 
-  it("switches to Appearance and toggling to Light applies data-theme", async () => {
+  it("switches to Appearance and toggling the switch applies data-theme", async () => {
     const user = userEvent.setup();
     render(<SettingsModal onClose={() => {}} />);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
-    const light = await screen.findByRole("radio", { name: /light/i });
-    expect(screen.getByRole("radio", { name: /dark/i })).toBeChecked();
+    const toggle = await screen.findByRole("switch", { name: /light theme/i });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Dark")).toBeInTheDocument();
 
-    await user.click(light);
+    await user.click(toggle);
 
-    expect(light).toBeChecked();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Light")).toBeInTheDocument();
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem("worktree-studio-theme")).toBe("light");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    expect(localStorage.getItem("worktree-studio-theme")).toBe("dark");
   });
 
   it("switches to Logs and shows the log file path plus recent errors", async () => {

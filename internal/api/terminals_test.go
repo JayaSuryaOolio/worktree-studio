@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,71 @@ func TestCreateTerminalWithInitialCommand(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("expected the initial command's output in the pane within 3s, got:\n%s", out)
+}
+
+// TestGetTerminalCwd verifies the new-worktree-detail-panel "cwd drifted
+// from the worktree" check end to end: right after creation the terminal's
+// cwd matches the worktree's own path, and after a real `cd` typed into
+// the live tmux session, the endpoint reflects that too (not just the
+// directory the session started in) — the whole point being a one-shot
+// on-open check can actually catch a shell that's `cd`'d elsewhere.
+func TestGetTerminalCwd(t *testing.T) {
+	requireGit(t)
+	requireTmuxAPI(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/", map[string]string{"tab_label": "shell"})
+	var termSession store.TerminalSession
+	decodeInto(t, resp, &termSession)
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "kill-session", "-t", termSession.TmuxSessionName).Run()
+	})
+
+	resolvedWtPath, err := filepath.EvalSymlinks(wt.Path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", wt.Path, err)
+	}
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/"+termSession.ID+"/cwd", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET terminal cwd: status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	decodeInto(t, resp, &body)
+	if body["cwd"] != resolvedWtPath {
+		t.Errorf("cwd right after creation = %q, want the worktree's own path %q", body["cwd"], resolvedWtPath)
+	}
+
+	elsewhere := t.TempDir()
+	resolvedElsewhere, err := filepath.EvalSymlinks(elsewhere)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", elsewhere, err)
+	}
+	if out, err := exec.Command("tmux", "send-keys", "-t", termSession.TmuxSessionName, "cd "+elsewhere, "Enter").CombinedOutput(); err != nil {
+		t.Fatalf("tmux send-keys: %v (%s)", err, out)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/"+termSession.ID+"/cwd", nil)
+		decodeInto(t, resp, &body)
+		if body["cwd"] == resolvedElsewhere {
+			return // success
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cwd after cd = %q, want %q within 3s", body["cwd"], resolvedElsewhere)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // TestCreateTerminalLogsClaudeSessionWhenIDProvided verifies the

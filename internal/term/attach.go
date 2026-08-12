@@ -48,3 +48,22 @@ func CurrentTitle(tmuxSessionName string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// CurrentPath returns the tmux pane's own idea of its foreground process's
+// current working directory (tmux's `#{pane_current_path}`, kept live by
+// tmux itself as the shell cd's around — no polling of /proc or lsof
+// needed). Used by handleGetTerminalCwd for a one-shot, on-open check of
+// whether a terminal has drifted outside its worktree (e.g. someone `cd
+// ..`d out of it) — deliberately not repeated on a timer: a single check
+// right when the pane is opened is what the sidebar/tab UI actually needs
+// this for, and this project already leans away from adding more polling
+// than it has to (see RepoContext.tsx's StatusScheduler for the one place
+// polling really does carry its weight — a live status many rows show at
+// once, not a one-off directory check).
+func CurrentPath(tmuxSessionName string) (string, error) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", tmuxSessionName, "#{pane_current_path}").Output()
+	if err != nil {
+		return "", fmt.Errorf("tmux display-message pane_current_path: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}

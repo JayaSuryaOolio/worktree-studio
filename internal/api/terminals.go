@@ -178,6 +178,46 @@ func (s *Server) handleDeleteTerminal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "closed"})
 }
 
+// handleGetTerminalCwd returns a terminal's tmux pane's current working
+// directory right now (term.CurrentPath) — a one-shot check the frontend
+// makes once when a terminal panel opens, to flag (a faint red border) a
+// shell whose cwd has drifted outside its worktree, e.g. someone `cd ..`d
+// out of it. Deliberately not polled: this project already has one
+// legitimate background poller (RepoContext.tsx's StatusScheduler, for
+// live per-row status many rows show at once) and this isn't that kind of
+// signal — a directory only changes when someone types `cd`, and a check
+// on open is what the UI actually needs.
+func (s *Server) handleGetTerminalCwd(w http.ResponseWriter, r *http.Request) {
+	wt, ok := s.getRepoAndWorktree(w, r)
+	if !ok {
+		return
+	}
+	terminalID := chi.URLParam(r, "terminalID")
+
+	ts, err := s.Store.GetTerminalSession(terminalID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "terminal session not found")
+			return
+		}
+		s.Log.Error("get terminal session", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up terminal session")
+		return
+	}
+	if ts.WorktreeID != wt.ID {
+		writeError(w, http.StatusNotFound, "terminal session not found")
+		return
+	}
+
+	cwd, err := term.CurrentPath(ts.TmuxSessionName)
+	if err != nil {
+		s.Log.Error("get terminal cwd", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up terminal's current directory")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"cwd": cwd})
+}
+
 var upgrader = websocket.Upgrader{
 	// This is a local dev tool bound to localhost by default (see PLAN.md's
 	// deferred auth/remote-access hardening note) — same-origin checks

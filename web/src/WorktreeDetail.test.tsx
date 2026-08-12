@@ -33,6 +33,7 @@ vi.mock("./api", () => ({
   getFileTree: vi.fn(),
   getDependencyStatus: vi.fn(),
   openInVSCode: vi.fn(),
+  getTerminalCwd: vi.fn(),
 }));
 
 // Stubbed rather than wrapped in the real RepoProvider (which would need
@@ -49,6 +50,7 @@ import {
   deleteTerminal,
   getDependencyStatus,
   getFileTree,
+  getTerminalCwd,
   getWorktreeLayout,
   listTerminals,
   saveWorktreeLayout,
@@ -80,6 +82,10 @@ beforeEach(() => {
   vi.mocked(saveWorktreeLayout).mockResolvedValue(undefined);
   vi.mocked(getFileTree).mockResolvedValue([]);
   vi.mocked(deleteTerminal).mockResolvedValue(undefined);
+  // Matches the active worktree's own path by default, i.e. no
+  // cwd-mismatch border — individual tests override this to exercise the
+  // mismatch case.
+  vi.mocked(getTerminalCwd).mockResolvedValue({ cwd: "/tmp/feature" });
   vi.mocked(useRepoContext).mockReturnValue({
     repos: [],
     reposLoading: false,
@@ -113,6 +119,21 @@ describe("WorktreeDetail", () => {
     renderPage();
     await waitFor(() => expect(listTerminals).toHaveBeenCalledWith("r1", "w1"));
     expect(await screen.findByTestId("terminal-t1")).toBeInTheDocument();
+  });
+
+  it("flags a terminal whose cwd has drifted outside the worktree with a faint border", async () => {
+    vi.mocked(getTerminalCwd).mockResolvedValue({ cwd: "/tmp/somewhere-else" });
+    renderPage();
+    const term = await screen.findByTestId("terminal-t1");
+    await waitFor(() => expect(term.closest(".terminal-panel-inset")).toHaveClass("cwd-mismatch"));
+  });
+
+  it("does not flag a terminal whose cwd is a subdirectory of the worktree", async () => {
+    vi.mocked(getTerminalCwd).mockResolvedValue({ cwd: "/tmp/feature/src" });
+    renderPage();
+    const term = await screen.findByTestId("terminal-t1");
+    await waitFor(() => expect(getTerminalCwd).toHaveBeenCalled());
+    expect(term.closest(".terminal-panel-inset")).not.toHaveClass("cwd-mismatch");
   });
 
   it("shows the current worktree's folder name as the file tree's heading", async () => {

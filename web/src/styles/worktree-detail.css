@@ -60,6 +60,14 @@
   padding: 0.5rem;
 }
 
+/* A one-shot check at panel-open (see TerminalPanel in WorktreeDetail.tsx
+   and getTerminalCwd) flags a shell whose cwd has drifted outside its
+   worktree — deliberately faint (a thin border, not a filled banner) since
+   this is informational, not an error. */
+.terminal-panel-inset.cwd-mismatch {
+  border: 1px solid var(--red-dim);
+}
+
 /* dockview host: override its generic --dv-* variables with Command Deck
    tokens rather than fighting its DOM structure (the layout/drag/resize
    logic itself is exactly what's not worth reimplementing). Started from

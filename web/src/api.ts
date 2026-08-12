@@ -293,6 +293,21 @@ export function deleteTerminal(
   );
 }
 
+/** A one-shot check of a terminal's tmux pane's current working directory
+ * — used once when a terminal panel opens to flag (a faint red border) a
+ * shell whose cwd has drifted outside its worktree. Not polled — see
+ * internal/api/terminals.go's handleGetTerminalCwd for why a single
+ * on-open check is what this actually needs. */
+export function getTerminalCwd(
+  repoId: string,
+  worktreeId: string,
+  terminalId: string
+): Promise<{ cwd: string }> {
+  return request<{ cwd: string }>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/terminals/${terminalId}/cwd`
+  );
+}
+
 export function getWorktreeStatus(
   repoId: string,
   worktreeId: string
