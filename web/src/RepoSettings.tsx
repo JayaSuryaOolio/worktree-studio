@@ -126,10 +126,7 @@ function GeneralTab({ repo }: { repo: Repo }) {
       <h3>New worktree base branch</h3>
       <p className="muted">
         New worktrees branch off this. Leave blank to auto-detect (origin's default branch, else local
-        main/master). This is only as fresh as the last time this repo's local branch was fetched/pulled — for a
-        worktree that's always guaranteed up to date with the remote, prefix it with <code>origin/</code> (e.g.{" "}
-        <code>origin/main</code>) instead of just <code>main</code>, or pick it per-worktree from the "Create from"
-        dropdown when creating one.
+        main/master). Prefix with <code>origin/</code> for a remote-tracking ref instead of the local branch.
       </p>
       <div className="button-with-icon" style={{ gap: "0.5rem" }}>
         <input
