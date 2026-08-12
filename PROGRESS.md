@@ -4,6 +4,16 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Fixed the hover popover getting clipped by the sidebar
+
+Reported right after shipping it: the popover was positioned `absolute`, `left: 100%` relative to its row, inside `.sidebar`'s own `overflow-y: auto` scroll container — which clips any absolutely-positioned descendant that extends past its edge, no matter how that descendant is positioned. No amount of repositioning in-place fixes that; it has to render outside the clipping ancestor entirely.
+
+`WorktreeHoverPopover.tsx` now renders via `createPortal` into `document.body`, with `position: fixed` coordinates computed from the hovered row's own `getBoundingClientRect()` (a new `computePosition`, exported for direct unit testing) — placed to the row's right when there's room, flipped below it otherwise (e.g. a narrow window), both clamped against the viewport edges.
+
+**Verified:** `cd web && bun run build && bun run test` — 112 tests (2 new, covering both the right-side and flipped-below-when-no-room branches of `computePosition`); the existing popover-behavior tests (delay, immediate hide, cache-hit) needed no changes since Testing Library's `screen` queries portaled content the same as inline content. No backend involved in this fix.
+
+---
+
 ## 2026-08-12 — Sidebar hover popover: full worktree name, PR status, git summary
 
 Sidebar rows have no room to show a branch's PR status or more than a bare ahead/behind tick, and branch names get clipped — per direct request, added a hover popover (900ms show delay, immediate hide) covering all of that. Scoping came from three explicit answers: `gh` CLI is installed and authenticated on this machine; the git-view content should be ahead/behind + dirty count + the actual changed-file list; and the data should be cached ~5 minutes with background refresh, not fetched fresh on every hover (rate-limit risk, called out directly).

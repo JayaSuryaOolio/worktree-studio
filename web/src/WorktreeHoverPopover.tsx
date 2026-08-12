@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getWorktreeSummary, Worktree, WorktreeSummary } from "./api";
 import { getCachedSummary, setCachedSummary } from "./prGitCache";
 
@@ -9,9 +10,39 @@ import { getCachedSummary, setCachedSummary } from "./prGitCache";
 // not helpful.
 const SHOW_DELAY_MS = 900;
 
+// The popover's own fixed width (see .worktree-hover-popover) — needed
+// up front to clamp its position against the viewport's right edge below,
+// not just read off the DOM after the fact.
+const POPOVER_WIDTH_PX = 320;
+const VIEWPORT_MARGIN_PX = 8;
+
 interface Props {
   wt: Worktree;
   children: ReactNode;
+}
+
+interface Position {
+  left: number;
+  top: number;
+}
+
+// Where to place the popover relative to targetRect: to its right by
+// default, but flipped below the row instead whenever the sidebar (fixed
+// at 280px) doesn't leave enough room on the right — e.g. a narrow
+// browser window. Clamped vertically against the viewport bottom either
+// way, since this renders via a portal (see below) and isn't clipped by
+// the sidebar's own overflow:auto the way an absolutely-positioned
+// in-place popover was — a real reported bug, not a guess: the sidebar's
+// scroll container clipped anything positioned past its own edge.
+export function computePosition(targetRect: DOMRect): Position {
+  const fitsToTheRight = targetRect.right + VIEWPORT_MARGIN_PX + POPOVER_WIDTH_PX <= window.innerWidth;
+  const left = fitsToTheRight
+    ? targetRect.right + VIEWPORT_MARGIN_PX
+    : Math.max(VIEWPORT_MARGIN_PX, targetRect.left);
+  const top = fitsToTheRight
+    ? Math.min(targetRect.top, window.innerHeight - VIEWPORT_MARGIN_PX)
+    : targetRect.bottom + VIEWPORT_MARGIN_PX;
+  return { left, top };
 }
 
 // Wraps a sidebar worktree row: on hover (after SHOW_DELAY_MS), shows the
@@ -22,11 +53,18 @@ interface Props {
 // stale or missing one is shown (if present) while a background refetch
 // updates it, which is what keeps repeated hovers from hitting GitHub's
 // API rate limits through the backend's own `gh` call.
+//
+// Rendered via a portal into document.body (not inline where the hover
+// target lives) precisely so it isn't clipped by the sidebar's own
+// overflow:auto scroll container — an absolutely-positioned child can't
+// escape an ancestor that clips overflow, no matter how it's positioned.
 export default function WorktreeHoverPopover({ wt, children }: Props) {
   const [visible, setVisible] = useState(false);
+  const [position, setPosition] = useState<Position | null>(null);
   const [summary, setSummary] = useState<WorktreeSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const showTimerRef = useRef<number | undefined>(undefined);
+  const targetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return () => {
@@ -36,6 +74,9 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
 
   function handleMouseEnter() {
     showTimerRef.current = window.setTimeout(() => {
+      if (targetRef.current) {
+        setPosition(computePosition(targetRef.current.getBoundingClientRect()));
+      }
       setVisible(true);
       setError(null);
 
@@ -65,53 +106,65 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
   }
 
   return (
-    <div className="worktree-hover-target" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div
+      className="worktree-hover-target"
+      ref={targetRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       {children}
-      {visible && (
-        <div className="worktree-hover-popover" role="tooltip">
-          <div className="worktree-hover-popover-name">{wt.name}</div>
-          <div className="worktree-hover-popover-branch">{wt.branch}</div>
-          {error && <p className="error">{error}</p>}
-          {!error && !summary && <p className="muted">Loading…</p>}
-          {summary && (
-            <>
-              <div className="worktree-hover-popover-pr">
-                {summary.pr ? (
-                  <a href={summary.pr.url} target="_blank" rel="noopener noreferrer">
-                    PR #{summary.pr.number}
-                    {summary.pr.is_draft ? " (draft)" : ""} · {summary.pr.state} — {summary.pr.title}
-                  </a>
-                ) : (
-                  <span className="muted">No pull request for this branch</span>
-                )}
-              </div>
-              <div className="worktree-hover-popover-git">
-                {summary.has_upstream && (summary.ahead > 0 || summary.behind > 0) && (
-                  <span className="sidebar-ticks">
-                    {summary.ahead > 0 && `↑${summary.ahead} `}
-                    {summary.behind > 0 && `↓${summary.behind}`}
-                  </span>
-                )}
-                <span className={summary.dirty ? "badge badge-dirty" : "badge badge-clean"}>
-                  {summary.dirty ? `${summary.changed_files.length} changed file(s)` : "clean"}
-                </span>
-              </div>
-              {summary.changed_files.length > 0 && (
-                <ul className="worktree-hover-popover-files">
-                  {summary.changed_files.slice(0, 8).map((f) => (
-                    <li key={f}>
-                      <code>{f}</code>
-                    </li>
-                  ))}
-                  {summary.changed_files.length > 8 && (
-                    <li className="muted">+{summary.changed_files.length - 8} more</li>
+      {visible &&
+        position &&
+        createPortal(
+          <div
+            className="worktree-hover-popover"
+            role="tooltip"
+            style={{ left: position.left, top: position.top }}
+          >
+            <div className="worktree-hover-popover-name">{wt.name}</div>
+            <div className="worktree-hover-popover-branch">{wt.branch}</div>
+            {error && <p className="error">{error}</p>}
+            {!error && !summary && <p className="muted">Loading…</p>}
+            {summary && (
+              <>
+                <div className="worktree-hover-popover-pr">
+                  {summary.pr ? (
+                    <a href={summary.pr.url} target="_blank" rel="noopener noreferrer">
+                      PR #{summary.pr.number}
+                      {summary.pr.is_draft ? " (draft)" : ""} · {summary.pr.state} — {summary.pr.title}
+                    </a>
+                  ) : (
+                    <span className="muted">No pull request for this branch</span>
                   )}
-                </ul>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                </div>
+                <div className="worktree-hover-popover-git">
+                  {summary.has_upstream && (summary.ahead > 0 || summary.behind > 0) && (
+                    <span className="sidebar-ticks">
+                      {summary.ahead > 0 && `↑${summary.ahead} `}
+                      {summary.behind > 0 && `↓${summary.behind}`}
+                    </span>
+                  )}
+                  <span className={summary.dirty ? "badge badge-dirty" : "badge badge-clean"}>
+                    {summary.dirty ? `${summary.changed_files.length} changed file(s)` : "clean"}
+                  </span>
+                </div>
+                {summary.changed_files.length > 0 && (
+                  <ul className="worktree-hover-popover-files">
+                    {summary.changed_files.slice(0, 8).map((f) => (
+                      <li key={f}>
+                        <code>{f}</code>
+                      </li>
+                    ))}
+                    {summary.changed_files.length > 8 && (
+                      <li className="muted">+{summary.changed_files.length - 8} more</li>
+                    )}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

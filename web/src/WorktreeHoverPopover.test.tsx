@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import WorktreeHoverPopover from "./WorktreeHoverPopover";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import WorktreeHoverPopover, { computePosition } from "./WorktreeHoverPopover";
 import { setCachedSummary } from "./prGitCache";
 import { Worktree, WorktreeSummary } from "./api";
 
@@ -112,5 +112,49 @@ describe("WorktreeHoverPopover", () => {
 
     expect(await screen.findByText(/PR #42/)).toBeInTheDocument();
     await waitFor(() => expect(getWorktreeSummary).not.toHaveBeenCalled());
+  });
+});
+
+function fakeRect(overrides: Partial<DOMRect>): DOMRect {
+  return {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+    ...overrides,
+  } as DOMRect;
+}
+
+describe("computePosition", () => {
+  const originalInnerWidth = window.innerWidth;
+  const originalInnerHeight = window.innerHeight;
+
+  afterEach(() => {
+    Object.defineProperty(window, "innerWidth", { value: originalInnerWidth, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: originalInnerHeight, configurable: true });
+  });
+
+  it("places the popover to the right of the target when there's room", () => {
+    Object.defineProperty(window, "innerWidth", { value: 1200, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+
+    const pos = computePosition(fakeRect({ left: 20, right: 300, top: 100, bottom: 130 }));
+    expect(pos.left).toBe(300 + 8);
+    expect(pos.top).toBe(100);
+  });
+
+  it("flips below the row when there isn't enough room on the right", () => {
+    Object.defineProperty(window, "innerWidth", { value: 500, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+
+    // right=300 + margin(8) + popover width(320) > innerWidth(500)
+    const pos = computePosition(fakeRect({ left: 20, right: 300, top: 100, bottom: 130 }));
+    expect(pos.top).toBe(130 + 8);
+    expect(pos.left).toBe(20);
   });
 });

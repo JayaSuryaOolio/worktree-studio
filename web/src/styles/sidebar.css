@@ -263,19 +263,20 @@
 }
 
 /* WorktreeHoverPopover.tsx — the full-name/PR/git-summary flyout shown on
-   hover. Anchored to the right of the (narrow, 280px) sidebar rather than
-   below/above, since there's more room there for the PR title and file
-   list than squeezing it into the sidebar's own width. */
+   hover. Rendered via a portal into document.body and positioned with
+   `position: fixed` from a viewport-relative getBoundingClientRect (see
+   that component's computePosition) rather than absolute-positioned
+   in-place — the sidebar's own overflow:auto scroll container clipped an
+   in-place popover the moment it extended past the sidebar's edge, no
+   matter how it was positioned; escaping to a portal is what actually
+   fixes that, not a different position/placement. */
 .worktree-hover-target {
   position: relative;
 }
 
 .worktree-hover-popover {
-  position: absolute;
-  left: 100%;
-  top: 0;
-  margin-left: 0.5rem;
-  z-index: 20;
+  position: fixed;
+  z-index: 1200;
   width: 20rem;
   max-width: 80vw;
   background: var(--bg-elevated);
