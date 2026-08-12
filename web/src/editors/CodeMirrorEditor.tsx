@@ -72,9 +72,24 @@ function saveKeymap(onSaveRequested: () => void): Extension {
   ]);
 }
 
-async function resolveLanguage(path: string): Promise<Extension | null> {
+// Filenames @codemirror/language-data's own filename/extension matching
+// doesn't recognize on its own, mapped to a filename whose language it
+// does — so `LanguageDescription.matchFilename` gets a name it can
+// actually match against, rather than teaching this file a second
+// language-detection scheme. Tiltfile (Tilt's build-config format,
+// Python-like/Starlark syntax, conventionally named exactly "Tiltfile"
+// with no extension) is the concrete case that motivated this: it fell
+// through as unrecognized (plain text, no highlighting) before this
+// existed. Add more filename aliases here as they come up, same as
+// terminalAppDetection.ts's small SIGNATURES registry.
+const FILENAME_LANGUAGE_ALIASES: Record<string, string> = {
+  Tiltfile: "Tiltfile.py",
+};
+
+export async function resolveLanguage(path: string): Promise<Extension | null> {
   const filename = path.split("/").pop() ?? path;
-  const desc = LanguageDescription.matchFilename(languages, filename);
+  const aliasedFilename = FILENAME_LANGUAGE_ALIASES[filename] ?? filename;
+  const desc = LanguageDescription.matchFilename(languages, aliasedFilename);
   if (!desc) return null;
   try {
     return await desc.load();

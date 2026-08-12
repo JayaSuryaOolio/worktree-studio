@@ -67,15 +67,29 @@
    see web/node_modules/dockview-react/dist/styles/dockview.css for every
    variable this theme otherwise sets. Reads tokens.css's variables, so it
    re-themes for free on a light/dark switch — no separate light overrides
-   needed here. */
+   needed here.
+
+   The four "hiddenpanel" variables below are NOT optional extras: dockview's
+   own generic .dv-tab.dv-inactive-tab rule (dockview.css) reads them for
+   every tab that isn't the currently-selected one in its group — the
+   ordinary, common case whenever more than one tab is open. Missing them
+   here was a real reported bug: those tabs silently fell back to the
+   abyss theme's own hardcoded near-black background + translucent-white
+   text regardless of which theme was actually selected ("tab buttons are
+   still dark and white, doesn't follow the theme") — confirmed by reading
+   dockview.css's base (non-theme-specific) tab rules, not guessed. */
 .command-deck-dockview {
   height: 100%;
   --dv-group-view-background-color: var(--bg);
   --dv-tabs-and-actions-container-background-color: var(--bg-elevated);
   --dv-activegroup-visiblepanel-tab-background-color: var(--bg-elevated);
   --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-elevated);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-dim);
   --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-color: var(--text-dim);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-dim);
   --dv-tab-divider-color: var(--border);
   --dv-separator-border: var(--border);
   --dv-sash-color: var(--border);

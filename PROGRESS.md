@@ -4,6 +4,17 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Removed main-settings Worktrees tab; fixed two real terminal-tab bugs; Tiltfile highlighting
+
+- **Removed the cross-repo "Worktrees" tab from the main `SettingsModal`** per direct request — it duplicated each repo's own settings page. Deleted the frontend tab/component, `GET /api/worktrees/all` (`handleListAllWorktrees`), and the now-unused `store.ListAllWorktreesWithRepo`/`WorktreeWithRepo`. Both copies of the worktree-studio skill doc (kept in sync by `skillasset_test.go`) updated to match.
+- **Fixed the claude-tab icon going missing "many times"** — a real, confirmed bug, not a guess: sampled every actual running claude-backed tmux session on a real dev machine (`tmux display-message -p pane_title` against 23 live sessions) and found most had rewritten their OSC title to a short auto-generated task summary (e.g. "✳ Fix state corruption in RoleProvider and update changesets") with no "Claude Code" substring at all — the only thing `terminalAppDetection.ts`'s detection matched on. The actual durable signal across every sample was the leading status glyph ("✳" at idle, a Braille Patterns spinner frame U+2800–U+28FF while actively "thinking"), regardless of what text follows — `detectTerminalApp` now matches on that prefix too, with 2 new regression tests using the real observed title strings.
+- **Fixed "shell tab colours are still buggy / doesn't follow the theme"** — also confirmed by reading source, not guessed: dockview's own generic `.dv-tab.dv-inactive-tab` rule (the ordinary case whenever more than one terminal tab is open) reads four `--dv-activegroup-hiddenpanel-tab-*`/`--dv-inactivegroup-hiddenpanel-tab-*` variables that `command-deck-dockview`'s override block never set, so every non-selected tab silently fell back to the built-in "abyss" theme's hardcoded near-black background + translucent-white text — completely independent of dark/light mode. Added the missing four variables, mapped to the same tokens the already-covered "visiblepanel" (selected-tab) variables use.
+- **CodeMirror now highlights `Tiltfile` as Python** — Tilt's build-config format (Starlark/Python-like syntax, conventionally named exactly `Tiltfile` with no extension) fell through `@codemirror/language-data`'s filename matching as unrecognized plain text. `CodeMirrorEditor.tsx`'s `resolveLanguage` gained a small filename-alias map (`Tiltfile` → `Tiltfile.py`) so the lookup resolves through the existing Python grammar instead of a new one-off import.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 113 tests (net -1 after removing the dead cross-repo-worktrees test). `cd web && bun run build && bun run test` — 96 tests (+3 net: 2 new `terminalAppDetection` regression tests using real observed titles, 3 new `resolveLanguage`/Tiltfile tests, −1 from the removed Worktrees-tab test consolidated into the new default-tab test). Confirmed the built CSS bundle actually contains the four new `--dv-*` overrides post-build, and re-verified the claude-icon fix's real-world basis directly against `tmux`, not just unit tests.
+
+---
+
 ## 2026-08-12 — Light theme + modular CSS, Logs tab, spotlight investigation
 
 Three requests in one session:

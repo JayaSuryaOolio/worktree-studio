@@ -25,4 +25,30 @@ describe("detectTerminalApp", () => {
   it("does not false-positive on an unrelated title merely containing 'Claude'", () => {
     expect(detectTerminalApp("Claude's notes.txt — vim")).toBeNull();
   });
+
+  // Regression test for a real reported bug: once a claude session has
+  // been running a while, it rewrites its title to a short auto-
+  // generated task summary that never contains "Claude Code" at all —
+  // confirmed by sampling real running sessions on a dev machine, where
+  // most had already moved past the idle-default title. Matching only
+  // the literal "Claude Code" substring (the original implementation)
+  // missed all of these, silently reverting the tab to generic "shell"
+  // styling for the majority of real, hours-long usage.
+  it("detects claude from a real observed task-summary title with no 'Claude Code' text", () => {
+    expect(detectTerminalApp("✳ Add user roles to Sentry exception with nested logging")).toEqual({
+      kind: "claude",
+      label: "Claude",
+    });
+    expect(detectTerminalApp("✳ Fix state corruption in RoleProvider and update changesets")).toEqual({
+      kind: "claude",
+      label: "Claude",
+    });
+  });
+
+  it("detects claude from a Braille spinner-frame glyph while actively \"thinking\"", () => {
+    expect(detectTerminalApp("⠐ Add root worktree view and fix settings defaults")).toEqual({
+      kind: "claude",
+      label: "Claude",
+    });
+  });
 });
