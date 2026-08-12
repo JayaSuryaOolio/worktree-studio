@@ -33,7 +33,37 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
     gitStatus,
     spotlightStatus,
     statusRefreshing,
+    refreshSpotlightStatus,
   } = useRepoContext();
+
+  // True for a worktree id from the moment its spotlight start/stop is
+  // clicked until that worktree's spotlight status has actually been
+  // re-fetched — drives the blinking dot below. Without an explicit
+  // refreshSpotlightStatus call (see the two handlers below), the sidebar
+  // had no way to know the action had finished short of waiting for the
+  // background scheduler's own next naturally-due tick, which read as the
+  // action itself being slow (a real reported bug) when it wasn't.
+  const [spotlightPending, setSpotlightPending] = useState<Record<string, boolean>>({});
+
+  async function handleSpotlightStart(wt: Worktree) {
+    setSpotlightPending((p) => ({ ...p, [wt.id]: true }));
+    try {
+      await startSpotlightWithFriendlyError(wt, { onDone: refreshWorktrees, onError: setError });
+      await refreshSpotlightStatus(wt.id);
+    } finally {
+      setSpotlightPending((p) => ({ ...p, [wt.id]: false }));
+    }
+  }
+
+  async function handleSpotlightStop(wt: Worktree) {
+    setSpotlightPending((p) => ({ ...p, [wt.id]: true }));
+    try {
+      await stopSpotlightSafe(wt, { onDone: refreshWorktrees, onError: setError });
+      await refreshSpotlightStatus(wt.id);
+    } finally {
+      setSpotlightPending((p) => ({ ...p, [wt.id]: false }));
+    }
+  }
 
   const worktreeMatch = useMatch("/repo/:repoId/worktree/:worktreeId");
   const activeWorktreeId = worktreeMatch?.params.worktreeId ?? null;
@@ -160,8 +190,22 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                                 {status.behind > 0 && `↓${status.behind}`}
                               </span>
                             )}
-                            {spot?.active && (
-                              <span className="sidebar-dot sidebar-dot-spotlight" title="Spotlight active" />
+                            {/* Blinks for the full duration of a spotlight
+                                start/stop (see handleSpotlightStart/Stop
+                                above) — a real reported bug was that the
+                                dot only ever caught up on whatever the
+                                background poller's own next tick happened
+                                to be, up to 15s later, which read as the
+                                action itself being slow. */}
+                            {(spotlightPending[wt.id] || spot?.active) && (
+                              <span
+                                className={
+                                  spotlightPending[wt.id]
+                                    ? "sidebar-dot sidebar-dot-spotlight pending"
+                                    : "sidebar-dot sidebar-dot-spotlight"
+                                }
+                                title={spotlightPending[wt.id] ? "Updating spotlight status…" : "Spotlight active"}
+                              />
                             )}
                             {/* Only meaningful for the just-focused worktree in
                                 practice (see RepoContext.tsx's stale-on-focus
@@ -185,12 +229,8 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                             <WorktreeActionsMenu
                               wt={wt}
                               spotlightStatus={spot}
-                              onSpotlightStart={() =>
-                                startSpotlightWithFriendlyError(wt, { onDone: refreshWorktrees, onError: setError })
-                              }
-                              onSpotlightStop={() =>
-                                stopSpotlightSafe(wt, { onDone: refreshWorktrees, onError: setError })
-                              }
+                              onSpotlightStart={() => handleSpotlightStart(wt)}
+                              onSpotlightStop={() => handleSpotlightStop(wt)}
                               onViewLog={() => setLogWorktree(wt)}
                               onArchive={() =>
                                 archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })

@@ -217,6 +217,14 @@
   box-shadow: 0 0 4px var(--cyan);
 }
 
+/* Shown for the full duration of a spotlight start/stop action (see
+   Sidebar.tsx's handleSpotlightStart/Stop) — reuses the same pulse
+   keyframes as .sidebar-status-refreshing below rather than a spinner, so
+   it reads as "working on it" without implying a fixed-length load. */
+.sidebar-dot-spotlight.pending {
+  animation: sidebar-status-refreshing-pulse 1s ease-in-out infinite;
+}
+
 /* A brief, non-blocking cue that the focused worktree's status was stale
    and is being re-fetched — a soft pulse, not a spinner, so it doesn't
    read as a loading state that blocks anything. Its debounced-in/held/

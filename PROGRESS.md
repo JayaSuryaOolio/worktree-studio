@@ -4,6 +4,16 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Fixed spotlight start/stop appearing to hang
+
+Reported as "spotlight start/stop takes almost a minute" — the user's own follow-up hypothesis was right: it's not the action itself that's slow (the backend POST resolves in well under a second, per earlier server-log timings), it's that the sidebar's spotlight dot had no way to reflect a just-completed action except waiting for `RepoContext.tsx`'s background poller to naturally re-fetch that worktree's status, which only happens once every `STATUS_POLL_INTERVAL_MS` (15s) — worst case landing right after the action, so the wait could stretch close to the full interval, and with no visual feedback in the meantime it read as the action hanging.
+
+Fixed with an explicit on-demand refresh instead of waiting on the poller: `RepoContext.tsx` gained `refreshSpotlightStatus(worktreeId)`, a thin wrapper around the already-existing (and already unit-tested) `StatusScheduler.refreshNow`. `Sidebar.tsx`'s spotlight start/stop handlers now await the action *and then* this refresh before clearing a new `spotlightPending` flag, which also drives the requested loading indication — the spotlight dot now blinks (reusing the existing `sidebar-status-refreshing-pulse` keyframes) for the full duration of the operation instead of only appearing once state happens to catch up.
+
+**Verified:** `go build ./... && go test ./...` — 113 tests (backend untouched by this change, confirmed still green). `cd web && bun run build && bun run test` — 96 tests, clean typecheck; the underlying `refreshNow` primitive this relies on was already covered by `statusScheduler.test.ts`, and `startSpotlightWithFriendlyError`/`stopSpotlightSafe`'s always-resolves behavior (across success/confirm-retry/decline/retry-failure) was already covered by `worktreeActions.test.ts` — this fix only added thin wiring on top of both, which is why no new test file was added specifically for it.
+
+---
+
 ## 2026-08-12 — Removed main-settings Worktrees tab; fixed two real terminal-tab bugs; Tiltfile highlighting
 
 - **Removed the cross-repo "Worktrees" tab from the main `SettingsModal`** per direct request — it duplicated each repo's own settings page. Deleted the frontend tab/component, `GET /api/worktrees/all` (`handleListAllWorktrees`), and the now-unused `store.ListAllWorktreesWithRepo`/`WorktreeWithRepo`. Both copies of the worktree-studio skill doc (kept in sync by `skillasset_test.go`) updated to match.

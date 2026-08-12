@@ -69,6 +69,16 @@ interface RepoContextValue {
   // id is in flight — lets a "just focused, showing stale data" indicator
   // clear itself the moment fresh data lands, instead of a fixed timeout.
   statusRefreshing: Record<string, boolean>;
+
+  // Fetches worktreeId's spotlight status right now, bypassing the
+  // schedulers's normal STATUS_POLL_INTERVAL_MS wait — see its own call
+  // site in worktreeActions.ts's start/stop wrappers for why: without
+  // this, the sidebar's spotlight dot only caught up with a just-completed
+  // start/stop action on whatever the background scheduler's next
+  // naturally-due tick happened to be (up to STATUS_POLL_INTERVAL_MS
+  // later), which read as "spotlight start/stop is slow" when the action
+  // itself had already finished — a real reported bug, not a guess.
+  refreshSpotlightStatus: (worktreeId: string) => Promise<void>;
 }
 
 const RepoContext = createContext<RepoContextValue | null>(null);
@@ -182,6 +192,10 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(refreshWorktrees, [repos]);
 
+  function refreshSpotlightStatus(worktreeId: string): Promise<void> {
+    return spotlightSchedulerRef.current?.refreshNow(worktreeId) ?? Promise.resolve();
+  }
+
   // Keep worktree lookups current for the schedulers' fetchers, and
   // subscribe every known worktree to both schedulers so this context
   // receives (and re-renders on) every status update they produce.
@@ -271,6 +285,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     gitStatus,
     spotlightStatus,
     statusRefreshing,
+    refreshSpotlightStatus,
   };
 
   return <RepoContext.Provider value={value}>{children}</RepoContext.Provider>;
