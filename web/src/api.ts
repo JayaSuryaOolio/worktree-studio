@@ -308,6 +308,35 @@ export function getTerminalCwd(
   );
 }
 
+export interface PRSummary {
+  number: number;
+  title: string;
+  state: string; // "OPEN" | "CLOSED" | "MERGED"
+  url: string;
+  is_draft: boolean;
+}
+
+export interface WorktreeSummary {
+  branch: string;
+  ahead: number;
+  behind: number;
+  has_upstream: boolean;
+  dirty: boolean;
+  changed_files: string[];
+  /** null if the branch has no pull request, or the `gh` CLI itself isn't
+   * available/authenticated — both degrade gracefully, not an error. */
+  pr: PRSummary | null;
+}
+
+/** Git status + changed-file list + pull request (via `gh`) for a
+ * worktree's branch — the sidebar's hover-summary popover. Not meant to be
+ * called on every hover: see prGitCache.ts, which caches this with a TTL
+ * and only re-fetches when stale, specifically to avoid hitting GitHub's
+ * API rate limits from repeated hovers. */
+export function getWorktreeSummary(repoId: string, worktreeId: string): Promise<WorktreeSummary> {
+  return request<WorktreeSummary>(`/api/repos/${repoId}/worktrees/${worktreeId}/summary`);
+}
+
 export function getWorktreeStatus(
   repoId: string,
   worktreeId: string

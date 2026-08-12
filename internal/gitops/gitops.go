@@ -195,6 +195,36 @@ func RemoveWorktree(repoPath, worktreePath string, force bool) error {
 	return nil
 }
 
+// ChangedFiles returns every modified/added/deleted/untracked file path in
+// worktreePath, via `git status --porcelain` (v1 format — "XY <path>", or
+// "XY <path> -> <newpath>" for a rename, always a 2-character status code
+// then a space regardless of status kind, which is simpler to parse
+// reliably than porcelain=2's per-kind field layout). Used for the
+// sidebar's hover-summary popover's changed-file list — a separate git
+// invocation from Status below (which sticks to porcelain=2 for its
+// richer branch/ahead-behind info) since the two calls serve different,
+// independently-cacheable purposes.
+func ChangedFiles(worktreePath string) ([]string, error) {
+	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git status --porcelain: %w", err)
+	}
+
+	var files []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		path := line[3:]
+		if arrow := strings.Index(path, " -> "); arrow != -1 {
+			path = path[arrow+4:]
+		}
+		files = append(files, path)
+	}
+	return files, nil
+}
+
 // isDirtyWorktreeError reports whether git's stderr from a failed (non-
 // forced) `worktree remove` indicates the refusal was due to the worktree
 // being dirty (as opposed to some other failure, e.g. the path not being a

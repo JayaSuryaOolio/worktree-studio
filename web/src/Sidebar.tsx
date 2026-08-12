@@ -8,6 +8,7 @@ import WorktreeAuditLog from "./WorktreeAuditLog";
 import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
 import { useTransientIndicator } from "./useTransientIndicator";
 import { rootWorktreeId } from "./rootWorktree";
+import WorktreeHoverPopover from "./WorktreeHoverPopover";
 
 interface Props {
   onAddRepo: () => void;
@@ -170,7 +171,11 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                             (green); dirty/clean isn't encoded via the
                             row's own border color anymore (see style.css
                             for why — per direct feedback that was noise,
-                            not signal), just the ahead/behind ticks below. */}
+                            not signal), just the ahead/behind ticks below.
+                            Wrapped in WorktreeHoverPopover for the full
+                            name + PR/git-summary popover — the row itself
+                            has no room to show either, hence hover. */}
+                        <WorktreeHoverPopover wt={wt}>
                         <Link
                           to={`/repo/${r.id}/worktree/${wt.id}`}
                           className={
@@ -238,6 +243,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                             />
                           </span>
                         </Link>
+                        </WorktreeHoverPopover>
                       </li>
                     );
                   })}

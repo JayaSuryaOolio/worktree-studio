@@ -4,6 +4,19 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Sidebar hover popover: full worktree name, PR status, git summary
+
+Sidebar rows have no room to show a branch's PR status or more than a bare ahead/behind tick, and branch names get clipped — per direct request, added a hover popover (900ms show delay, immediate hide) covering all of that. Scoping came from three explicit answers: `gh` CLI is installed and authenticated on this machine; the git-view content should be ahead/behind + dirty count + the actual changed-file list; and the data should be cached ~5 minutes with background refresh, not fetched fresh on every hover (rate-limit risk, called out directly).
+
+- **`internal/gh` (new package)** wraps `gh pr view <branch> --json ...` the same way `internal/spotlight` wraps its own CLI — `PRForBranch` returns `(nil, nil)`, not an error, when a branch simply has no PR (confirmed against a real `gh` invocation, not guessed, that "no pull requests found" is the actual stderr wording).
+- **`gitops.ChangedFiles`** (new) parses `git status --porcelain` (v1, not the richer-but-fussier porcelain=2 `Status` already uses) for the changed-file list.
+- **New `GET .../worktrees/:id/summary`** (`internal/api/summary.go`) combines `gitops.Status` + `ChangedFiles` + `gh.PRForBranch` into one response. Explicitly NOT cached or rate-limited server-side — that's the frontend's job now, since it's the one place that knows how often someone's actually hovering.
+- **`prGitCache.ts`** (new) is the actual rate-limit mitigation: a localStorage cache keyed by worktree id with a 5-minute TTL. `WorktreeHoverPopover.tsx` reads it on hover — a fresh entry is shown as-is with no network call at all; a stale or missing one shows whatever's cached (if any) while a background refetch updates it. Repeat hovers within the TTL window cost zero backend/`gh` calls.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 120 tests, including `internal/gh`'s tests against this real repo's own `main` branch (confirmed to have no PR) and `TestWorktreeSummary` (confirms the `gh`-not-applicable case degrades to `pr: null` rather than failing the request, since this throwaway test repo has no GitHub remote at all). `cd web && bun run build && bun run test` — 110 tests, including the cache's TTL/staleness logic and the popover's own delay/hide/cache-hit timing (via fake timers). Also hit the real endpoint against an actual repo+worktree on this machine and got back a genuine PR (number, title, closed state) in ~1.1s — confirming both that the `gh` integration works for real and why the frontend cache matters (that latency, repeated per hover, would be bad).
+
+---
+
 ## 2026-08-12 — Files-panel persistence, theme switch redesign, fixed modal height, cwd-mismatch border
 
 A batch of UI feedback items, plus an audit of the status-polling scheduler:
