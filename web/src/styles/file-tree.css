@@ -33,13 +33,19 @@
   color: var(--text);
 }
 
-.file-tree-heading-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Left-hand group (git-branch filter toggle + PR badge) — the collapse-
+   all button on the right (below) stays pinned there via the heading's
+   own justify-content: space-between, regardless of how much this group
+   grows. */
+.file-tree-heading-left {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   min-width: 0;
+  overflow: hidden;
 }
 
+.file-tree-git-icon,
 .file-tree-collapse-all {
   flex-shrink: 0;
   display: inline-flex;
@@ -55,9 +61,47 @@
   cursor: pointer;
 }
 
+.file-tree-git-icon:hover,
 .file-tree-collapse-all:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.file-tree-git-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.file-tree-git-icon:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+}
+
+/* Active = the tree is currently filtered to only changed files. */
+.file-tree-git-icon.active {
+  color: var(--amber);
+  background: var(--amber-dim);
+}
+
+.file-tree-pr-badge {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-pr-badge:hover {
+  background: var(--cyan-dim);
+  border-color: var(--cyan);
 }
 
 .file-tree-body {

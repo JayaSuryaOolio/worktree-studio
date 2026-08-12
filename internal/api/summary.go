@@ -54,10 +54,20 @@ func (s *Server) handleWorktreeSummary(w http.ResponseWriter, r *http.Request) {
 	// bearing part of this response (the sidebar already shows a version
 	// of it elsewhere), so a changed-files or gh failure degrades to an
 	// empty list / no PR rather than failing the whole popover.
+	//
+	// Always a real (possibly empty) slice, never nil: a nil []string
+	// marshals to JSON `null`, not `[]`, and the frontend's TypeScript
+	// type promises callers a real array — a real bug found this way, not
+	// a guess: the clean-worktree case (the common one) sent
+	// changed_files: null, and WorktreeHoverPopover.tsx's unguarded
+	// `summary.changed_files.length` threw on it, crashing the whole
+	// sidebar on hover.
 	changedFiles, err := gitops.ChangedFiles(wt.Path)
 	if err != nil {
 		s.Log.Warn("list changed files", "err", err, "worktree_id", wt.ID)
-		changedFiles = nil
+	}
+	if changedFiles == nil {
+		changedFiles = []string{}
 	}
 
 	var pr *prSummary

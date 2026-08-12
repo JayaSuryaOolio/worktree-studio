@@ -34,13 +34,14 @@ vi.mock("./api", () => ({
   getDependencyStatus: vi.fn(),
   openInVSCode: vi.fn(),
   getTerminalCwd: vi.fn(),
+  getWorktreeSummary: vi.fn(),
 }));
 
 // Stubbed rather than wrapped in the real RepoProvider (which would need
 // listRepos/listWorktrees/getWorktreeStatus/getSpotlightStatus mocked too,
 // none of which this test cares about) — WorktreeDetail only reads
 // worktreesByRepo from this context, to resolve the current worktree's
-// folder name for FileTree's heading.
+// path (for TerminalPanel's cwd-mismatch check).
 vi.mock("./RepoContext", () => ({
   useRepoContext: vi.fn(),
 }));
@@ -52,6 +53,7 @@ import {
   getFileTree,
   getTerminalCwd,
   getWorktreeLayout,
+  getWorktreeSummary,
   listTerminals,
   saveWorktreeLayout,
 } from "./api";
@@ -86,6 +88,15 @@ beforeEach(() => {
   // cwd-mismatch border — individual tests override this to exercise the
   // mismatch case.
   vi.mocked(getTerminalCwd).mockResolvedValue({ cwd: "/tmp/feature" });
+  vi.mocked(getWorktreeSummary).mockResolvedValue({
+    branch: "feature",
+    ahead: 0,
+    behind: 0,
+    has_upstream: true,
+    dirty: false,
+    changed_files: [],
+    pr: null,
+  });
   vi.mocked(useRepoContext).mockReturnValue({
     repos: [],
     reposLoading: false,
@@ -134,12 +145,6 @@ describe("WorktreeDetail", () => {
     const term = await screen.findByTestId("terminal-t1");
     await waitFor(() => expect(getTerminalCwd).toHaveBeenCalled());
     expect(term.closest(".terminal-panel-inset")).not.toHaveClass("cwd-mismatch");
-  });
-
-  it("shows the current worktree's folder name as the file tree's heading", async () => {
-    renderPage();
-    expect(await screen.findByText(/feature-worktree/)).toBeInTheDocument();
-    expect(screen.queryByText(/other-worktree/)).not.toBeInTheDocument();
   });
 
   it("creates a terminal via the '+' new-terminal-tab action and renders it", async () => {

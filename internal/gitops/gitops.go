@@ -211,7 +211,10 @@ func ChangedFiles(worktreePath string) ([]string, error) {
 		return nil, fmt.Errorf("git status --porcelain: %w", err)
 	}
 
-	var files []string
+	// A real (never nil) slice even for a clean worktree: callers that
+	// serialize this to JSON (e.g. handleWorktreeSummary) need `[]`, not
+	// `null`, to match what they've promised their own consumers.
+	files := []string{}
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
 		if len(line) < 4 {
 			continue

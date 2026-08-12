@@ -1,14 +1,27 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { getWorktreeSummary, Worktree, WorktreeSummary } from "./api";
-import { getCachedSummary, setCachedSummary } from "./prGitCache";
+import { Worktree } from "./api";
+import { useWorktreeSummary } from "./useWorktreeSummary";
 
 // Delay before the popover appears — long enough that scanning down the
 // sidebar (which passes over several rows) doesn't fire it for every one,
-// per direct request. Hiding is immediate (no symmetric delay) — a
-// popover that lingers after the mouse has already left reads as stuck,
-// not helpful.
+// per direct request. Hiding has its own short grace period (HIDE_DELAY_MS
+// below), not this same delay — the popover should feel responsive to
+// leave, just not disappear mid-transit between the row and the popover
+// itself.
 const SHOW_DELAY_MS = 900;
+
+// Grace period before actually hiding after the mouse leaves either the
+// row or the popover. Without this, moving the mouse from the row toward
+// the popover (they're not adjacent — there's a real gap, see
+// .worktree-hover-popover's margin) leaves both elements for a moment
+// while crossing that gap, hiding the popover before the mouse ever
+// reaches it — a real reported bug ("closes immediately on mouse leave,
+// so I can do nothing but view the details"). Short enough that
+// deliberately moving away still reads as immediate, per the original
+// "hide immediately on hover away" request — "away" just now means away
+// from both elements, not only the row.
+const HIDE_DELAY_MS = 150;
 
 // The popover's own fixed width (see .worktree-hover-popover) — needed
 // up front to clamp its position against the viewport's right edge below,
@@ -47,12 +60,10 @@ export function computePosition(targetRect: DOMRect): Position {
 
 // Wraps a sidebar worktree row: on hover (after SHOW_DELAY_MS), shows the
 // worktree's full name (the row itself truncates it) plus its git/PR
-// summary — the row itself has no room for that detail. Reads/writes
-// prGitCache.ts's localStorage cache rather than calling
-// getWorktreeSummary on every hover: a fresh cache entry is shown as-is, a
-// stale or missing one is shown (if present) while a background refetch
-// updates it, which is what keeps repeated hovers from hitting GitHub's
-// API rate limits through the backend's own `gh` call.
+// summary — the row itself has no room for that detail. Summary
+// fetching/caching is useWorktreeSummary's job (shared with FileTree.tsx's
+// header) — this component only cares about when to fetch (once visible)
+// and where to render.
 //
 // Rendered via a portal into document.body (not inline where the hover
 // target lives) precisely so it isn't clipped by the sidebar's own
@@ -61,39 +72,44 @@ export function computePosition(targetRect: DOMRect): Position {
 export default function WorktreeHoverPopover({ wt, children }: Props) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
-  const [summary, setSummary] = useState<WorktreeSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const showTimerRef = useRef<number | undefined>(undefined);
+  const hideTimerRef = useRef<number | undefined>(undefined);
   const targetRef = useRef<HTMLDivElement>(null);
+
+  const { summary, error } = useWorktreeSummary(wt.repo_id, wt.id, visible);
+  // Defaults to [] rather than reading summary.changed_files directly —
+  // see the comment further down where it's used.
+  const changedFiles = summary?.changed_files ?? [];
 
   useEffect(() => {
     return () => {
       if (showTimerRef.current) window.clearTimeout(showTimerRef.current);
+      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
     };
   }, []);
 
-  function handleMouseEnter() {
+  // Shared by both the row and the popover itself (see their own
+  // onMouseEnter below) — entering either cancels any pending hide, which
+  // is what lets the mouse cross the gap between them without the popover
+  // disappearing first.
+  function cancelHide() {
+    if (hideTimerRef.current) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = undefined;
+    }
+  }
+
+  function scheduleHide() {
+    hideTimerRef.current = window.setTimeout(() => setVisible(false), HIDE_DELAY_MS);
+  }
+
+  function handleTargetMouseEnter() {
+    cancelHide();
     showTimerRef.current = window.setTimeout(() => {
       if (targetRef.current) {
         setPosition(computePosition(targetRef.current.getBoundingClientRect()));
       }
       setVisible(true);
-      setError(null);
-
-      const cached = getCachedSummary(wt.id);
-      if (cached) setSummary(cached.data);
-      if (!cached || cached.stale) {
-        getWorktreeSummary(wt.repo_id, wt.id)
-          .then((data) => {
-            setCachedSummary(wt.id, data);
-            setSummary(data);
-          })
-          .catch((err) => {
-            // Keep showing cached/stale data (set above) if there is any
-            // — only surface an error when there's nothing else to show.
-            if (!cached) setError((err as Error).message);
-          });
-      }
     }, SHOW_DELAY_MS);
   }
 
@@ -102,14 +118,14 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
       window.clearTimeout(showTimerRef.current);
       showTimerRef.current = undefined;
     }
-    setVisible(false);
+    scheduleHide();
   }
 
   return (
     <div
       className="worktree-hover-target"
       ref={targetRef}
-      onMouseEnter={handleMouseEnter}
+      onMouseEnter={handleTargetMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {children}
@@ -120,6 +136,8 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
             className="worktree-hover-popover"
             role="tooltip"
             style={{ left: position.left, top: position.top }}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
           >
             <div className="worktree-hover-popover-name">{wt.name}</div>
             <div className="worktree-hover-popover-branch">{wt.branch}</div>
@@ -137,6 +155,12 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
                     <span className="muted">No pull request for this branch</span>
                   )}
                 </div>
+                {/* changedFiles defaults to [] rather than reading
+                    summary.changed_files directly — a real reported crash
+                    was a nil Go slice serializing to JSON `null` (fixed
+                    server-side too, but this is what an API response not
+                    matching its own declared type should cost: nothing,
+                    not a blank sidebar). */}
                 <div className="worktree-hover-popover-git">
                   {summary.has_upstream && (summary.ahead > 0 || summary.behind > 0) && (
                     <span className="sidebar-ticks">
@@ -145,19 +169,17 @@ export default function WorktreeHoverPopover({ wt, children }: Props) {
                     </span>
                   )}
                   <span className={summary.dirty ? "badge badge-dirty" : "badge badge-clean"}>
-                    {summary.dirty ? `${summary.changed_files.length} changed file(s)` : "clean"}
+                    {summary.dirty ? `${changedFiles.length} changed file(s)` : "clean"}
                   </span>
                 </div>
-                {summary.changed_files.length > 0 && (
+                {changedFiles.length > 0 && (
                   <ul className="worktree-hover-popover-files">
-                    {summary.changed_files.slice(0, 8).map((f) => (
+                    {changedFiles.slice(0, 8).map((f) => (
                       <li key={f}>
                         <code>{f}</code>
                       </li>
                     ))}
-                    {summary.changed_files.length > 8 && (
-                      <li className="muted">+{summary.changed_files.length - 8} more</li>
-                    )}
+                    {changedFiles.length > 8 && <li className="muted">+{changedFiles.length - 8} more</li>}
                   </ul>
                 )}
               </>

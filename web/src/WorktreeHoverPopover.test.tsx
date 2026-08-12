@@ -85,6 +85,45 @@ describe("WorktreeHoverPopover", () => {
     vi.useRealTimers();
   });
 
+  // Regression test for the actual reported bug: leaving the row to move
+  // toward the popover (a real gap between them, not adjacent elements)
+  // used to hide it before the mouse ever got there, making everything
+  // inside — including the PR link — unclickable.
+  it("stays open when the mouse moves from the row into the popover itself", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <WorktreeHoverPopover wt={wt}>
+        <span>row</span>
+      </WorktreeHoverPopover>
+    );
+    const target = screen.getByText("row").parentElement!;
+
+    fireEvent.mouseEnter(target);
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    const tooltip = screen.getByRole("tooltip");
+
+    // Mouse leaves the row (schedules a hide) and, before the grace
+    // period elapses, enters the popover (cancels it).
+    fireEvent.mouseLeave(target);
+    fireEvent.mouseEnter(tooltip);
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    // Now actually leaving the popover does hide it.
+    fireEvent.mouseLeave(tooltip);
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
   it("shows the full worktree name and PR/git summary once fetched", async () => {
     const { fireEvent } = await import("@testing-library/react");
     render(
@@ -98,6 +137,26 @@ describe("WorktreeHoverPopover", () => {
     expect(await screen.findByText(/PR #42/)).toBeInTheDocument();
     expect(screen.getByText("a.go")).toBeInTheDocument();
     expect(getWorktreeSummary).toHaveBeenCalledWith("r1", "wt1");
+  });
+
+  // Regression test for a real crash: the backend can send
+  // changed_files: null (a Go nil slice marshals that way) despite the
+  // TypeScript type promising a real array — this must not throw.
+  it("does not crash when changed_files comes back null instead of []", async () => {
+    vi.mocked(getWorktreeSummary).mockResolvedValue({
+      ...summary,
+      dirty: false,
+      changed_files: null as unknown as string[],
+    });
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <WorktreeHoverPopover wt={wt}>
+        <span>row</span>
+      </WorktreeHoverPopover>
+    );
+    fireEvent.mouseEnter(screen.getByText("row").parentElement!);
+
+    expect(await screen.findByText("clean")).toBeInTheDocument();
   });
 
   it("shows a cached summary immediately and does not refetch while fresh", async () => {

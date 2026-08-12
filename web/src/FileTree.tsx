@@ -1,17 +1,39 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { getFileTree, type FileNode } from "./api";
 import FileTypeIcon from "./icons/FileTypeIcon";
+import { CollapseAllIcon, GitBranchIcon } from "./icons/FileTreeIcons";
+import { useWorktreeSummary } from "./useWorktreeSummary";
 
 interface FileTreeProps {
   repoId: string;
   worktreeId: string;
-  folderName: string;
   onOpenFile: (path: string) => void;
   /** The currently-active editor panel's file path, if any — highlighted
    * and scrolled into view in the tree. See WorktreeDetail.tsx's dockview
    * onDidActivePanelChange wiring. */
   activePath?: string | null;
+}
+
+// Prunes tree down to only the files in changedFiles (matched by their
+// full path, the same repo-relative forward-slash form both
+// internal/files.go and `git status` use), keeping every ancestor
+// directory that has at least one matching descendant — a flat list of
+// changed files wouldn't show where they actually live. Exported for
+// direct testing; used by the header's git-icon toggle below.
+export function filterTreeToChangedFiles(nodes: FileNode[], changedFiles: ReadonlySet<string>): FileNode[] {
+  const out: FileNode[] = [];
+  for (const node of nodes) {
+    if (node.type === "file") {
+      if (changedFiles.has(node.path)) out.push(node);
+      continue;
+    }
+    const filteredChildren = node.children ? filterTreeToChangedFiles(node.children, changedFiles) : [];
+    if (filteredChildren.length > 0) {
+      out.push({ ...node, children: filteredChildren });
+    }
+  }
+  return out;
 }
 
 // Measures its own content box via ResizeObserver — react-arborist (built
@@ -48,11 +70,17 @@ function useElementSize<T extends HTMLElement>() {
 // WorktreeDetail.tsx's .worktree-body). Built on react-arborist rather
 // than a hand-rolled tree for a closer-to-VS-Code feel (keyboard nav,
 // virtualization) with far less of our own code to maintain.
-export default function FileTree({ repoId, worktreeId, folderName, onOpenFile, activePath }: FileTreeProps) {
+export default function FileTree({ repoId, worktreeId, onOpenFile, activePath }: FileTreeProps) {
   const [tree, setTree] = useState<FileNode[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterToChanged, setFilterToChanged] = useState(false);
   const treeApiRef = useRef<TreeApi<FileNode> | undefined>(undefined);
   const [containerRef, size] = useElementSize<HTMLDivElement>();
+
+  // Always enabled (unlike WorktreeHoverPopover's hover-gated fetch) —
+  // the header's git icon/PR badge should be ready the moment the panel
+  // is visible, not wait for a first hover.
+  const { summary } = useWorktreeSummary(repoId, worktreeId, true);
 
   useEffect(() => {
     getFileTree(repoId, worktreeId)
@@ -73,29 +101,60 @@ export default function FileTree({ repoId, worktreeId, folderName, onOpenFile, a
     api.scrollTo(activePath);
   }, [activePath, tree]);
 
+  const changedFilesSet = useMemo(() => new Set(summary?.changed_files ?? []), [summary]);
+  const displayedTree = useMemo(() => {
+    if (!tree || !filterToChanged) return tree;
+    return filterTreeToChangedFiles(tree, changedFilesSet);
+  }, [tree, filterToChanged, changedFilesSet]);
+
   return (
     <div className="file-tree-panel">
       <div className="file-tree-heading">
-        <span className="file-tree-heading-name" title={folderName}>
-          {folderName}
-        </span>
+        <div className="file-tree-heading-left">
+          <button
+            type="button"
+            className={filterToChanged ? "file-tree-git-icon active" : "file-tree-git-icon"}
+            title={
+              filterToChanged
+                ? "Showing only files changed in this branch — click to show all files"
+                : "Filter to only files changed in this branch"
+            }
+            aria-pressed={filterToChanged}
+            disabled={changedFilesSet.size === 0}
+            onClick={() => setFilterToChanged((v) => !v)}
+          >
+            <GitBranchIcon size={14} />
+          </button>
+          {summary?.pr && (
+            <button
+              type="button"
+              className="file-tree-pr-badge"
+              title={`Open PR #${summary.pr.number} in your browser: ${summary.pr.title}`}
+              onClick={() => window.open(summary.pr!.url, "_blank", "noopener,noreferrer")}
+            >
+              #{summary.pr.number} ↗
+            </button>
+          )}
+        </div>
         <button
           type="button"
           className="file-tree-collapse-all"
           title="Collapse all folders"
           onClick={() => treeApiRef.current?.closeAll()}
         >
-          ⊟
+          <CollapseAllIcon size={14} />
         </button>
       </div>
       <div className="file-tree-body" ref={containerRef}>
         {error && <div className="file-tree-error">{error}</div>}
         {!error && !tree && <div className="file-tree-loading">Loading files…</div>}
-        {!error && tree && tree.length === 0 && <div className="file-tree-empty">No files</div>}
-        {!error && tree && tree.length > 0 && size.width > 0 && (
+        {!error && displayedTree && displayedTree.length === 0 && (
+          <div className="file-tree-empty">{filterToChanged ? "No changed files" : "No files"}</div>
+        )}
+        {!error && displayedTree && displayedTree.length > 0 && size.width > 0 && (
           <Tree<FileNode>
             ref={treeApiRef}
-            data={tree}
+            data={displayedTree}
             idAccessor="path"
             childrenAccessor="children"
             openByDefault

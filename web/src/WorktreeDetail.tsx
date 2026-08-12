@@ -221,13 +221,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const worktree = worktreesByRepo[repoId]?.find((w) => w.id === worktreeId);
   // The synthetic root worktree (see rootWorktree.ts) is never in
   // worktreesByRepo — it's not a real git worktree, so the backend excludes
-  // it from the normal per-repo listing. Its folder name is the repo's own
-  // name instead of a worktree's.
+  // it from the normal per-repo listing; its path is the repo's own path
+  // instead of a worktree's. TerminalPanel uses this to flag (a faint red
+  // border) a shell whose cwd has drifted outside it.
   const repo = repos.find((r) => r.id === repoId);
-  const folderName = isRootWorktreeId(worktreeId) ? repo?.name ?? "root" : worktree?.name ?? worktreeId;
-  // Same root-vs-real-worktree split as folderName above — TerminalPanel
-  // uses this to flag (a faint red border) a shell whose cwd has drifted
-  // outside it.
   const worktreePath = isRootWorktreeId(worktreeId) ? repo?.path : worktree?.path;
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   // Distinguishes "haven't fetched terminals yet" from "fetched, there are
@@ -550,7 +547,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
             <FileTree
               repoId={repoId}
               worktreeId={worktreeId}
-              folderName={folderName}
               onOpenFile={handleOpenFile}
               activePath={activeFilePath}
             />

@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-12 — Popover stays open on hover, file-tree header redesign, and a real crash fix
+
+Three requests, plus a live bug caught mid-session:
+
+- **Popover closed instantly on mouseleave, making everything inside (including the PR link) unclickable** — there's a real gap between the row and the portaled popover (see the previous entry), so moving the mouse across it left both elements for a moment. `WorktreeHoverPopover.tsx` now has a 150ms hide grace period shared between the row and the popover itself — entering either cancels a pending hide, so crossing the gap no longer closes it, while actually moving away still closes it quickly.
+- **File tree header redesigned** per direct request: the worktree/folder name is gone; in its place, a git-branch icon (new `icons/FileTreeIcons.tsx`) toggles filtering the tree to only files changed on the current branch (`filterTreeToChangedFiles`, preserving ancestor directories — not a flat list), and a PR badge (`#123 ↗`) appears when the branch has one, opening it in a new tab on click. The collapse-all button got a proper two-chevron SVG icon (replacing the plain `⊟` glyph) and stays right-aligned via the heading's existing `space-between` layout. Both new elements share `useWorktreeSummary.ts` (new), a hook factoring out the fetch-and-cache logic `WorktreeHoverPopover.tsx` already had — one caching policy, two consumers.
+- **Real crash found and fixed while wiring the above up**: hovering a worktree row crashed the whole sidebar. Root cause: `gitops.ChangedFiles` returned a nil `[]string` for a clean worktree (the common case), which Go's `encoding/json` serializes as `null`, not `[]` — and `WorktreeHoverPopover.tsx` called `summary.changed_files.length` on it unguarded. Fixed at the source (`ChangedFiles` and the `/summary` handler now always emit a real, possibly-empty slice) and defensively on the frontend (`summary.changed_files ?? []`) — an external API response not matching its own declared type should cost nothing, not a blank page.
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 121 tests, including a regression test that inspects the raw JSON bytes (decoding `null` and `[]` into a Go slice produces the same value, so only the wire format catches this) for a clean worktree. `cd web && bun run build && bun run test` — 121 tests, including a popover regression test that fires real mouseenter/mouseleave sequences across the row→popover gap, `filterTreeToChangedFiles` nesting-preservation tests, and one that reproduces the exact crash (`changed_files: null` cast in) and confirms it no longer throws. Hit the real `/summary` endpoint against an actual repo afterward and confirmed `changed_files` comes back `[]`, not `null`.
+
+---
+
 ## 2026-08-12 — Fixed the hover popover getting clipped by the sidebar
 
 Reported right after shipping it: the popover was positioned `absolute`, `left: 100%` relative to its row, inside `.sidebar`'s own `overflow-y: auto` scroll container — which clips any absolutely-positioned descendant that extends past its edge, no matter how that descendant is positioned. No amount of repositioning in-place fixes that; it has to render outside the clipping ancestor entirely.
