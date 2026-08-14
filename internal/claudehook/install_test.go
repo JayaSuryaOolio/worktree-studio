@@ -2,6 +2,7 @@ package claudehook
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -204,6 +205,82 @@ func TestUninstallHookNoOpWhenNotInstalled(t *testing.T) {
 	withFakeClaudeHome(t)
 	if err := UninstallHook(); err != nil {
 		t.Fatalf("UninstallHook on a machine where it was never installed: %v", err)
+	}
+}
+
+func TestInstallHookInstallsBothSessionStartAndNotification(t *testing.T) {
+	home := withFakeClaudeHome(t)
+
+	if err := InstallHook("http://localhost:8787"); err != nil {
+		t.Fatalf("InstallHook: %v", err)
+	}
+
+	settings := readSettingsRaw(t, home)
+	hooks := settings["hooks"].(map[string]any)
+	for _, event := range []string{"SessionStart", "Notification"} {
+		group, ok := hooks[event].([]any)
+		if !ok || len(group) != 1 {
+			t.Errorf("hooks[%q] = %+v, want exactly 1 entry", event, hooks[event])
+		}
+	}
+}
+
+func TestIsHookInstalledFalseWhenOnlyOneEventPresent(t *testing.T) {
+	home := withFakeClaudeHome(t)
+	scriptPath, _ := HookScriptPath()
+	writeRealSettings(t, home, fmt.Sprintf(`{
+		"hooks": {
+			"SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": %q}]}]
+		}
+	}`, scriptPath))
+
+	installed, err := IsHookInstalled()
+	if err != nil {
+		t.Fatalf("IsHookInstalled: %v", err)
+	}
+	if installed {
+		t.Fatal("expected not installed when only SessionStart (not Notification) has our entry")
+	}
+}
+
+func TestInstallHookSelfHealsPartialInstall(t *testing.T) {
+	home := withFakeClaudeHome(t)
+	scriptPath, _ := HookScriptPath()
+	writeRealSettings(t, home, fmt.Sprintf(`{
+		"hooks": {
+			"SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": %q}]}]
+		}
+	}`, scriptPath))
+
+	if err := InstallHook("http://localhost:8787"); err != nil {
+		t.Fatalf("InstallHook: %v", err)
+	}
+
+	installed, err := IsHookInstalled()
+	if err != nil || !installed {
+		t.Fatalf("IsHookInstalled after self-heal: installed=%v err=%v", installed, err)
+	}
+	settings := readSettingsRaw(t, home)
+	hooks := settings["hooks"].(map[string]any)
+	if len(hooks["SessionStart"].([]any)) != 1 {
+		t.Errorf("SessionStart entries = %d, want exactly 1 (must not duplicate the pre-existing entry)", len(hooks["SessionStart"].([]any)))
+	}
+	if len(hooks["Notification"].([]any)) != 1 {
+		t.Errorf("Notification entries = %d, want exactly 1 (the missing half should self-heal)", len(hooks["Notification"].([]any)))
+	}
+}
+
+func TestUninstallHookRemovesBothEvents(t *testing.T) {
+	withFakeClaudeHome(t)
+	if err := InstallHook("http://localhost:8787"); err != nil {
+		t.Fatalf("InstallHook: %v", err)
+	}
+	if err := UninstallHook(); err != nil {
+		t.Fatalf("UninstallHook: %v", err)
+	}
+	installed, err := IsHookInstalled()
+	if err != nil || installed {
+		t.Fatalf("IsHookInstalled after uninstall: installed=%v err=%v, want false", installed, err)
 	}
 }
 

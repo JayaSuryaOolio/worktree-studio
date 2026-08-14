@@ -52,6 +52,73 @@ func TestClaudeHookLogsSessionForMatchingWorktree(t *testing.T) {
 	}
 }
 
+func TestClaudeHookNotificationMarksWorktreePending(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/claude-hook", map[string]string{
+		"session_id":      "notif-session-1",
+		"cwd":             wt.Path,
+		"hook_event_name": "Notification",
+		"message":         "Claude needs your permission to use Bash",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST claude-hook (Notification): status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	snapshot := srv.Attention.Snapshot()
+	if snapshot[wt.ID] != "Claude needs your permission to use Bash" {
+		t.Errorf("attention snapshot[%s] = %q, want the notification message", wt.ID, snapshot[wt.ID])
+	}
+
+	// A Notification event must never be logged as a claude.session.create
+	// entry — that's SessionStart's job only.
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/audit-log", nil)
+	var entries []map[string]any
+	decodeInto(t, resp, &entries)
+	for _, e := range entries {
+		if e["event"] == "claude.session.create" {
+			t.Errorf("unexpected claude.session.create entry from a Notification hook: %+v", e)
+		}
+	}
+}
+
+func TestClearAttentionEndpointClearsPending(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	srv.Attention.SetPending(wt.ID, "waiting")
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/attention/clear", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST attention/clear: status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if _, pending := srv.Attention.Snapshot()[wt.ID]; pending {
+		t.Error("expected worktree to no longer be pending after clear")
+	}
+}
+
 func TestClaudeHookIgnoresUnrelatedCwd(t *testing.T) {
 	ts, _ := newTestServer(t)
 

@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"worktree-studio/internal/api"
+	"worktree-studio/internal/attention"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
 	"worktree-studio/internal/store"
@@ -126,6 +127,7 @@ func main() {
 		Audit:        al,
 		Term:         &term.Manager{Store: st, Audit: al},
 		Files:        files.NewManager(),
+		Attention:    attention.NewTracker(),
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
 		LogFilePath:  logPath,

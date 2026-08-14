@@ -15,11 +15,15 @@ import (
 	"worktree-studio/internal/claudehook"
 )
 
-// handleClaudeHook receives a Claude Code SessionStart hook's stdin JSON,
-// forwarded verbatim as the POST body by the installed hook script (see
-// internal/api/settings.go's hook install action for the script content).
-// Resolves the hook's cwd to one of this server's tracked worktrees and
-// logs claude.session.create with source="hook" if found.
+// handleClaudeHook receives a Claude Code hook's stdin JSON, forwarded
+// verbatim as the POST body by the one installed hook script shared by
+// both events this server registers (see internal/claudehook/install.go's
+// hookEventNames): SessionStart, handled below the same way it always was
+// (logs claude.session.create with source="hook"), and Notification —
+// fired when Claude is waiting on a permission prompt or user input —
+// which instead marks the resolved worktree "pending" in s.Attention so
+// the sidebar can badge it (see internal/attention and
+// docs/architecture.md's "Claude Code hooks" section).
 //
 // A cwd that doesn't match any tracked worktree is the expected common
 // case (this hook is installed globally, so it fires for every claude
@@ -27,8 +31,8 @@ import (
 // worktrees) — a deliberate, silent 200 no-op, not an error. Likewise a
 // malformed body or a store error is logged but still answered 200: this
 // endpoint is called synchronously by a hook with its own timeout, and a
-// missed audit-log entry is far less disruptive than blocking or failing
-// someone's claude session startup because worktree-studio hiccupped.
+// missed event is far less disruptive than blocking or failing someone's
+// claude session because worktree-studio hiccupped.
 func (s *Server) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -43,7 +47,7 @@ func (s *Server) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 		return
 	}
-	if payload.SessionID == "" || payload.Cwd == "" {
+	if payload.Cwd == "" {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 		return
 	}
@@ -57,6 +61,16 @@ func (s *Server) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if payload.HookEventName == "Notification" {
+		s.Attention.SetPending(wt.ID, payload.Message)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "pending"})
+		return
+	}
+
+	if payload.SessionID == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
 	s.auditLog(audit.EventClaudeSessionCreate, map[string]any{
 		"repo_id":           wt.RepoID,
 		"worktree_id":       wt.ID,

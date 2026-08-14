@@ -22,21 +22,31 @@ import (
 	"strings"
 )
 
-// SessionStartPayload is the subset of Claude Code's SessionStart hook
-// stdin JSON this package actually uses. The real payload has more fields
+// HookPayload is the subset of Claude Code hook stdin JSON this package
+// actually uses, across both hook events it's installed for (SessionStart
+// and Notification — see install.go). The real payload has more fields
 // (transcript_path, source, etc.) — only decoding what's needed keeps this
 // resilient to Claude Code adding fields later (encoding/json ignores
 // unrecognized keys by default).
-type SessionStartPayload struct {
+type HookPayload struct {
 	SessionID string `json:"session_id"`
 	Cwd       string `json:"cwd"`
+	// HookEventName distinguishes which of the two installed hooks fired
+	// ("SessionStart" or "Notification") — both post to the same
+	// /api/claude-hook endpoint via the same installed script (see
+	// hookScriptContent), so the server needs this to know how to react.
+	HookEventName string `json:"hook_event_name"`
+	// Message is only populated on a Notification event — Claude Code's
+	// own human-readable text, e.g. "Claude needs your permission to use
+	// Bash" or "Claude is waiting for your input".
+	Message string `json:"message"`
 }
 
 // ParsePayload decodes a hook's raw stdin JSON.
-func ParsePayload(raw []byte) (SessionStartPayload, error) {
-	var p SessionStartPayload
+func ParsePayload(raw []byte) (HookPayload, error) {
+	var p HookPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return SessionStartPayload{}, fmt.Errorf("decode hook payload: %w", err)
+		return HookPayload{}, fmt.Errorf("decode hook payload: %w", err)
 	}
 	return p, nil
 }

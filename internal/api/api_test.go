@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"worktree-studio/internal/attention"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
 	"worktree-studio/internal/store"
@@ -81,6 +82,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 		Audit:        al,
 		Term:         &term.Manager{Store: st, Audit: al},
 		Files:        files.NewManager(),
+		Attention:    attention.NewTracker(),
 		WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"),
 		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError + 1})),
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"worktree-studio/internal/attention"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
 	"worktree-studio/internal/gitops"
@@ -26,10 +27,16 @@ import (
 
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
-	Store        *store.Store
-	Audit        *audit.Logger
-	Term         *term.Manager
-	Files        *files.Manager
+	Store *store.Store
+	Audit *audit.Logger
+	Term  *term.Manager
+	Files *files.Manager
+	// Attention tracks which worktrees have a claude session waiting on
+	// the user — fed by the Notification hook (see handleClaudeHook) and
+	// pushed to browser tabs over /ws/attention. Never nil in practice
+	// (main.go always constructs one), but every handler that reads it
+	// should still be written defensively where cheap to do so.
+	Attention    *attention.Tracker
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
 	// LogFilePath is where Log's own output is mirrored on disk (see
@@ -67,6 +74,7 @@ func (s *Server) Routes(r chi.Router) {
 				r.Get("/audit-log", s.handleWorktreeAuditLog)
 				r.Post("/archive", s.handleArchiveWorktree)
 				r.Post("/unarchive", s.handleUnarchiveWorktree)
+				r.Post("/attention/clear", s.handleClearAttention)
 
 				r.Route("/terminals", func(r chi.Router) {
 					r.Get("/", s.handleListTerminals)
@@ -97,6 +105,7 @@ func (s *Server) Routes(r chi.Router) {
 
 	r.Get("/ws/terminals/{terminalID}", s.handleTerminalWS)
 	r.Get("/ws/files/{worktreeID}", s.handleFilesWS)
+	r.Get("/ws/attention", s.handleAttentionWS)
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)

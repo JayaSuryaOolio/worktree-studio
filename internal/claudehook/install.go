@@ -10,16 +10,24 @@ import (
 
 // This file owns the one genuinely sensitive operation in this package:
 // editing the user's REAL, GLOBAL `~/.claude/settings.json` to add or
-// remove a SessionStart hook. That file is shared with every other tool
-// that registers a Claude Code hook (see the PreToolUse/UserPromptSubmit/
-// Stop/etc. entries already present on a typical machine) — this code
-// must never overwrite the file wholesale, only ever merge a single,
-// clearly-marked entry into its `hooks.SessionStart` array, and always
-// back the file up first. Every entry-point here is only ever reached via
-// an explicit user action in the settings UI (see internal/api/settings.go)
-// — never automatically on server startup.
+// remove our SessionStart and Notification hooks. That file is shared with
+// every other tool that registers a Claude Code hook (see the
+// PreToolUse/UserPromptSubmit/Stop/etc. entries already present on a
+// typical machine) — this code must never overwrite the file wholesale,
+// only ever merge one clearly-marked entry into each of hookEventNames'
+// arrays, and always back the file up first. Every entry-point here is
+// only ever reached via an explicit user action in the settings UI (see
+// internal/api/settings.go) — never automatically on server startup.
 
-const hookEventName = "SessionStart"
+// hookEventNames are the Claude Code hook events this package installs the
+// same script under: SessionStart (claude.session.create logging) and
+// Notification (fires when Claude is waiting on a permission prompt or
+// user input — see internal/attention). One script, one endpoint
+// (/api/claude-hook) — the posted payload's own hook_event_name field is
+// what the server uses to tell them apart, so both installs/uninstalls
+// always happen together rather than needing two separate dependencies in
+// the settings UI.
+var hookEventNames = []string{"SessionStart", "Notification"}
 
 // ClaudeSettingsPath returns ~/.claude/settings.json — Claude Code's
 // user-level (not project-level) settings file, which is where a hook
@@ -34,10 +42,12 @@ func ClaudeSettingsPath() (string, error) {
 }
 
 // HookScriptPath returns the path this package writes its own hook script
-// to. Its uniqueness (nothing else on the machine writes here) is what
-// makes it safe to use as the marker identifying "our" entry in
-// settings.json's hooks.SessionStart array, for both idempotent install
-// and precise uninstall.
+// to — shared by both SessionStart and Notification (see hookEventNames),
+// since the script itself is event-agnostic (just forwards stdin). Its
+// uniqueness (nothing else on the machine writes here) is what makes it
+// safe to use as the marker identifying "our" entry in each of
+// settings.json's hooks.<event> arrays, for both idempotent install and
+// precise uninstall.
 func HookScriptPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -55,16 +65,20 @@ func hookScriptContent(serverBaseURL string) string {
 	// server's own handler (handleClaudeHook) does the actual parsing.
 	return fmt.Sprintf(`#!/bin/sh
 # Installed by worktree-studio (internal/claudehook) — safe to delete if
-# you uninstall the SessionStart hook from Claude Code's settings.
+# you uninstall the SessionStart/Notification hooks from Claude Code's
+# settings. Shared by both events; the JSON payload's own hook_event_name
+# field is what tells the server which one fired.
 curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- '%s/api/claude-hook' >/dev/null 2>&1 || true
 exit 0
 `, serverBaseURL)
 }
 
-// IsHookInstalled reports whether our SessionStart entry is already
-// present in ~/.claude/settings.json. A missing settings file, or one
-// with no `hooks` or no `hooks.SessionStart` key, is a normal "not
-// installed" result, not an error.
+// IsHookInstalled reports whether our entry is present under every event
+// in hookEventNames. A missing settings file, or one with no `hooks` key
+// at all, is a normal "not installed" result, not an error. Requiring ALL
+// of them (not just one) means a partially-applied install — e.g. someone
+// hand-edited settings.json and only one entry survived — correctly shows
+// as "not installed" rather than silently missing the Notification half.
 func IsHookInstalled() (bool, error) {
 	scriptPath, err := HookScriptPath()
 	if err != nil {
@@ -74,15 +88,21 @@ func IsHookInstalled() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return findOurEntry(settings, scriptPath) != -1, nil
+	for _, event := range hookEventNames {
+		if findOurEntry(settings, event, scriptPath) == -1 {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // InstallHook writes the hook script (pointed at serverBaseURL, e.g.
-// "http://localhost:8787") and merges a SessionStart entry referencing it
-// into ~/.claude/settings.json. Idempotent: calling it again when already
-// installed is a no-op (does not duplicate the entry, does not rewrite
-// the script unnecessarily... actually it does refresh the script content,
-// see below). Backs up settings.json before any write.
+// "http://localhost:8787") and merges an entry referencing it into
+// ~/.claude/settings.json under every event in hookEventNames. Idempotent
+// per event: an event that already has our entry is left alone; a missing
+// one is added — so a partial install (see IsHookInstalled) self-heals on
+// the next InstallHook call instead of needing an uninstall first. Backs
+// up settings.json once before any writes.
 func InstallHook(serverBaseURL string) error {
 	scriptPath, err := HookScriptPath()
 	if err != nil {
@@ -103,32 +123,39 @@ func InstallHook(serverBaseURL string) error {
 		return err
 	}
 
-	if findOurEntry(settings, scriptPath) != -1 {
-		return nil // already installed, script content refreshed above
-	}
-
 	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	sessionStart, _ := hooks[hookEventName].([]any)
-	sessionStart = append(sessionStart, map[string]any{
-		"matcher": "",
-		"hooks": []any{
-			map[string]any{"type": "command", "command": scriptPath},
-		},
-	})
-	hooks[hookEventName] = sessionStart
+
+	changed := false
+	for _, event := range hookEventNames {
+		if findOurEntry(settings, event, scriptPath) != -1 {
+			continue // already installed for this event
+		}
+		group, _ := hooks[event].([]any)
+		group = append(group, map[string]any{
+			"matcher": "",
+			"hooks": []any{
+				map[string]any{"type": "command", "command": scriptPath},
+			},
+		})
+		hooks[event] = group
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
 	settings["hooks"] = hooks
 
 	return writeSettings(settings, mode)
 }
 
-// UninstallHook removes our entry from ~/.claude/settings.json's
-// hooks.SessionStart array, leaving every other hook (ours or anyone
-// else's) untouched. A no-op, not an error, if it was never installed.
-// Does not remove the script file itself — harmless to leave behind, and
-// simpler than reasoning about whether anything else might reference it.
+// UninstallHook removes our entry from every event in hookEventNames,
+// leaving every other hook (ours or anyone else's) untouched. A no-op, not
+// an error, if it was never installed. Does not remove the script file
+// itself — harmless to leave behind, and simpler than reasoning about
+// whether anything else might reference it.
 func UninstallHook() error {
 	scriptPath, err := HookScriptPath()
 	if err != nil {
@@ -139,18 +166,28 @@ func UninstallHook() error {
 		return err
 	}
 
-	idx := findOurEntry(settings, scriptPath)
-	if idx == -1 {
+	hooks, _ := settings["hooks"].(map[string]any)
+	if hooks == nil {
 		return nil
 	}
 
-	hooks := settings["hooks"].(map[string]any)
-	sessionStart := hooks[hookEventName].([]any)
-	sessionStart = append(sessionStart[:idx], sessionStart[idx+1:]...)
-	if len(sessionStart) == 0 {
-		delete(hooks, hookEventName)
-	} else {
-		hooks[hookEventName] = sessionStart
+	changed := false
+	for _, event := range hookEventNames {
+		idx := findOurEntry(settings, event, scriptPath)
+		if idx == -1 {
+			continue
+		}
+		group := hooks[event].([]any)
+		group = append(group[:idx], group[idx+1:]...)
+		if len(group) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = group
+		}
+		changed = true
+	}
+	if !changed {
+		return nil
 	}
 	settings["hooks"] = hooks
 
@@ -229,21 +266,21 @@ func backupIfExists(path string) error {
 }
 
 // findOurEntry returns the index of our hook entry within
-// settings["hooks"]["SessionStart"] (a []any of matcher-groups), or -1 if
-// not present. Matches on scriptPath appearing as any hook's "command" —
-// exact match, not a substring check, so nothing else could accidentally
-// collide with it.
-func findOurEntry(settings map[string]any, scriptPath string) int {
+// settings["hooks"][event] (a []any of matcher-groups), or -1 if not
+// present. Matches on scriptPath appearing as any hook's "command" — exact
+// match, not a substring check, so nothing else could accidentally collide
+// with it.
+func findOurEntry(settings map[string]any, event, scriptPath string) int {
 	hooks, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return -1
 	}
-	sessionStart, ok := hooks[hookEventName].([]any)
+	entryGroups, ok := hooks[event].([]any)
 	if !ok {
 		return -1
 	}
-	for i, group := range sessionStart {
-		groupMap, ok := group.(map[string]any)
+	for i, entryGroup := range entryGroups {
+		groupMap, ok := entryGroup.(map[string]any)
 		if !ok {
 			continue
 		}
