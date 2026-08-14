@@ -9,6 +9,8 @@ import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotli
 import { useTransientIndicator } from "./useTransientIndicator";
 import { rootWorktreeId } from "./rootWorktree";
 import WorktreeHoverPopover from "./WorktreeHoverPopover";
+import { SpotlightIcon } from "./icons/StatusIcons";
+import { useAttentionBlink } from "./useAttentionBlink";
 
 interface Props {
   onAddRepo: () => void;
@@ -35,6 +37,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
     spotlightStatus,
     statusRefreshing,
     refreshSpotlightStatus,
+    attentionPending,
   } = useRepoContext();
 
   // True for a worktree id from the moment its spotlight start/stop is
@@ -76,6 +79,12 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   const activeStatusRefreshingPhase = useTransientIndicator(
     activeWorktreeId ? !!statusRefreshing[activeWorktreeId] : false
   );
+
+  // Which pending worktrees are still within their first 10s of blinking —
+  // see useAttentionBlink.ts. The dot itself never disappears on its own
+  // (only the explicit clear-on-focus in RepoContext.tsx removes it); this
+  // only controls whether it's currently animating or holding steady.
+  const attentionBlinking = useAttentionBlink(Object.keys(attentionPending));
 
   const [error, setError] = useState<string | null>(null);
   const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
@@ -195,21 +204,47 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                                 {status.behind > 0 && `↓${status.behind}`}
                               </span>
                             )}
-                            {/* Blinks for the full duration of a spotlight
-                                start/stop (see handleSpotlightStart/Stop
-                                above) — a real reported bug was that the
-                                dot only ever caught up on whatever the
-                                background poller's own next tick happened
-                                to be, up to 15s later, which read as the
-                                action itself being slow. */}
+                            {/* Blinks (via opacity) for the full duration of
+                                a spotlight start/stop (see
+                                handleSpotlightStart/Stop above) — a real
+                                reported bug was that this only ever caught
+                                up on whatever the background poller's own
+                                next tick happened to be, up to 15s later,
+                                which read as the action itself being slow.
+                                A lamp icon, not a dot — see StatusIcons.tsx;
+                                the plain dot look moved to the attention
+                                badge below instead. */}
                             {(spotlightPending[wt.id] || spot?.active) && (
                               <span
                                 className={
                                   spotlightPending[wt.id]
-                                    ? "sidebar-dot sidebar-dot-spotlight pending"
-                                    : "sidebar-dot sidebar-dot-spotlight"
+                                    ? "sidebar-spotlight-icon pending"
+                                    : "sidebar-spotlight-icon"
                                 }
                                 title={spotlightPending[wt.id] ? "Updating spotlight status…" : "Spotlight active"}
+                              >
+                                <SpotlightIcon size={13} />
+                              </span>
+                            )}
+                            {/* A claude session in this worktree is waiting
+                                on a permission prompt or user input — see
+                                useAttentionStream.ts/internal/attention.
+                                Persists (regardless of focus) until the
+                                worktree's detail page is opened, which
+                                clears it (see RepoContext.tsx) — it never
+                                disappears on its own. Blinks for its first
+                                10s (useAttentionBlink.ts), then holds
+                                steady for as long as it stays pending —
+                                blinking forever read as more alarming than
+                                useful. */}
+                            {wt.id in attentionPending && (
+                              <span
+                                className={
+                                  attentionBlinking.has(wt.id)
+                                    ? "sidebar-dot sidebar-dot-attention blinking"
+                                    : "sidebar-dot sidebar-dot-attention"
+                                }
+                                title={attentionPending[wt.id] || "Claude is waiting for your input"}
                               />
                             )}
                             {/* Only meaningful for the just-focused worktree in

@@ -212,17 +212,40 @@
   display: inline-block;
 }
 
-.sidebar-dot-spotlight {
-  background: var(--cyan);
-  box-shadow: 0 0 4px var(--cyan);
+/* The "spotlight sync is active" indicator — a lamp icon (StatusIcons.tsx),
+   not a dot; the dot look moved to .sidebar-dot-attention below instead. */
+.sidebar-spotlight-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cyan);
+  filter: drop-shadow(0 0 2px var(--cyan));
 }
 
 /* Shown for the full duration of a spotlight start/stop action (see
    Sidebar.tsx's handleSpotlightStart/Stop) — reuses the same pulse
    keyframes as .sidebar-status-refreshing below rather than a spinner, so
    it reads as "working on it" without implying a fixed-length load. */
-.sidebar-dot-spotlight.pending {
+.sidebar-spotlight-icon.pending {
   animation: sidebar-status-refreshing-pulse 1s ease-in-out infinite;
+}
+
+/* "A claude session here is waiting on you" — the plain glowing-dot look
+   that used to mark spotlight (see .sidebar-spotlight-icon above for where
+   that moved to), repurposed for this instead since it demands attention
+   more than a status icon would. Amber (matches the existing
+   changed-files-filter "active" accent elsewhere). Solid/steady by
+   default — only .blinking (the first 10s after it appears, see
+   useAttentionBlink.ts) pulses; blinking for as long as it's pending read
+   as more alarming than useful, but the dot itself must never disappear
+   on its own regardless (see Sidebar.tsx's own comment). */
+.sidebar-dot-attention {
+  background: var(--amber);
+  box-shadow: 0 0 5px var(--amber);
+}
+
+.sidebar-dot-attention.blinking {
+  animation: sidebar-status-refreshing-pulse 1.2s ease-in-out infinite;
 }
 
 /* A brief, non-blocking cue that the focused worktree's status was stale

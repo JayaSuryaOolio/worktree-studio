@@ -11,6 +11,8 @@ import {
   uninstallClaudeHook,
 } from "./api";
 import { getStoredTheme, setTheme, Theme } from "./theme";
+import { notificationPermission, requestNotificationPermission } from "./attentionNotify";
+import { getNotificationsEnabled, setNotificationsEnabled } from "./notificationPreference";
 
 interface Props {
   onClose: () => void;
@@ -227,7 +229,66 @@ function AppearanceTab() {
         </button>
         <span className="theme-switch-label">{theme === "dark" ? "Dark" : "Light"}</span>
       </div>
+      <NotificationsSection />
     </section>
+  );
+}
+
+// A "claude session needs your input" badge always shows in the sidebar
+// (see Sidebar.tsx's attention dot) regardless of this setting — this
+// toggle is only about the extra desktop-level nudge (sound + a real OS
+// notification) on top of that. On by default (notificationPreference.ts)
+// — RepoContext.tsx already requests browser permission proactively on
+// load, so most people never need to touch this switch at all; it's here
+// for turning the feature off, or for a browser (e.g. Safari) that
+// declined to grant permission without a real click, in which case this
+// button doubles as that click.
+function NotificationsSection() {
+  const [enabled, setEnabled] = useState(getNotificationsEnabled);
+  const [permission, setPermission] = useState(notificationPermission);
+
+  async function handleToggle() {
+    const next = !enabled;
+    setNotificationsEnabled(next);
+    setEnabled(next);
+    if (next && permission === "default") {
+      setPermission(await requestNotificationPermission());
+    }
+  }
+
+  return (
+    <>
+      <h3>Notifications</h3>
+      {permission === "unsupported" ? (
+        <p className="muted">Desktop notifications aren't supported in this browser.</p>
+      ) : (
+        <>
+          <div className="theme-switch-row">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label="Desktop notifications"
+              className="theme-switch"
+              onClick={handleToggle}
+            >
+              <span className="theme-switch-thumb" />
+            </button>
+            <span className="theme-switch-label">
+              {enabled ? "On" : "Off"} — desktop notification (+ sound) when a claude session needs
+              your input in a worktree you're not viewing
+            </span>
+          </div>
+          {enabled && permission === "denied" && (
+            <p className="muted">
+              Notifications are blocked at the browser level — the sidebar's own badge and sound
+              still work, but check your browser's site settings to also get a real desktop
+              notification.
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 

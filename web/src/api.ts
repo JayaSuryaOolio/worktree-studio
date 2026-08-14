@@ -389,6 +389,17 @@ export function stopSpotlight(repoId: string, worktreeId: string): Promise<void>
   );
 }
 
+/** Dismisses a worktree's "claude needs your attention" sidebar badge —
+ * called when its detail page is opened. See useAttentionStream.ts for the
+ * live push side of this (the /ws/attention connection that sets the
+ * badge in the first place). */
+export function clearAttention(repoId: string, worktreeId: string): Promise<void> {
+  return request<void>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/attention/clear`,
+    { method: "POST" }
+  );
+}
+
 /** Builds the websocket URL for a terminal session, relative to the current
  * page so it works both from `vite dev` (proxied) and the production Go
  * server (served directly) without needing separate config. */
@@ -404,6 +415,13 @@ export function terminalWsUrl(terminalId: string): string {
 export function filesWsUrl(worktreeId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/files/${worktreeId}`;
+}
+
+/** Builds the websocket URL for the global (not worktree-scoped) attention
+ * push channel — see useAttentionStream.ts. */
+export function attentionWsUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/attention`;
 }
 
 /** Returns the saved dockview layout for a worktree, or `null` if nothing

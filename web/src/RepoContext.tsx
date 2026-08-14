@@ -6,8 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useMatch } from "react-router-dom";
+import { useMatch, useNavigate } from "react-router-dom";
 import {
+  clearAttention,
   getSpotlightStatus,
   getWorktreeStatus,
   listRepos,
@@ -18,6 +19,9 @@ import {
   WorktreeStatus,
 } from "./api";
 import { StatusScheduler } from "./statusScheduler";
+import { useAttentionStream } from "./useAttentionStream";
+import { maybeDesktopNotify, playAttentionSound, requestNotificationPermission } from "./attentionNotify";
+import { getNotificationsEnabled } from "./notificationPreference";
 
 // How often a "hot" (recently focused) worktree's git/spotlight status gets
 // a background refresh. Not something a human notices lagging by a few
@@ -79,6 +83,14 @@ interface RepoContextValue {
   // later), which read as "spotlight start/stop is slow" when the action
   // itself had already finished — a real reported bug, not a guess.
   refreshSpotlightStatus: (worktreeId: string) => Promise<void>;
+
+  // worktreeId -> Claude's own notification text, for every worktree with
+  // a claude session currently waiting on the user (a permission prompt or
+  // idle-waiting-for-input) — see useAttentionStream.ts and
+  // internal/attention. Sidebar.tsx renders a badge for any id present
+  // here; cleared automatically when that worktree's detail page is opened
+  // (see the focus effect in RepoProvider below).
+  attentionPending: Record<string, string>;
 }
 
 const RepoContext = createContext<RepoContextValue | null>(null);
@@ -104,6 +116,22 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   // not merely by appearing in the sidebar's always-rendered list.
   const worktreeMatch = useMatch("/repo/:repoId/worktree/:worktreeId");
   const focusedWorktreeId = worktreeMatch?.params.worktreeId ?? null;
+
+  const navigate = useNavigate();
+
+  // Desktop notifications default to ON (see notificationPreference.ts) —
+  // this requests browser permission proactively on load rather than
+  // waiting for someone to find the settings toggle, so "on by default"
+  // actually means something. A no-op if permission was already
+  // granted/denied, or if the person turned the preference off; some
+  // browsers (notably Safari) may decline to prompt without a real click,
+  // in which case this silently does nothing and the settings modal's
+  // manual button (a genuine user gesture) is the fallback.
+  useEffect(() => {
+    if (getNotificationsEnabled()) {
+      void requestNotificationPermission();
+    }
+  }, []);
 
   const [repos, setRepos] = useState<Repo[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
@@ -196,6 +224,30 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     return spotlightSchedulerRef.current?.refreshNow(worktreeId) ?? Promise.resolve();
   }
 
+  // "Not in focus" per the product ask: either some other worktree is the
+  // one currently open, or this worktree IS open but the browser
+  // tab/window itself isn't (the user alt-tabbed away) — either way, the
+  // person isn't looking at the terminal where the prompt actually is, so
+  // it's worth a sound + desktop notification on top of the sidebar's own
+  // persistent dot (which shows regardless of focus, cleared separately —
+  // see the effect below).
+  const attentionPending = useAttentionStream((worktreeId, pending, message) => {
+    if (!pending) return;
+    const isOpenAndFocused = worktreeId === focusedWorktreeId && document.hasFocus();
+    if (isOpenAndFocused) return;
+    playAttentionSound();
+    const wt = worktreeByIdRef.current[worktreeId];
+    maybeDesktopNotify(
+      wt ? `${wt.branch} needs your input` : "worktree-studio",
+      message,
+      // Clicking the notification takes you straight to the worktree that
+      // raised it — window.focus() (in maybeDesktopNotify) only re-focuses
+      // *this* tab, a browser-level limit; it can't jump to a different
+      // tab if worktree-studio happens to be open in more than one.
+      wt ? () => navigate(`/repo/${wt.repo_id}/worktree/${worktreeId}`) : undefined
+    );
+  });
+
   // Keep worktree lookups current for the schedulers' fetchers, and
   // subscribe every known worktree to both schedulers so this context
   // receives (and re-renders on) every status update they produce.
@@ -272,6 +324,31 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
+  // Dismisses the focused worktree's attention badge — both the moment its
+  // detail page opens, and again if the window regains focus while still
+  // viewing it (covers "I alt-tabbed back to the already-open worktree"
+  // without needing to navigate away and back). Deliberately keyed off
+  // `attentionPending` itself too, not just `focusedWorktreeId`: a
+  // worktree already open when a NEW notification arrives for it should
+  // also get cleared right back (the terminal showing the prompt is right
+  // there), not left stuck showing a badge until the user navigates away
+  // and back.
+  useEffect(() => {
+    if (!focusedWorktreeId) return;
+    if (!(focusedWorktreeId in attentionPending)) return;
+    const wt = worktreeByIdRef.current[focusedWorktreeId];
+    if (!wt) return;
+
+    function clearIfFocused() {
+      if (document.hasFocus()) {
+        clearAttention(wt.repo_id, wt.id).catch(() => {});
+      }
+    }
+    clearIfFocused();
+    window.addEventListener("focus", clearIfFocused);
+    return () => window.removeEventListener("focus", clearIfFocused);
+  }, [focusedWorktreeId, attentionPending]);
+
   const value: RepoContextValue = {
     repos,
     reposLoading,
@@ -286,6 +363,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     spotlightStatus,
     statusRefreshing,
     refreshSpotlightStatus,
+    attentionPending,
   };
 
   return <RepoContext.Provider value={value}>{children}</RepoContext.Provider>;

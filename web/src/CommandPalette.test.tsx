@@ -11,6 +11,8 @@ vi.mock("./api", () => ({
   getWorktreeStatus: vi.fn(),
   getSpotlightStatus: vi.fn(),
   getFileTree: vi.fn(),
+  attentionWsUrl: vi.fn(() => "ws://localhost/ws/attention"),
+  clearAttention: vi.fn(),
 }));
 
 import { getFileTree, getSpotlightStatus, getWorktreeStatus, listRepos, listWorktrees } from "./api";
