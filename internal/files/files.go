@@ -12,6 +12,7 @@ package files
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,17 +67,17 @@ type FileNode struct {
 }
 
 // ListTree lists every tracked file (`git ls-files`) unioned with every
-// untracked file regardless of gitignore status (`git ls-files --others`,
-// deliberately without --exclude-standard — see this package's doc
-// comment), then nests the flat path list into a directory tree.
+// other file on disk regardless of gitignore status (a filesystem walk —
+// see this package's doc comment for why gitignored files still need to
+// be browsable), then nests the flat path list into a directory tree.
 func ListTree(worktreePath string) ([]FileNode, error) {
 	tracked, err := lsFiles(worktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
 	}
-	untracked, err := lsFilesOthersIncludingIgnored(worktreePath)
+	untracked, err := walkOthersIncludingIgnored(worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files --others: %w", err)
+		return nil, fmt.Errorf("walk worktree: %w", err)
 	}
 
 	seen := make(map[string]bool, len(tracked)+len(untracked))
@@ -142,21 +143,47 @@ func lsFiles(worktreePath string) ([]string, error) {
 	return strings.Split(strings.TrimRight(string(out), "\n"), "\n"), nil
 }
 
-// lsFilesOthersIncludingIgnored deliberately omits --exclude-standard —
-// see this package's doc comment for why gitignored files should still
-// show up in the tree (opaqueDirNames is what keeps node_modules/build
-// from dumping thousands of entries, independent of this).
-func lsFilesOthersIncludingIgnored(worktreePath string) ([]string, error) {
-	cmd := exec.Command("git", "-C", worktreePath, "ls-files", "--others")
-	out, err := cmd.Output()
+// walkOthersIncludingIgnored walks the worktree on disk (not `git ls-files
+// --others`, which — without --exclude-standard — has to stat its way
+// into every directory including huge untracked ones before it can filter
+// anything out; that made the tree endpoint painfully slow on worktrees
+// with a large node_modules) and returns every path except .git's
+// contents. It never descends into an opaqueDirNames directory (the dir
+// itself is still returned as an entry) — the only pruning ListTree
+// actually needs, and doing it during the walk itself means a huge
+// node_modules or build directory costs one stat, not a full recursive
+// listing of everything inside it.
+func walkOthersIncludingIgnored(worktreePath string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(worktreePath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == worktreePath {
+			return nil
+		}
+		rel, err := filepath.Rel(worktreePath, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			if opaqueDirNames[d.Name()] {
+				paths = append(paths, rel)
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		paths = append(paths, rel)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	trimmed := strings.TrimRight(string(out), "\n")
-	if trimmed == "" {
-		return nil, nil
-	}
-	return strings.Split(trimmed, "\n"), nil
+	return paths, nil
 }
 
 // buildTree nests a flat list of forward-slash-separated relative paths
