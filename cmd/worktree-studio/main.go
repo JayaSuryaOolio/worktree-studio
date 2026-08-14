@@ -53,6 +53,14 @@ func logFilePath() (string, error) {
 }
 
 func main() {
+	// `install-hooks`/`uninstall-hooks` are one-shot CLI subcommands (see
+	// hooks.go, driven by install/install.sh and install/uninstall.sh) —
+	// handled and exited before any of the server's own setup (store,
+	// audit log, worktree root) runs, since they don't need any of it.
+	if runHooksCommand(os.Args[1:]) {
+		return
+	}
+
 	logPath, err := logFilePath()
 	if err != nil {
 		// No file to log to yet, but stdout still works — a log
