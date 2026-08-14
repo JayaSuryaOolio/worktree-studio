@@ -52,8 +52,20 @@ export interface DependencyStatus {
   install_hint?: string;
 }
 
-export type DependencyName = "tmux" | "spotlight" | "skill" | "claude_hook" | "vscode_cli";
+export type DependencyName = "tmux" | "spotlight" | "skill" | "vscode_cli";
 export type DependencyStatusMap = Record<DependencyName, DependencyStatus>;
+
+/** One row of the dynamic "Claude Code hooks" list — everything the
+ * settings UI needs to render and toggle a hook, driven entirely by
+ * whatever internal/claudehook's registry reports (see GET
+ * /api/settings/hooks). Adding a hook there is the only change needed for
+ * a new row to show up here — the frontend never hardcodes hook ids. */
+export interface HookStatus {
+  id: string;
+  name: string;
+  hint?: string;
+  installed: boolean;
+}
 
 export interface TerminalSession {
   id: string;
@@ -425,12 +437,16 @@ export function getDependencyStatus(): Promise<DependencyStatusMap> {
   return request<DependencyStatusMap>("/api/settings/dependencies");
 }
 
-export function installClaudeHook(): Promise<void> {
-  return request<void>("/api/settings/dependencies/claude-hook/install", { method: "POST" });
+export function getHooks(): Promise<HookStatus[]> {
+  return request<HookStatus[]>("/api/settings/hooks");
 }
 
-export function uninstallClaudeHook(): Promise<void> {
-  return request<void>("/api/settings/dependencies/claude-hook/uninstall", { method: "POST" });
+export function installHook(id: string): Promise<void> {
+  return request<void>(`/api/settings/hooks/${encodeURIComponent(id)}/install`, { method: "POST" });
+}
+
+export function uninstallHook(id: string): Promise<void> {
+  return request<void>(`/api/settings/hooks/${encodeURIComponent(id)}/uninstall`, { method: "POST" });
 }
 
 export function installSkill(): Promise<void> {

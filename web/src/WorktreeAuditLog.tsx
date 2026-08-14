@@ -30,6 +30,7 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
   "spotlight.start": { icon: "🔦", label: "Spotlight started" },
   "spotlight.stop": { icon: "🔦", label: "Spotlight stopped" },
   "claude.session.create": { icon: "🤖", label: "Claude session started" },
+  "claude.session.context": { icon: "🗿", label: "Context injected into Claude" },
   "file.write": { icon: "📝", label: "File saved" },
 };
 
@@ -141,6 +142,13 @@ export default function WorktreeAuditLog({ repoId, worktreeId, title, onClose }:
                     <span className="audit-log-time muted">
                       {new Date(e.ts).toLocaleString()}
                     </span>
+                    {e.event === "claude.session.context" && typeof e.context === "string" && (
+                      // Shown inline, not tucked behind "raw" — this is the
+                      // actual point of the entry: what Claude was told.
+                      // JSON.stringify below would otherwise print this as
+                      // one line with literal \n escapes, not real breaks.
+                      <pre className="audit-log-context">{e.context}</pre>
+                    )}
                   </span>
                   <details className="audit-log-raw">
                     <summary>raw</summary>

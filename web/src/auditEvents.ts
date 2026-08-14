@@ -21,6 +21,7 @@ export const AUDIT_EVENTS = [
   "spotlight.start",
   "spotlight.stop",
   "claude.session.create",
+  "claude.session.context",
   "file.write",
 ] as const;
 

@@ -97,14 +97,16 @@ func (s *Server) Routes(r chi.Router) {
 	r.Get("/ws/files/{worktreeID}", s.handleFilesWS)
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
+	r.Post("/api/claude-hook-context", s.handleClaudeHookContext)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)
 
 	r.Route("/api/settings", func(r chi.Router) {
 		r.Get("/dependencies", s.handleGetDependencyStatus)
-		r.Post("/dependencies/claude-hook/install", s.handleInstallClaudeHook)
-		r.Post("/dependencies/claude-hook/uninstall", s.handleUninstallClaudeHook)
 		r.Post("/dependencies/skill/install", s.handleInstallSkill)
+		r.Get("/hooks", s.handleGetHooks)
+		r.Post("/hooks/{id}/install", s.handleInstallHook)
+		r.Post("/hooks/{id}/uninstall", s.handleUninstallHook)
 		r.Get("/logs", s.handleGetLogs)
 	})
 }
