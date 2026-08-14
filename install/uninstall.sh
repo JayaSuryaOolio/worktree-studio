@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Reverses install.sh: removes this app's hooks (the Claude Code
-# SessionStart session-tracking hook + the globally-installed
+# Reverses install.sh: removes this app's hooks (every Claude Code hook
+# registered in internal/claudehook's registry + the globally-installed
 # worktree-studio skill) and removes the installed prod build
 # (~/.worktree-studio/bin/worktree-studio).
 #
@@ -18,7 +18,7 @@ INSTALL_DIR="$HOME/.worktree-studio/bin"
 BIN_PATH="$INSTALL_DIR/worktree-studio"
 
 if [ -x "$BIN_PATH" ]; then
-  log "removing hooks (claude session-tracking hook + worktree-studio skill)"
+  log "removing hooks (every registered claude hook + worktree-studio skill)"
   "$BIN_PATH" uninstall-hooks
 else
   log "no installed binary found at $BIN_PATH — skipping hook removal"

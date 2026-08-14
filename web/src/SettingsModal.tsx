@@ -4,11 +4,13 @@ import {
   DependencyStatus,
   DependencyStatusMap,
   getDependencyStatus,
+  getHooks,
   getServerLogs,
-  installClaudeHook,
+  HookStatus,
+  installHook,
   installSkill,
   ServerLogs,
-  uninstallClaudeHook,
+  uninstallHook,
 } from "./api";
 import { getStoredTheme, setTheme, Theme } from "./theme";
 import { notificationPermission, requestNotificationPermission } from "./attentionNotify";
@@ -80,20 +82,17 @@ const DEPENDENCY_LABELS: Record<DependencyName, string> = {
   tmux: "tmux",
   spotlight: "Spotlight CLI",
   skill: "worktree-studio skill (global)",
-  claude_hook: "Claude session-tracking hook",
   vscode_cli: "VS Code CLI (`code`)",
 };
 
 // tmux/spotlight are detection-only — this tool won't run `brew install`
-// on someone's behalf, just show status + a hint. skill/claude_hook are
-// actionable: both are file writes only worktree-studio itself owns
-// (~/.claude/skills/worktree-studio/, and one marked entry in
-// ~/.claude/settings.json's hooks.SessionStart — see
-// internal/claudehook/install.go for the safety rationale), so an
-// install/uninstall button here is safe to offer directly.
+// on someone's behalf, just show status + a hint. skill is actionable: a
+// file write only worktree-studio itself owns
+// (~/.claude/skills/worktree-studio/), so an install button here is safe
+// to offer directly. Claude Code hooks are a separate, dynamic list below
+// (see HooksSection) since there can be any number of them.
 const ACTIONABLE: Partial<Record<DependencyName, boolean>> = {
   skill: true,
-  claude_hook: true,
 };
 
 function InstallationTab() {
@@ -124,29 +123,31 @@ function InstallationTab() {
     }
   }
 
-  if (error) return <p className="error">{error}</p>;
-  if (status === null) return <p className="muted">Loading…</p>;
-
   return (
-    <ul className="dependency-list">
-      {(Object.keys(DEPENDENCY_LABELS) as DependencyName[]).map((name) => (
-        <DependencyRow
-          key={name}
-          name={name}
-          label={DEPENDENCY_LABELS[name]}
-          status={status[name]}
-          busy={busy === name}
-          onInstall={
-            name === "claude_hook"
-              ? () => act(name, installClaudeHook)
-              : name === "skill"
-                ? () => act(name, installSkill)
-                : undefined
-          }
-          onUninstall={name === "claude_hook" ? () => act(name, uninstallClaudeHook) : undefined}
-        />
-      ))}
-    </ul>
+    <>
+      {error && <p className="error">{error}</p>}
+      {status === null ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <ul className="dependency-list">
+          {(Object.keys(DEPENDENCY_LABELS) as DependencyName[]).map((name) => (
+            <DependencyRow
+              key={name}
+              name={name}
+              label={DEPENDENCY_LABELS[name]}
+              status={status[name]}
+              busy={busy === name}
+              onInstall={name === "skill" ? () => act(name, installSkill) : undefined}
+            />
+          ))}
+        </ul>
+      )}
+
+      <section className="settings-section">
+        <h3>Claude Code hooks</h3>
+        <HooksSection />
+      </section>
+    </>
   );
 }
 
@@ -156,14 +157,12 @@ function DependencyRow({
   status,
   busy,
   onInstall,
-  onUninstall,
 }: {
   name: DependencyName;
   label: string;
   status: DependencyStatus;
   busy: boolean;
   onInstall?: () => void;
-  onUninstall?: () => void;
 }) {
   return (
     <li className="dependency-row">
@@ -174,22 +173,75 @@ function DependencyRow({
       <span className="dependency-detail muted">
         {status.installed ? status.detail : status.install_hint}
       </span>
-      {ACTIONABLE[name] && (
+      {ACTIONABLE[name] && !status.installed && (
         <span className="dependency-actions">
-          {status.installed ? (
-            onUninstall && (
-              <button type="button" disabled={busy} onClick={onUninstall}>
-                {busy ? "…" : "Uninstall"}
-              </button>
-            )
-          ) : (
-            <button type="button" disabled={busy} onClick={onInstall}>
-              {busy ? "…" : "Install"}
-            </button>
-          )}
+          <button type="button" disabled={busy} onClick={onInstall}>
+            {busy ? "…" : "Install"}
+          </button>
         </span>
       )}
     </li>
+  );
+}
+
+// Renders one row per hook GET /api/settings/hooks returns — entirely
+// driven by internal/claudehook's registry (see HookStatus), so adding a
+// new hook there is the only change needed for a new row to appear here.
+// Each hook installs/uninstalls independently of the others.
+function HooksSection() {
+  const [hooks, setHooks] = useState<HookStatus[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function refresh() {
+    return getHooks()
+      .then(setHooks)
+      .catch((err) => setError((err as Error).message));
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function act(id: string, fn: (id: string) => Promise<void>) {
+    setBusy(id);
+    setError(null);
+    try {
+      await fn(id);
+      await refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error) return <p className="error">{error}</p>;
+  if (hooks === null) return <p className="muted">Loading…</p>;
+
+  return (
+    <ul className="dependency-list">
+      {hooks.map((hook) => (
+        <li className="dependency-row" key={hook.id}>
+          <span className={hook.installed ? "badge badge-clean" : "badge badge-dirty"}>
+            {hook.installed ? "✓" : "✗"}
+          </span>
+          <span className="dependency-label">{hook.name}</span>
+          <span className="dependency-detail muted">{hook.installed ? "" : hook.hint}</span>
+          <span className="dependency-actions">
+            {hook.installed ? (
+              <button type="button" disabled={busy === hook.id} onClick={() => act(hook.id, uninstallHook)}>
+                {busy === hook.id ? "…" : "Uninstall"}
+              </button>
+            ) : (
+              <button type="button" disabled={busy === hook.id} onClick={() => act(hook.id, installHook)}>
+                {busy === hook.id ? "…" : "Install"}
+              </button>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -1,5 +1,6 @@
-/* SettingsModal's Installation tab: tmux/spotlight/skill/claude-hook/
-   vscode-cli dependency rows. */
+/* SettingsModal's Installation tab: tmux/spotlight/skill/vscode-cli
+   dependency rows, and the dynamic Claude Code hooks list below them
+   (same row styling, reused). */
 
 .dependency-list {
   list-style: none;

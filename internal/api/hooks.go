@@ -80,6 +80,53 @@ func (s *Server) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged"})
 }
 
+// handleClaudeHookContext receives the session-context hook script's
+// best-effort POST (see claudehook.contextScriptContent) of the exact text
+// it printed to Claude's context, and logs it as claude.session.context if
+// the cwd resolves to a tracked worktree — this is what lets the "Log"
+// view in the UI show what got injected, not just that the hook ran.
+//
+// Same tolerant, always-200 posture as handleClaudeHook and for the same
+// reason: this is called fire-and-forget by a shell script with its own
+// short timeout at session start, and a missed log entry is far less
+// disruptive than making that script's POST look like a failure.
+func (s *Server) handleClaudeHookContext(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.Log.Warn("claude hook context: read body", "err", err)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+
+	payload, err := claudehook.ParseContextPayload(body)
+	if err != nil {
+		s.Log.Warn("claude hook context: parse payload", "err", err)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+	if payload.Cwd == "" || payload.Context == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+
+	wt, err := s.Store.FindWorktreeByPath(payload.Cwd)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			s.Log.Warn("claude hook context: resolve worktree by cwd", "err", err, "cwd", payload.Cwd)
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "no matching worktree"})
+		return
+	}
+
+	s.auditLog(audit.EventClaudeSessionContext, map[string]any{
+		"repo_id":     wt.RepoID,
+		"worktree_id": wt.ID,
+		"context":     payload.Context,
+		"source":      "hook",
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "logged"})
+}
+
 // handleClaudeSessionTitle looks up a human-readable title for a claude
 // session id by reading its own local transcript (see
 // claudehook.SessionTitle) — used by the audit log viewer to show more

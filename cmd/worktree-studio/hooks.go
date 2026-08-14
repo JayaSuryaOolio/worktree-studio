@@ -43,11 +43,17 @@ func installHooks() int {
 	}
 	selfBaseURL := "http://localhost" + addrPort(addr)
 
-	if err := claudehook.InstallHook(selfBaseURL); err != nil {
-		fmt.Fprintf(os.Stderr, hooksLogPrefix+"install claude session-tracking hook: %v\n", err)
-		return 1
+	// Every registered hook (internal/claudehook/install.go's hookRegistry)
+	// gets installed here — not just the original session-tracking one —
+	// so this CLI path stays in sync with the settings UI's "Claude Code
+	// hooks" list without needing to name each hook by hand.
+	for _, hook := range claudehook.Hooks() {
+		if err := claudehook.InstallHookByID(hook.ID, selfBaseURL); err != nil {
+			fmt.Fprintf(os.Stderr, hooksLogPrefix+"install %s: %v\n", hook.Name, err)
+			return 1
+		}
+		fmt.Println(hooksLogPrefix + "installed " + hook.Name)
 	}
-	fmt.Println(hooksLogPrefix + "installed claude session-tracking hook")
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -68,11 +74,13 @@ func installHooks() int {
 }
 
 func uninstallHooks() int {
-	if err := claudehook.UninstallHook(); err != nil {
-		fmt.Fprintf(os.Stderr, hooksLogPrefix+"uninstall claude session-tracking hook: %v\n", err)
-		return 1
+	for _, hook := range claudehook.Hooks() {
+		if err := claudehook.UninstallHookByID(hook.ID); err != nil {
+			fmt.Fprintf(os.Stderr, hooksLogPrefix+"uninstall %s: %v\n", hook.Name, err)
+			return 1
+		}
+		fmt.Println(hooksLogPrefix + "uninstalled " + hook.Name)
 	}
-	fmt.Println(hooksLogPrefix + "uninstalled claude session-tracking hook")
 
 	home, err := os.UserHomeDir()
 	if err != nil {

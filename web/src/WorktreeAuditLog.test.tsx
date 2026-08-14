@@ -93,6 +93,27 @@ describe("WorktreeAuditLog", () => {
     expect(getClaudeSessionTitle).toHaveBeenCalledWith("abc-123");
   });
 
+  it("shows the full injected context text for claude.session.context, not just raw JSON", async () => {
+    const context =
+      "Ooga. Claude wake up in cave (folder): /tmp/wt\nOoo, worktree-studio cave! Branch-mark say: feature";
+    vi.mocked(getWorktreeAuditLog).mockResolvedValue([
+      {
+        ts: "2026-01-02T00:00:00Z",
+        event: "claude.session.context",
+        worktree_id: "w1",
+        context,
+      },
+    ]);
+
+    render(<WorktreeAuditLog repoId="r1" worktreeId="w1" title="feature" onClose={() => {}} />);
+
+    const item = (await screen.findAllByRole("listitem"))[0];
+    expect(within(item).getByText("Context injected into Claude")).toBeInTheDocument();
+    const contextBlock = item.querySelector(".audit-log-context");
+    expect(contextBlock).not.toBeNull();
+    expect(contextBlock?.textContent).toBe(context);
+  });
+
   it("shows an empty state when there are no events", async () => {
     vi.mocked(getWorktreeAuditLog).mockResolvedValue([]);
     render(<WorktreeAuditLog repoId="r1" worktreeId="w1" title="feature" onClose={() => {}} />);

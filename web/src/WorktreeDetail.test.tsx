@@ -120,7 +120,6 @@ beforeEach(() => {
     tmux: { installed: true },
     spotlight: { installed: true },
     skill: { installed: true },
-    claude_hook: { installed: true },
     vscode_cli: { installed: false },
   });
 });

@@ -2,6 +2,7 @@ package claudehook
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,24 +11,98 @@ import (
 
 // This file owns the one genuinely sensitive operation in this package:
 // editing the user's REAL, GLOBAL `~/.claude/settings.json` to add or
-// remove our SessionStart and Notification hooks. That file is shared with
-// every other tool that registers a Claude Code hook (see the
-// PreToolUse/UserPromptSubmit/Stop/etc. entries already present on a
-// typical machine) — this code must never overwrite the file wholesale,
-// only ever merge one clearly-marked entry into each of hookEventNames'
-// arrays, and always back the file up first. Every entry-point here is
-// only ever reached via an explicit user action in the settings UI (see
-// internal/api/settings.go) — never automatically on server startup.
+// remove our Claude Code hooks. That file is shared with every other tool
+// that registers a Claude Code hook (see the PreToolUse/UserPromptSubmit/
+// Stop/etc. entries already present on a typical machine) — this code
+// must never overwrite the file wholesale, only ever merge clearly-marked
+// entries into the relevant hooks.<event> arrays, and always back the
+// file up first. Every entry-point here is only ever reached via an
+// explicit user action in the settings UI (see internal/api/settings.go)
+// — never automatically on server startup.
+//
+// Hooks are registered in hookRegistry below, one entry per independently
+// installable script — each gets its own generated file, its own set of
+// hook events it's registered under, and its own install/uninstall/status,
+// so it can be reasoned about, tested, and toggled without touching any
+// other hook. internal/api/settings.go derives its whole hooks list (and
+// the settings UI its whole "Claude Code hooks" section) from Hooks() —
+// adding a new hook here is the only change needed for it to show up
+// there too.
 
-// hookEventNames are the Claude Code hook events this package installs the
-// same script under: SessionStart (claude.session.create logging) and
-// Notification (fires when Claude is waiting on a permission prompt or
-// user input — see internal/attention). One script, one endpoint
-// (/api/claude-hook) — the posted payload's own hook_event_name field is
-// what the server uses to tell them apart, so both installs/uninstalls
-// always happen together rather than needing two separate dependencies in
-// the settings UI.
-var hookEventNames = []string{"SessionStart", "Notification"}
+// hookSpec is one registered Claude Code hook: metadata for display, the
+// script file it owns, which hook events it's registered under, and the
+// function that generates its script's content. A script can be shared by
+// more than one event (session-tracking installs the same script under
+// both SessionStart and Notification — see hookScriptContent); content
+// takes serverBaseURL even for hooks that ignore it, so every spec has the
+// same shape regardless of whether it happens to talk to the
+// worktree-studio server.
+type hookSpec struct {
+	id       string
+	name     string
+	hint     string // shown in the settings UI when not installed
+	fileName string
+	events   []string // Claude Code hook event names this script registers under
+	content  func(serverBaseURL string) string
+}
+
+var hookRegistry = []hookSpec{
+	{
+		id:       "session-tracking",
+		name:     "Claude session-tracking hook",
+		hint:     "install to track claude sessions started by hand (not just ones worktree-studio auto-starts), and to get attention badges when Claude is waiting on you",
+		fileName: "session-start.sh",
+		// One script, two events: SessionStart (claude.session.create
+		// logging) and Notification (fires when Claude is waiting on a
+		// permission prompt or user input — see internal/attention). The
+		// posted payload's own hook_event_name field is what the server
+		// uses to tell them apart, so both always install/uninstall
+		// together rather than needing two separate hookSpec entries.
+		events:  []string{"SessionStart", "Notification"},
+		content: hookScriptContent,
+	},
+	{
+		id:       "session-context",
+		name:     "Claude worktree-context hook",
+		hint:     "install to give Claude basic orientation (folder, branch, open PRs) when it opens inside a worktree-studio worktree",
+		fileName: "session-context.sh",
+		events:   []string{"SessionStart"},
+		content:  contextScriptContent,
+	},
+}
+
+// ErrUnknownHook is returned by the ByID functions below for an id not
+// present in hookRegistry — should only ever happen from a stale client
+// (an old settings UI tab open across a downgrade, a hand-crafted request).
+var ErrUnknownHook = errors.New("unknown hook id")
+
+func findSpec(id string) (hookSpec, error) {
+	for _, spec := range hookRegistry {
+		if spec.id == id {
+			return spec, nil
+		}
+	}
+	return hookSpec{}, fmt.Errorf("%w: %q", ErrUnknownHook, id)
+}
+
+// HookInfo is the public, read-only view of a registered hook — everything
+// the settings UI needs to render a row, without exposing the script
+// generator itself.
+type HookInfo struct {
+	ID   string
+	Name string
+	Hint string
+}
+
+// Hooks returns metadata for every registered hook, in registry order. The
+// settings UI renders one row per entry returned here.
+func Hooks() []HookInfo {
+	infos := make([]HookInfo, len(hookRegistry))
+	for i, spec := range hookRegistry {
+		infos[i] = HookInfo{ID: spec.id, Name: spec.name, Hint: spec.hint}
+	}
+	return infos
+}
 
 // ClaudeSettingsPath returns ~/.claude/settings.json — Claude Code's
 // user-level (not project-level) settings file, which is where a hook
@@ -41,19 +116,16 @@ func ClaudeSettingsPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
-// HookScriptPath returns the path this package writes its own hook script
-// to — shared by both SessionStart and Notification (see hookEventNames),
-// since the script itself is event-agnostic (just forwards stdin). Its
+// scriptPath returns where a hook's generated script file lives. Its
 // uniqueness (nothing else on the machine writes here) is what makes it
-// safe to use as the marker identifying "our" entry in each of
-// settings.json's hooks.<event> arrays, for both idempotent install and
-// precise uninstall.
-func HookScriptPath() (string, error) {
+// safe to use as the marker identifying "our" entry in settings.json's
+// hooks.<event> arrays, for both idempotent install and precise uninstall.
+func scriptPath(fileName string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
-	return filepath.Join(home, ".worktree-studio", "hooks", "session-start.sh"), nil
+	return filepath.Join(home, ".worktree-studio", "hooks", fileName), nil
 }
 
 func hookScriptContent(serverBaseURL string) string {
@@ -62,7 +134,9 @@ func hookScriptContent(serverBaseURL string) string {
 	// — a claude session must never fail or hang at startup because
 	// worktree-studio isn't running or is unreachable. cat pipes stdin
 	// (the hook's JSON payload) straight through as the request body; this
-	// server's own handler (handleClaudeHook) does the actual parsing.
+	// server's own handler (handleClaudeHook) does the actual parsing,
+	// branching on the payload's own hook_event_name field since this one
+	// script is shared by both SessionStart and Notification.
 	return fmt.Sprintf(`#!/bin/sh
 # Installed by worktree-studio (internal/claudehook) — safe to delete if
 # you uninstall the SessionStart/Notification hooks from Claude Code's
@@ -73,14 +147,99 @@ exit 0
 `, serverBaseURL)
 }
 
-// IsHookInstalled reports whether our entry is present under every event
-// in hookEventNames. A missing settings file, or one with no `hooks` key
-// at all, is a normal "not installed" result, not an error. Requiring ALL
-// of them (not just one) means a partially-applied install — e.g. someone
-// hand-edited settings.json and only one entry survived — correctly shows
-// as "not installed" rather than silently missing the Notification half.
-func IsHookInstalled() (bool, error) {
-	scriptPath, err := HookScriptPath()
+// contextScriptContent is a standalone constant (no serverBaseURL — it
+// never talks to the worktree-studio server) that gives Claude some basic
+// orientation at session start: the current directory always, and, when
+// that directory is inside a worktree-studio-managed worktree
+// (~/.worktree-studio/...), the current branch and any open GitHub PRs for
+// it. For SessionStart hooks specifically, Claude Code adds whatever a
+// hook prints to stdout straight into the session's context as plain
+// text — no JSON envelope needed — and runs the hook with cwd already set
+// to the session's own directory, so none of this needs the hook's stdin
+// payload at all. The stdout printf is unconditional and doesn't wait on
+// anything below it.
+//
+// The `gh pr list` call is the one part of this that can be slow (a real
+// network request) or hang (a wedged connection) — bounded with a manual
+// background-and-kill timeout since macOS ships no `timeout`/`gtimeout`.
+// That's best-effort, not an airtight guarantee (some /bin/sh
+// implementations may not map the backgrounded subshell's PID onto `gh`
+// itself), consistent with this package's existing fire-and-forget stance
+// on the audit POST in hookScriptContent. Missing `gh`, no auth, no
+// matching PR, or no network are all silently treated the same way:
+// nothing to report.
+//
+// After printing, it also best-effort POSTs the exact text just printed
+// to serverBaseURL/api/claude-hook-context, so that text shows up in this
+// worktree's audit log (see internal/api/hooks.go's
+// handleClaudeHookContext). That POST is gated on `jq` being available:
+// hand-building JSON for arbitrary multi-line text (a PR title can
+// contain quotes or backslashes) in plain shell is exactly the fragile
+// string-escaping this project avoids elsewhere, so this skips logging
+// entirely rather than risk emitting malformed JSON — the stdout context
+// Claude already has is completely unaffected either way.
+func contextScriptContent(serverBaseURL string) string {
+	return fmt.Sprintf(`#!/bin/sh
+# Installed by worktree-studio (internal/claudehook) — safe to delete if
+# you uninstall the SessionStart hook from Claude Code's settings.
+cwd="$(pwd)"
+context="Ooga. Claude wake up in cave (folder): $cwd"
+
+case "$cwd" in
+  "$HOME"/.worktree-studio/*)
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+      context="$context
+Ooo, worktree-studio cave! Branch-mark say: $branch"
+      if command -v gh >/dev/null 2>&1; then
+        tmp="$(mktemp 2>/dev/null)"
+        if [ -n "$tmp" ]; then
+          ( gh pr list --head "$branch" --json number,title,url --jq '.[] | "PR #\(.number): \(.title) (\(.url))"' >"$tmp" 2>/dev/null ) &
+          gh_pid=$!
+          ( sleep 3; kill "$gh_pid" 2>/dev/null ) >/dev/null 2>&1 &
+          watcher_pid=$!
+          wait "$gh_pid" 2>/dev/null
+          kill "$watcher_pid" 2>/dev/null
+          wait "$watcher_pid" 2>/dev/null
+          prs="$(cat "$tmp" 2>/dev/null)"
+          rm -f "$tmp" 2>/dev/null
+          if [ -n "$prs" ]; then
+            context="$context
+Grug look sky-scroll (PR)... Grug find:
+$prs"
+          else
+            context="$context
+Grug look sky-scroll (PR)... find nothing. Sad Grug."
+          fi
+        fi
+      fi
+    fi
+    ;;
+esac
+
+printf '%%s\n' "$context"
+
+if command -v jq >/dev/null 2>&1; then
+  jq -n --arg cwd "$cwd" --arg context "$context" '{cwd: $cwd, context: $context}' 2>/dev/null | curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- '%s/api/claude-hook-context' >/dev/null 2>&1 || true
+fi
+
+exit 0
+`, serverBaseURL)
+}
+
+// IsHookInstalledByID reports whether the named hook's entry is present
+// under EVERY event in its spec's events list. A missing settings file, or
+// one with no `hooks` key at all, is a normal "not installed" result, not
+// an error. Requiring all events (not just one) means a partially-applied
+// install — e.g. someone hand-edited settings.json and only one entry
+// survived — correctly shows as "not installed" rather than silently
+// missing half of a multi-event hook.
+func IsHookInstalledByID(id string) (bool, error) {
+	spec, err := findSpec(id)
+	if err != nil {
+		return false, err
+	}
+	path, err := scriptPath(spec.fileName)
 	if err != nil {
 		return false, err
 	}
@@ -88,33 +247,39 @@ func IsHookInstalled() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, event := range hookEventNames {
-		if findOurEntry(settings, event, scriptPath) == -1 {
+	for _, event := range spec.events {
+		if findOurEntry(settings, event, path) == -1 {
 			return false, nil
 		}
 	}
 	return true, nil
 }
 
-// InstallHook writes the hook script (pointed at serverBaseURL, e.g.
-// "http://localhost:8787") and merges an entry referencing it into
-// ~/.claude/settings.json under every event in hookEventNames. Idempotent
-// per event: an event that already has our entry is left alone; a missing
-// one is added — so a partial install (see IsHookInstalled) self-heals on
-// the next InstallHook call instead of needing an uninstall first. Backs
-// up settings.json once before any writes.
-func InstallHook(serverBaseURL string) error {
-	scriptPath, err := HookScriptPath()
+// InstallHookByID writes the named hook's script (serverBaseURL, e.g.
+// "http://localhost:8787", is passed to every hook's content generator but
+// only ones that need it use it) and merges an entry referencing it into
+// ~/.claude/settings.json under every event in its spec's events list.
+// Idempotent per event: an event that already has our entry is left
+// alone; a missing one is added — so a partial install (see
+// IsHookInstalledByID) self-heals on the next InstallHookByID call instead
+// of needing an uninstall first. It also unconditionally refreshes the
+// script's content (e.g. if the server's address changed, or this package
+// shipped a new script version, since a previous install) — cheap, and
+// re-installing is the natural "fix it" action a user takes from the
+// settings UI anyway. Backs up settings.json once before any writes.
+func InstallHookByID(id, serverBaseURL string) error {
+	spec, err := findSpec(id)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+	path, err := scriptPath(spec.fileName)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create hook script dir: %w", err)
 	}
-	// Always refresh the script content (e.g. if the server's address
-	// changed since a previous install) — cheap, and re-installing is the
-	// natural "fix it" action a user takes from the settings UI anyway.
-	if err := os.WriteFile(scriptPath, []byte(hookScriptContent(serverBaseURL)), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(spec.content(serverBaseURL)), 0o755); err != nil {
 		return fmt.Errorf("write hook script: %w", err)
 	}
 
@@ -129,35 +294,39 @@ func InstallHook(serverBaseURL string) error {
 	}
 
 	changed := false
-	for _, event := range hookEventNames {
-		if findOurEntry(settings, event, scriptPath) != -1 {
+	for _, event := range spec.events {
+		if findOurEntry(settings, event, path) != -1 {
 			continue // already installed for this event
 		}
 		group, _ := hooks[event].([]any)
 		group = append(group, map[string]any{
 			"matcher": "",
 			"hooks": []any{
-				map[string]any{"type": "command", "command": scriptPath},
+				map[string]any{"type": "command", "command": path},
 			},
 		})
 		hooks[event] = group
 		changed = true
 	}
 	if !changed {
-		return nil
+		return nil // already installed, script content refreshed above
 	}
 	settings["hooks"] = hooks
 
 	return writeSettings(settings, mode)
 }
 
-// UninstallHook removes our entry from every event in hookEventNames,
-// leaving every other hook (ours or anyone else's) untouched. A no-op, not
-// an error, if it was never installed. Does not remove the script file
-// itself — harmless to leave behind, and simpler than reasoning about
-// whether anything else might reference it.
-func UninstallHook() error {
-	scriptPath, err := HookScriptPath()
+// UninstallHookByID removes the named hook's entry from every event in its
+// spec's events list, leaving every other hook (ours or anyone else's)
+// untouched. A no-op, not an error, if it was never installed. Does not
+// remove the script file itself — harmless to leave behind, and simpler
+// than reasoning about whether anything else might reference it.
+func UninstallHookByID(id string) error {
+	spec, err := findSpec(id)
+	if err != nil {
+		return err
+	}
+	path, err := scriptPath(spec.fileName)
 	if err != nil {
 		return err
 	}
@@ -172,8 +341,8 @@ func UninstallHook() error {
 	}
 
 	changed := false
-	for _, event := range hookEventNames {
-		idx := findOurEntry(settings, event, scriptPath)
+	for _, event := range spec.events {
+		idx := findOurEntry(settings, event, path)
 		if idx == -1 {
 			continue
 		}

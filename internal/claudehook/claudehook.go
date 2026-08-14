@@ -51,6 +51,26 @@ func ParsePayload(raw []byte) (HookPayload, error) {
 	return p, nil
 }
 
+// ContextPayload is what the session-context hook script (see
+// contextScriptContent) POSTs, best-effort, to /api/claude-hook-context:
+// the cwd it resolved and the exact text it printed to stdout for Claude —
+// letting the audit log show what a session was actually told, not just
+// that a hook fired. Unlike HookPayload this isn't Claude Code's own hook
+// JSON — it's a shape this package's own script constructs.
+type ContextPayload struct {
+	Cwd     string `json:"cwd"`
+	Context string `json:"context"`
+}
+
+// ParseContextPayload decodes the session-context hook script's POST body.
+func ParseContextPayload(raw []byte) (ContextPayload, error) {
+	var p ContextPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return ContextPayload{}, fmt.Errorf("decode context payload: %w", err)
+	}
+	return p, nil
+}
+
 // transcriptDir returns ~/.claude/projects, where Claude Code stores one
 // subdirectory per project (named after the project's absolute path with
 // '/' replaced by '-') containing one JSONL transcript file per session,

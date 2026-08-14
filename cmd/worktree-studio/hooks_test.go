@@ -15,19 +15,24 @@ func withFakeHome(t *testing.T) string {
 	return home
 }
 
-func TestInstallHooksInstallsClaudeHookAndSkill(t *testing.T) {
+func TestInstallHooksInstallsEveryRegisteredHookAndSkill(t *testing.T) {
 	home := withFakeHome(t)
 
 	if code := installHooks(); code != 0 {
 		t.Fatalf("installHooks() = %d, want 0", code)
 	}
 
-	installed, err := claudehook.IsHookInstalled()
-	if err != nil {
-		t.Fatalf("IsHookInstalled: %v", err)
-	}
-	if !installed {
-		t.Error("expected claude session-tracking hook to be installed")
+	// Every hook in the registry, not just the original session-tracking
+	// one — installHooks loops over claudehook.Hooks() precisely so this
+	// CLI path never falls behind the settings UI's own hooks list.
+	for _, hook := range claudehook.Hooks() {
+		installed, err := claudehook.IsHookInstalledByID(hook.ID)
+		if err != nil {
+			t.Fatalf("IsHookInstalledByID(%q): %v", hook.ID, err)
+		}
+		if !installed {
+			t.Errorf("expected %s (%s) to be installed", hook.Name, hook.ID)
+		}
 	}
 
 	skillPath := filepath.Join(home, ".claude", "skills", "worktree-studio", "SKILL.md")
@@ -36,7 +41,7 @@ func TestInstallHooksInstallsClaudeHookAndSkill(t *testing.T) {
 	}
 }
 
-func TestUninstallHooksRemovesClaudeHookAndSkill(t *testing.T) {
+func TestUninstallHooksRemovesEveryRegisteredHookAndSkill(t *testing.T) {
 	home := withFakeHome(t)
 
 	if code := installHooks(); code != 0 {
@@ -46,12 +51,14 @@ func TestUninstallHooksRemovesClaudeHookAndSkill(t *testing.T) {
 		t.Fatalf("uninstallHooks() = %d, want 0", code)
 	}
 
-	installed, err := claudehook.IsHookInstalled()
-	if err != nil {
-		t.Fatalf("IsHookInstalled: %v", err)
-	}
-	if installed {
-		t.Error("expected claude session-tracking hook to be uninstalled")
+	for _, hook := range claudehook.Hooks() {
+		installed, err := claudehook.IsHookInstalledByID(hook.ID)
+		if err != nil {
+			t.Fatalf("IsHookInstalledByID(%q): %v", hook.ID, err)
+		}
+		if installed {
+			t.Errorf("expected %s (%s) to be uninstalled", hook.Name, hook.ID)
+		}
 	}
 
 	skillDir := filepath.Join(home, ".claude", "skills", "worktree-studio")

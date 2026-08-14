@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds worktree-studio (frontend + Go binary), installs the built binary
-# to ~/.worktree-studio/bin/worktree-studio, and installs this app's two
-# "hooks" (the Claude Code SessionStart session-tracking hook, and the
+# to ~/.worktree-studio/bin/worktree-studio, and installs this app's
+# "hooks" (every Claude Code hook registered in internal/claudehook's
+# registry — currently session-tracking and worktree-context — plus the
 # globally-installed worktree-studio skill) — see cmd/worktree-studio/hooks.go
 # for what "install-hooks" actually does; this script is just the thin,
 # repeatable wrapper around it that install/uninstall.sh reverses.
@@ -29,7 +30,7 @@ log "building Go binary -> $BIN_PATH"
 mkdir -p "$INSTALL_DIR"
 ( cd "$REPO_ROOT" && go build -o "$BIN_PATH" ./cmd/worktree-studio )
 
-log "installing hooks (claude session-tracking hook + worktree-studio skill)"
+log "installing hooks (every registered claude hook + worktree-studio skill)"
 "$BIN_PATH" install-hooks
 
 log "done. Run the server with: $BIN_PATH"

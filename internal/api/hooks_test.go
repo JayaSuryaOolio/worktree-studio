@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"worktree-studio/internal/store"
@@ -138,6 +139,104 @@ func TestClaudeHookIgnoresMalformedBody(t *testing.T) {
 	resp, err := http.Post(ts.URL+"/api/claude-hook", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST claude-hook with no body: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (must never fail a claude session's own startup)", resp.StatusCode)
+	}
+}
+
+func TestClaudeHookContextLogsInjectedTextForMatchingWorktree(t *testing.T) {
+	requireGit(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/claude-hook-context", map[string]string{
+		"cwd":     wt.Path,
+		"context": "Ooga. Claude wake up in cave (folder): " + wt.Path + "\nOoo, worktree-studio cave! Branch-mark say: feature",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST claude-hook-context: status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/audit-log", nil)
+	var entries []map[string]any
+	decodeInto(t, resp, &entries)
+
+	var found map[string]any
+	for _, e := range entries {
+		if e["event"] == "claude.session.context" {
+			found = e
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a claude.session.context entry, got %+v", entries)
+	}
+	if context, _ := found["context"].(string); !strings.Contains(context, "Branch-mark say: feature") {
+		t.Errorf("context = %q, want it to contain the injected branch line", context)
+	}
+	if found["source"] != "hook" {
+		t.Errorf("source = %v, want hook", found["source"])
+	}
+}
+
+func TestClaudeHookContextIgnoresUnrelatedCwd(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/claude-hook-context", map[string]string{
+		"cwd":     "/nowhere/tracked",
+		"context": "Ooga. Claude wake up in cave (folder): /nowhere/tracked",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST claude-hook-context for unrelated cwd: status = %d, want 200 (silent no-op)", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestClaudeHookContextIgnoresEmptyContext(t *testing.T) {
+	requireGit(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/claude-hook-context", map[string]string{"cwd": wt.Path, "context": ""})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (silent no-op)", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/audit-log", nil)
+	var entries []map[string]any
+	decodeInto(t, resp, &entries)
+	for _, e := range entries {
+		if e["event"] == "claude.session.context" {
+			t.Fatalf("expected no claude.session.context entry for an empty context, got %+v", e)
+		}
+	}
+}
+
+func TestClaudeHookContextIgnoresMalformedBody(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	resp, err := http.Post(ts.URL+"/api/claude-hook-context", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST claude-hook-context with no body: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
