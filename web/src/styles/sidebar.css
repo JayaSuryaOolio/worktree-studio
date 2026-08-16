@@ -285,6 +285,136 @@
   font-size: 0.8rem;
 }
 
+/* Expand/collapse toggle on each worktree row — sits next to the kebab
+   menu, so it needs the same preventDefault()/stopPropagation() treatment
+   (see WorktreeActionsMenu.tsx's own comment) since it's rendered inside
+   the row's <Link>. Rotates via transform, not a different icon, when
+   expanded. */
+.sidebar-worktree-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 3px;
+}
+
+.sidebar-worktree-expand-toggle:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.sidebar-worktree-expand-toggle svg {
+  transition: transform 200ms ease;
+}
+
+.sidebar-worktree-expand-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+/* The accordion card itself. grid-template-rows: 0fr -> 1fr (rather than
+   a fixed max-height, or toggling display) is what makes this animate
+   smoothly for genuinely variable content height without either snapping
+   instantly or guessing at a "big enough" max-height that would leave a
+   pause at the end of the transition once content is shorter than it.
+   overflow:hidden on the inner wrapper is what actually clips the 0fr
+   state — grid alone doesn't clip a track's content by itself.
+
+   Border/background/padding on .sidebar-worktree-card-inner are ALSO
+   gated on the .expanded modifier (not just the grid row itself): a
+   border's width is painted at full size regardless of how small its box
+   is squeezed to, so a border set unconditionally here left a visible
+   1-2px sliver even at grid-template-rows: 0fr — a real reported bug.
+   Transitioning them alongside the grid-rows keeps the whole thing
+   feeling like one smooth reveal rather than a border/background
+   popping in abruptly right as the row finishes growing. */
+.sidebar-worktree-card-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms ease;
+}
+
+.sidebar-worktree-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-worktree-card-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 0.8rem;
+  transition: padding 200ms ease, border-color 200ms ease, background-color 200ms ease;
+}
+
+.sidebar-worktree-card-wrapper.expanded .sidebar-worktree-card-inner {
+  padding: 0.75rem 0.7rem 0.6rem;
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.sidebar-worktree-card-name {
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.sidebar-worktree-card-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+
+.sidebar-worktree-card-icons button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+}
+
+.sidebar-worktree-card-icons button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.sidebar-worktree-card-icons button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sidebar-worktree-card-icons button.active {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* Delete — used to live behind the row's kebab menu (WorktreeActionsMenu.tsx,
+   removed), now just another icon button here, styled to still read as a
+   destructive action. */
+.sidebar-worktree-card-icons button.danger {
+  color: var(--red);
+}
+
+.sidebar-worktree-card-icons button.danger:hover:not(:disabled) {
+  border-color: var(--red);
+  background: var(--red-dim);
+}
+
 /* WorktreeHoverPopover.tsx — the full-name/PR/git-summary flyout shown on
    hover. Rendered via a portal into document.body and positioned with
    `position: fixed` from a viewport-relative getBoundingClientRect (see

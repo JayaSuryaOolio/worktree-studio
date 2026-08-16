@@ -19,12 +19,17 @@
   height: 100%;
 }
 
+/* The git-filter/PR-badge controls that used to live here moved to the
+   sidebar's expandable worktree card (see Sidebar.tsx's SidebarWorktreeRow
+   and activeFileTreeActions.ts) — this is now the folder name (which takes
+   the remaining space so the buttons stay grouped at the right edge
+   regardless of name length) plus copy-path/collapse-all, which stay here
+   since they only make sense right next to the tree they act on. */
 .file-tree-heading {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.4rem;
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--border);
   font-family: var(--font-ui);
@@ -33,19 +38,15 @@
   color: var(--text);
 }
 
-/* Left-hand group (git-branch filter toggle + PR badge) — the collapse-
-   all button on the right (below) stays pinned there via the heading's
-   own justify-content: space-between, regardless of how much this group
-   grows. */
-.file-tree-heading-left {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
+.file-tree-folder-name {
+  flex: 1;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
-.file-tree-git-icon,
+.file-tree-copy-path,
 .file-tree-collapse-all {
   flex-shrink: 0;
   display: inline-flex;
@@ -62,47 +63,10 @@
   cursor: pointer;
 }
 
-.file-tree-git-icon:hover,
+.file-tree-copy-path:hover,
 .file-tree-collapse-all:hover {
   background: var(--bg-hover);
   color: var(--text);
-}
-
-.file-tree-git-icon:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-.file-tree-git-icon:disabled:hover {
-  background: none;
-  color: var(--text-dim);
-}
-
-/* Active = the tree is currently filtered to only changed files. */
-.file-tree-git-icon.active {
-  color: var(--amber);
-  background: var(--amber-dim);
-}
-
-.file-tree-pr-badge {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.1rem 0.5rem;
-  color: var(--cyan);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-pr-badge:hover {
-  background: var(--cyan-dim);
-  border-color: var(--cyan);
 }
 
 .file-tree-body {

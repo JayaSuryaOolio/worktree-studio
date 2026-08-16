@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FileTree, { filterTreeToChangedFiles } from "./FileTree";
+import { getActiveFileTreeActions } from "./activeFileTreeActions";
 
 vi.mock("./api", () => ({
   getFileTree: vi.fn(),
@@ -65,6 +66,27 @@ describe("FileTree", () => {
     expect(row.closest(".file-tree-row")?.textContent).not.toMatch(/[▾▸]/);
   });
 
+  it("shows the folder's basename in the header", async () => {
+    render(
+      <FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} folderPath="/tmp/adelaide-wt/my-worktree" />
+    );
+    expect(await screen.findByText("my-worktree")).toBeInTheDocument();
+  });
+
+  it("copies the full folder path when the copy button is clicked", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} folderPath="/tmp/adelaide-wt/my-worktree" />
+    );
+    // Set up after userEvent.setup() — it installs its own navigator.clipboard
+    // stub for copy/paste emulation, which would otherwise clobber this one.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    await user.click(await screen.findByTitle("Copy full folder path"));
+    expect(writeText).toHaveBeenCalledWith("/tmp/adelaide-wt/my-worktree");
+  });
+
   it("collapse-all closes a folder that was opened", async () => {
     const user = userEvent.setup();
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
@@ -78,52 +100,39 @@ describe("FileTree", () => {
     expect(screen.getByText("src")).toBeInTheDocument();
   });
 
-  it("the git-filter icon is disabled when there are no changed files", async () => {
+  it("registers changedFilesAvailable as false when there are no changed files", async () => {
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
     await screen.findByText("main.go");
-    expect(await screen.findByTitle("Filter to only files changed in this branch")).toBeDisabled();
+    await waitFor(() => expect(getActiveFileTreeActions()?.changedFilesAvailable).toBe(false));
   });
 
-  it("clicking the git icon filters the tree to only changed files, preserving nesting", async () => {
+  it("toggleChangedFilesFilter filters the tree to only changed files, preserving nesting", async () => {
     vi.mocked(getWorktreeSummary).mockResolvedValue({
       ...noSummary,
       dirty: true,
       changed_files: ["src/main.go", "README.md"],
     });
-    const user = userEvent.setup();
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
     await screen.findByText("helper.go");
 
-    const gitButton = await screen.findByTitle("Filter to only files changed in this branch");
-    expect(gitButton).not.toBeDisabled();
-    await user.click(gitButton);
+    await waitFor(() => expect(getActiveFileTreeActions()?.changedFilesAvailable).toBe(true));
+    act(() => {
+      getActiveFileTreeActions()?.toggleChangedFilesFilter();
+    });
 
     // main.go (changed) and its parent dir survive; helper.go (unchanged)
     // and node_modules (no changed descendants) don't.
+    await waitFor(() => expect(screen.queryByText("helper.go")).not.toBeInTheDocument());
     expect(screen.getByText("src")).toBeInTheDocument();
     expect(screen.getByText("main.go")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
-    expect(screen.queryByText("helper.go")).not.toBeInTheDocument();
     expect(screen.queryByText("node_modules")).not.toBeInTheDocument();
 
-    // Clicking again turns the filter back off.
-    await user.click(screen.getByTitle(/Showing only files changed/));
-    expect(await screen.findByText("helper.go")).toBeInTheDocument();
-  });
-
-  it("shows a PR badge that opens the PR URL when clicked", async () => {
-    vi.mocked(getWorktreeSummary).mockResolvedValue({
-      ...noSummary,
-      pr: { number: 42, title: "Add the thing", state: "OPEN", url: "https://example.com/pr/42", is_draft: false },
+    // Toggling again turns the filter back off.
+    act(() => {
+      getActiveFileTreeActions()?.toggleChangedFilesFilter();
     });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-    const user = userEvent.setup();
-    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
-
-    const badge = await screen.findByText("#42 ↗");
-    await user.click(badge);
-    expect(openSpy).toHaveBeenCalledWith("https://example.com/pr/42", "_blank", "noopener,noreferrer");
-    openSpy.mockRestore();
+    expect(await screen.findByText("helper.go")).toBeInTheDocument();
   });
 });
 

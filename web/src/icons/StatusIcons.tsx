@@ -33,3 +33,26 @@ export function SpotlightIcon({ size = 14 }: { size?: number }) {
     </svg>
   );
 }
+
+// A single down-chevron, rotated 180deg via CSS when expanded (see
+// .sidebar-worktree-expand-toggle in sidebar.css) — the sidebar's
+// worktree-card expand/collapse affordance.
+export function ChevronIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4 6 L8 10 L12 6" />
+    </svg>
+  );
+}

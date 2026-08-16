@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,6 +58,7 @@ import {
   saveWorktreeLayout,
 } from "./api";
 import { useRepoContext } from "./RepoContext";
+import { getActiveWorktreeActions } from "./activeWorktreeActions";
 
 function renderPage() {
   return render(
@@ -146,26 +147,34 @@ describe("WorktreeDetail", () => {
     expect(term.closest(".terminal-panel-inset")).not.toHaveClass("cwd-mismatch");
   });
 
-  it("creates a terminal via the '+' new-terminal-tab action and renders it", async () => {
-    const user = userEvent.setup();
+  // The "+"/split-right/split-down buttons that used to live in this
+  // component's own toolbar now live in the sidebar's expandable worktree
+  // card and call through the activeWorktreeActions registry instead — see
+  // activeWorktreeActions.ts. Driven here the same way that consumer would.
+  it("creates a terminal via the registered newTerminal action and renders it", async () => {
     renderPage();
     await screen.findByTestId("terminal-t1");
 
-    await user.click(screen.getByRole("button", { name: "New terminal tab" }));
+    await act(async () => {
+      getActiveWorktreeActions()?.newTerminal();
+    });
 
     await waitFor(() => expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined));
     expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
   });
 
-  it("creates a terminal via 'Split right' and via 'Split down'", async () => {
-    const user = userEvent.setup();
+  it("creates a terminal via the registered splitRight and splitDown actions", async () => {
     renderPage();
     await screen.findByTestId("terminal-t1");
 
-    await user.click(screen.getByRole("button", { name: "Split right (new terminal)" }));
+    await act(async () => {
+      getActiveWorktreeActions()?.splitRight();
+    });
     expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Split down (new terminal)" }));
+    await act(async () => {
+      getActiveWorktreeActions()?.splitDown();
+    });
     expect(await screen.findByTestId("terminal-t3")).toBeInTheDocument();
 
     expect(createTerminal).toHaveBeenCalledTimes(2);
@@ -186,12 +195,13 @@ describe("WorktreeDetail", () => {
       // deadlocking the test rather than actually speeding it up. A 600ms
       // real wait for one test is a fine price for exercising the real
       // debounce path end-to-end instead of mocking it away.
-      const user = userEvent.setup();
       renderPage();
       await screen.findByTestId("terminal-t1");
       await waitFor(() => expect(getWorktreeLayout).toHaveBeenCalled());
 
-      await user.click(screen.getByRole("button", { name: "New terminal tab" }));
+      await act(async () => {
+        getActiveWorktreeActions()?.newTerminal();
+      });
       await screen.findByTestId("terminal-t2");
 
       // Nothing saved yet — still inside the debounce window.

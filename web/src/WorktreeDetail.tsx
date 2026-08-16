@@ -25,13 +25,13 @@ import WorktreeAuditLog from "./WorktreeAuditLog";
 import FileTree from "./FileTree";
 import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
-import VSCodeIcon from "./icons/VSCodeIcon";
 import ClaudeIcon from "./icons/ClaudeIcon";
-import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
+import { registerActiveWorktreeActions } from "./activeWorktreeActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
 import { getStoredFilesOpen, setStoredFilesOpen } from "./filesPanelPreference";
+import { useWorktreeSummary } from "./useWorktreeSummary";
 
 interface TerminalPanelParams {
   terminalId: string;
@@ -240,6 +240,9 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const [filesOpen, setFilesOpen] = useState(getStoredFilesOpen);
   const [vscodeAvailable, setVscodeAvailable] = useState(false);
   const [vscodeError, setVscodeError] = useState<string | null>(null);
+  const [branchCopied, setBranchCopied] = useState(false);
+  const branchCopiedTimeoutRef = useRef<number | undefined>(undefined);
+  const { summary } = useWorktreeSummary(repoId, worktreeId, true);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   // State (not a ref) deliberately: the effect that applies the initial
   // saved layout needs to re-run once this becomes available, and refs
@@ -304,6 +307,16 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       // the check above and this click).
       setVscodeError((err as Error).message);
     }
+  }
+
+  function copyBranch() {
+    const branch = worktree?.branch;
+    if (!branch) return;
+    navigator.clipboard.writeText(branch).then(() => {
+      setBranchCopied(true);
+      if (branchCopiedTimeoutRef.current) window.clearTimeout(branchCopiedTimeoutRef.current);
+      branchCopiedTimeoutRef.current = window.setTimeout(() => setBranchCopied(false), 1500);
+    });
   }
 
   // Seed dockview with a panel per known terminal that doesn't already
@@ -472,72 +485,33 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     return () => registerActiveFileOpener(null);
   });
 
+  // Same "no deps, re-register every render" idiom as the file-opener
+  // registration above — the sidebar's action icons for the currently-open
+  // worktree call straight through into this instance's own handlers, and
+  // need to see fresh values (e.g. filesOpen/vscodeAvailable flipping)
+  // immediately, not just at mount. See activeWorktreeActions.ts.
+  useEffect(() => {
+    registerActiveWorktreeActions({
+      worktreeId,
+      filesOpen,
+      toggleFiles: () =>
+        setFilesOpen((o) => {
+          const next = !o;
+          setStoredFilesOpen(next);
+          return next;
+        }),
+      vscodeAvailable,
+      openVSCode: handleOpenInVSCode,
+      openLog: () => setLogOpen(true),
+      newTerminal: () => handleNewTerminal("within"),
+      splitRight: () => handleNewTerminal("right"),
+      splitDown: () => handleNewTerminal("below"),
+    });
+    return () => registerActiveWorktreeActions(null);
+  });
+
   return (
     <div className="container worktree-detail">
-      <div className="terminal-toolbar">
-        <div className="terminal-toolbar-left">
-          <button
-            title="Toggle the file tree sidebar"
-            onClick={() =>
-              setFilesOpen((o) => {
-                const next = !o;
-                setStoredFilesOpen(next);
-                return next;
-              })
-            }
-            aria-pressed={filesOpen}
-          >
-            📁 Files
-          </button>
-          <button
-            title={
-              vscodeAvailable
-                ? "Open this worktree in VS Code"
-                : "VS Code CLI ('code') not detected — see Settings > Installation"
-            }
-            disabled={!vscodeAvailable}
-            onClick={handleOpenInVSCode}
-            className="button-with-icon"
-          >
-            <VSCodeIcon /> VS Code
-          </button>
-          <button title="View this worktree's audit log" onClick={() => setLogOpen(true)}>
-            🕐 Log
-          </button>
-        </div>
-        <div className="terminal-toolbar-actions">
-          <button
-            aria-label="Open this worktree in a new browser tab"
-            title="Open this worktree in a new browser tab"
-            onClick={() => window.open(window.location.href, "_blank")}
-          >
-            ⧉
-          </button>
-          <button
-            aria-label="New terminal tab"
-            title="New terminal tab"
-            onClick={() => handleNewTerminal("within")}
-          >
-            +
-          </button>
-          <button
-            aria-label="Split right (new terminal)"
-            title="Split right (new terminal)"
-            className="button-with-icon"
-            onClick={() => handleNewTerminal("right")}
-          >
-            <SplitVerticalIcon />
-          </button>
-          <button
-            aria-label="Split down (new terminal)"
-            title="Split down (new terminal)"
-            className="button-with-icon"
-            onClick={() => handleNewTerminal("below")}
-          >
-            <SplitHorizontalIcon />
-          </button>
-        </div>
-      </div>
       {error && <p className="error">{error}</p>}
       {vscodeError && <p className="error">Failed to open VS Code: {vscodeError}</p>}
 
@@ -549,10 +523,38 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               worktreeId={worktreeId}
               onOpenFile={handleOpenFile}
               activePath={activeFilePath}
+              folderPath={worktreePath}
             />
           </div>
         )}
         <div className="terminal-area">
+          {/* Sits directly above the shell tabs, not spanning the file
+              tree column too — a title for this worktree's terminal/editor
+              area specifically. */}
+          <div className="worktree-header">
+            {summary?.pr ? (
+              <a
+                className="worktree-header-pr"
+                href={summary.pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                [PR #{summary.pr.number}
+                {summary.pr.is_draft ? " (draft)" : ""} — {summary.pr.title}]
+              </a>
+            ) : (
+              <span className="worktree-header-pr-none">[No pull request for this branch]</span>
+            )}
+            <span className="worktree-header-branch-name">{worktree?.branch}</span>
+            <button
+              type="button"
+              className="worktree-header-copy"
+              title="Copy branch name"
+              onClick={copyBranch}
+            >
+              {branchCopied ? "Copied" : "⧉"}
+            </button>
+          </div>
           <WatermarkActionsContext.Provider
             value={{
               onOpenShell: () => handleNewTerminal("within"),

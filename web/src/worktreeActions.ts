@@ -51,14 +51,10 @@ export function daysUntilAutoDelete(archivedAt: string): number | null {
   return Math.ceil((deadlineMs - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-// Kept for a future settings-modal bulk-delete view (filter by repo/
-// status, then actually remove) — not wired to any UI today, since the
-// per-worktree kebab menu now offers Archive instead (see
-// archiveWorktreeWithConfirm above).
 export async function deleteWorktreeWithConfirm(wt: Worktree, { onDone, onError }: ActionCallbacks) {
   if (
     !confirm(
-      `Remove worktree "${wt.name}" (branch ${wt.branch})? Any uncommitted changes in it will be lost.`
+      `Permanently delete worktree "${wt.name}" (branch ${wt.branch})? This removes the git worktree from disk immediately — the branch itself is kept. Any uncommitted changes in it will be lost. This can't be undone (unlike Archive, which keeps it around for ${ARCHIVED_RETENTION_DAYS} days).`
     )
   )
     return;

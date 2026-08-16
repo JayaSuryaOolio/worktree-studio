@@ -1,20 +1,235 @@
 import { useState } from "react";
 import { Link, useMatch } from "react-router-dom";
-import { Worktree } from "./api";
+import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 import { useRepoContext } from "./RepoContext";
-import WorktreeActionsMenu from "./WorktreeActionsMenu";
 import SettingsModal from "./SettingsModal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
-import { archiveWorktreeWithConfirm, startSpotlightWithFriendlyError, stopSpotlightSafe } from "./worktreeActions";
-import { useTransientIndicator } from "./useTransientIndicator";
+import {
+  archiveWorktreeWithConfirm,
+  deleteWorktreeWithConfirm,
+  startSpotlightWithFriendlyError,
+  stopSpotlightSafe,
+} from "./worktreeActions";
+import { TransientIndicatorPhase, useTransientIndicator } from "./useTransientIndicator";
 import { rootWorktreeId } from "./rootWorktree";
 import WorktreeHoverPopover from "./WorktreeHoverPopover";
-import { SpotlightIcon } from "./icons/StatusIcons";
+import { ChevronIcon, SpotlightIcon } from "./icons/StatusIcons";
+import { GitBranchIcon } from "./icons/FileTreeIcons";
+import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
+import VSCodeIcon from "./icons/VSCodeIcon";
 import { useAttentionBlink } from "./useAttentionBlink";
+import { useActiveWorktreeActions } from "./activeWorktreeActions";
+import { useActiveFileTreeActions } from "./activeFileTreeActions";
 
 interface Props {
   onAddRepo: () => void;
   onNewWorktree: (repoId: string) => void;
+}
+
+interface RowProps {
+  repoId: string;
+  wt: Worktree;
+  isActive: boolean;
+  status: WorktreeStatus | undefined;
+  spot: SpotlightStatus | undefined;
+  spotlightPending: boolean;
+  attentionMessage: string | undefined;
+  attentionBlinking: boolean;
+  refreshingPhase: TransientIndicatorPhase;
+  onSpotlightStart: () => void;
+  onSpotlightStop: () => void;
+  onViewLog: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  activeWorktreeActions: ReturnType<typeof useActiveWorktreeActions>;
+  activeFileTreeActions: ReturnType<typeof useActiveFileTreeActions>;
+}
+
+// A worktree row that expands, accordion-style, into a card with the full
+// worktree name, copyable branch name, and every per-worktree action: the
+// icons that used to live in WorktreeDetail.tsx's toolbar and
+// FileTree.tsx's header (files/VS Code/terminal split/git-filter), plus
+// the items that used to live behind the row's kebab menu (spotlight,
+// view log, archive, delete). Only the first group depends on this
+// worktree actually being open right now (see
+// activeWorktreeActions.ts/activeFileTreeActions.ts) — the rest are plain
+// API calls or local modal state, so they work regardless.
+function SidebarWorktreeRow({
+  repoId,
+  wt,
+  isActive,
+  status,
+  spot,
+  spotlightPending,
+  attentionMessage,
+  attentionBlinking,
+  refreshingPhase,
+  onSpotlightStart,
+  onSpotlightStop,
+  onViewLog,
+  onArchive,
+  onDelete,
+  activeWorktreeActions,
+  activeFileTreeActions,
+}: RowProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const forThisWorktree = activeWorktreeActions?.worktreeId === wt.id ? activeWorktreeActions : null;
+  const fileTreeForThisWorktree = activeFileTreeActions?.worktreeId === wt.id ? activeFileTreeActions : null;
+  const inactiveTitle = "Open this worktree first";
+
+  return (
+    <li className="sidebar-worktree-card">
+      <WorktreeHoverPopover wt={wt}>
+        <Link
+          to={`/repo/${repoId}/worktree/${wt.id}`}
+          className={isActive ? "sidebar-worktree active" : "sidebar-worktree"}
+        >
+          <span className="sidebar-worktree-branch">{wt.branch}</span>
+          <span className="sidebar-worktree-meta">
+            {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
+              <span
+                className="sidebar-ticks"
+                title={`${status.ahead} ahead, ${status.behind} behind upstream`}
+              >
+                {status.ahead > 0 && `↑${status.ahead}`}
+                {status.behind > 0 && `↓${status.behind}`}
+              </span>
+            )}
+            {(spotlightPending || spot?.active) && (
+              <span
+                className={spotlightPending ? "sidebar-spotlight-icon pending" : "sidebar-spotlight-icon"}
+                title={spotlightPending ? "Updating spotlight status…" : "Spotlight active"}
+              >
+                <SpotlightIcon size={13} />
+              </span>
+            )}
+            {attentionMessage !== undefined && (
+              <span
+                className={
+                  attentionBlinking ? "sidebar-dot sidebar-dot-attention blinking" : "sidebar-dot sidebar-dot-attention"
+                }
+                title={attentionMessage || "Claude is waiting for your input"}
+              />
+            )}
+            {isActive && refreshingPhase !== "hidden" && (
+              <span
+                className={refreshingPhase === "fading" ? "sidebar-status-refreshing fading" : "sidebar-status-refreshing"}
+                title="Refreshing status…"
+                aria-label="Refreshing status"
+              />
+            )}
+            <button
+              type="button"
+              className="sidebar-worktree-expand-toggle"
+              aria-label={expanded ? `Collapse ${wt.branch}` : `Expand ${wt.branch}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
+            >
+              <ChevronIcon />
+            </button>
+          </span>
+        </Link>
+      </WorktreeHoverPopover>
+
+      <div
+        className={expanded ? "sidebar-worktree-card-wrapper expanded" : "sidebar-worktree-card-wrapper"}
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div className="sidebar-worktree-card-inner">
+          <div className="sidebar-worktree-card-name">{wt.name}</div>
+          <div className="sidebar-worktree-card-icons">
+            <button
+              type="button"
+              className={fileTreeForThisWorktree?.filterToChanged ? "active" : undefined}
+              disabled={!fileTreeForThisWorktree?.changedFilesAvailable}
+              title={fileTreeForThisWorktree ? "Filter to only files changed in this branch" : inactiveTitle}
+              onClick={() => fileTreeForThisWorktree?.toggleChangedFilesFilter()}
+            >
+              <GitBranchIcon size={14} />
+            </button>
+            <button
+              type="button"
+              className={forThisWorktree?.filesOpen ? "active" : undefined}
+              disabled={!forThisWorktree}
+              title={forThisWorktree ? "Toggle the file tree sidebar" : inactiveTitle}
+              onClick={() => forThisWorktree?.toggleFiles()}
+            >
+              📁
+            </button>
+            <button
+              type="button"
+              disabled={!forThisWorktree || !forThisWorktree.vscodeAvailable}
+              title={
+                !forThisWorktree
+                  ? inactiveTitle
+                  : forThisWorktree.vscodeAvailable
+                    ? "Open this worktree in VS Code"
+                    : "VS Code CLI ('code') not detected — see Settings > Installation"
+              }
+              onClick={() => forThisWorktree?.openVSCode()}
+            >
+              <VSCodeIcon size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={!forThisWorktree}
+              title={forThisWorktree ? "New terminal tab" : inactiveTitle}
+              onClick={() => forThisWorktree?.newTerminal()}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              disabled={!forThisWorktree}
+              title={forThisWorktree ? "Split right (new terminal)" : inactiveTitle}
+              onClick={() => forThisWorktree?.splitRight()}
+            >
+              <SplitVerticalIcon size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={!forThisWorktree}
+              title={forThisWorktree ? "Split down (new terminal)" : inactiveTitle}
+              onClick={() => forThisWorktree?.splitDown()}
+            >
+              <SplitHorizontalIcon size={14} />
+            </button>
+            {/* Used to live behind the row's kebab menu — none of these
+                depend on this worktree being the currently-open one (unlike
+                the icons above), so they're always enabled. */}
+            {spot?.available &&
+              (spot.active ? (
+                <button type="button" title="Stop spotlight" onClick={onSpotlightStop}>
+                  <SpotlightIcon size={14} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title={spot.active_worktree_path ? "Start spotlight (replaces active mirror)" : "Start spotlight"}
+                  onClick={onSpotlightStart}
+                >
+                  <SpotlightIcon size={14} />
+                </button>
+              ))}
+            <button type="button" title="View worktree log" onClick={onViewLog}>
+              🕐
+            </button>
+            <button type="button" title="Archive" onClick={onArchive}>
+              🗄
+            </button>
+            <button type="button" className="danger" title="Delete" onClick={onDelete}>
+              🗑
+            </button>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
 }
 
 // The persistent left sidebar: every registered repo, with its worktrees
@@ -85,6 +300,12 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   // (only the explicit clear-on-focus in RepoContext.tsx removes it); this
   // only controls whether it's currently animating or holding steady.
   const attentionBlinking = useAttentionBlink(Object.keys(attentionPending));
+
+  // Whichever worktree is actually open right now (if any) — shared by
+  // every row's expanded card so only that one gets live, enabled action
+  // icons. See activeWorktreeActions.ts/activeFileTreeActions.ts.
+  const activeWorktreeActions = useActiveWorktreeActions();
+  const activeFileTreeActions = useActiveFileTreeActions();
 
   const [error, setError] = useState<string | null>(null);
   const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
@@ -170,118 +391,39 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                 </div>
 
                 <ul className="sidebar-worktree-list">
-                  {(worktreesByRepo[r.id] ?? []).map((wt) => {
-                    const status = gitStatus[wt.id];
-                    const spot = spotlightStatus[wt.id];
-                    return (
-                      <li key={wt.id}>
-                        {/* "Flight strip" row — see docs/design.md. Only
-                            the currently-selected worktree gets a color
-                            (green); dirty/clean isn't encoded via the
-                            row's own border color anymore (see style.css
-                            for why — per direct feedback that was noise,
-                            not signal), just the ahead/behind ticks below.
-                            Wrapped in WorktreeHoverPopover for the full
-                            name + PR/git-summary popover — the row itself
-                            has no room to show either, hence hover. */}
-                        <WorktreeHoverPopover wt={wt}>
-                        <Link
-                          to={`/repo/${r.id}/worktree/${wt.id}`}
-                          className={
-                            wt.id === activeWorktreeId
-                              ? "sidebar-worktree active"
-                              : "sidebar-worktree"
-                          }
-                        >
-                          <span className="sidebar-worktree-branch">{wt.branch}</span>
-                          <span className="sidebar-worktree-meta">
-                            {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
-                              <span
-                                className="sidebar-ticks"
-                                title={`${status.ahead} ahead, ${status.behind} behind upstream`}
-                              >
-                                {status.ahead > 0 && `↑${status.ahead}`}
-                                {status.behind > 0 && `↓${status.behind}`}
-                              </span>
-                            )}
-                            {/* Blinks (via opacity) for the full duration of
-                                a spotlight start/stop (see
-                                handleSpotlightStart/Stop above) — a real
-                                reported bug was that this only ever caught
-                                up on whatever the background poller's own
-                                next tick happened to be, up to 15s later,
-                                which read as the action itself being slow.
-                                A lamp icon, not a dot — see StatusIcons.tsx;
-                                the plain dot look moved to the attention
-                                badge below instead. */}
-                            {(spotlightPending[wt.id] || spot?.active) && (
-                              <span
-                                className={
-                                  spotlightPending[wt.id]
-                                    ? "sidebar-spotlight-icon pending"
-                                    : "sidebar-spotlight-icon"
-                                }
-                                title={spotlightPending[wt.id] ? "Updating spotlight status…" : "Spotlight active"}
-                              >
-                                <SpotlightIcon size={13} />
-                              </span>
-                            )}
-                            {/* A claude session in this worktree is waiting
-                                on a permission prompt or user input — see
-                                useAttentionStream.ts/internal/attention.
-                                Persists (regardless of focus) until the
-                                worktree's detail page is opened, which
-                                clears it (see RepoContext.tsx) — it never
-                                disappears on its own. Blinks for its first
-                                10s (useAttentionBlink.ts), then holds
-                                steady for as long as it stays pending —
-                                blinking forever read as more alarming than
-                                useful. */}
-                            {wt.id in attentionPending && (
-                              <span
-                                className={
-                                  attentionBlinking.has(wt.id)
-                                    ? "sidebar-dot sidebar-dot-attention blinking"
-                                    : "sidebar-dot sidebar-dot-attention"
-                                }
-                                title={attentionPending[wt.id] || "Claude is waiting for your input"}
-                              />
-                            )}
-                            {/* Only meaningful for the just-focused worktree in
-                                practice (see RepoContext.tsx's stale-on-focus
-                                refresh) — a brief, non-blocking cue that a
-                                just-opened worktree's status was stale and is
-                                being refreshed, not a permanent loading state.
-                                Debounced/held/fade-out via
-                                useTransientIndicator so a fast refresh (the
-                                common case) doesn't just flash on and off. */}
-                            {wt.id === activeWorktreeId && activeStatusRefreshingPhase !== "hidden" && (
-                              <span
-                                className={
-                                  activeStatusRefreshingPhase === "fading"
-                                    ? "sidebar-status-refreshing fading"
-                                    : "sidebar-status-refreshing"
-                                }
-                                title="Refreshing status…"
-                                aria-label="Refreshing status"
-                              />
-                            )}
-                            <WorktreeActionsMenu
-                              wt={wt}
-                              spotlightStatus={spot}
-                              onSpotlightStart={() => handleSpotlightStart(wt)}
-                              onSpotlightStop={() => handleSpotlightStop(wt)}
-                              onViewLog={() => setLogWorktree(wt)}
-                              onArchive={() =>
-                                archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
-                              }
-                            />
-                          </span>
-                        </Link>
-                        </WorktreeHoverPopover>
-                      </li>
-                    );
-                  })}
+                  {/* "Flight strip" row — see docs/design.md. Only the
+                      currently-selected worktree gets a color (green);
+                      dirty/clean isn't encoded via the row's own border
+                      color anymore (see style.css for why — per direct
+                      feedback that was noise, not signal), just the
+                      ahead/behind ticks below. Expands, accordion-style,
+                      into a card with the full name/PR/action icons — see
+                      SidebarWorktreeRow above. */}
+                  {(worktreesByRepo[r.id] ?? []).map((wt) => (
+                    <SidebarWorktreeRow
+                      key={wt.id}
+                      repoId={r.id}
+                      wt={wt}
+                      isActive={wt.id === activeWorktreeId}
+                      status={gitStatus[wt.id]}
+                      spot={spotlightStatus[wt.id]}
+                      spotlightPending={!!spotlightPending[wt.id]}
+                      attentionMessage={attentionPending[wt.id]}
+                      attentionBlinking={attentionBlinking.has(wt.id)}
+                      refreshingPhase={wt.id === activeWorktreeId ? activeStatusRefreshingPhase : "hidden"}
+                      onSpotlightStart={() => handleSpotlightStart(wt)}
+                      onSpotlightStop={() => handleSpotlightStop(wt)}
+                      onViewLog={() => setLogWorktree(wt)}
+                      onArchive={() =>
+                        archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+                      }
+                      onDelete={() =>
+                        deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+                      }
+                      activeWorktreeActions={activeWorktreeActions}
+                      activeFileTreeActions={activeFileTreeActions}
+                    />
+                  ))}
                   {worktreesLoading && (worktreesByRepo[r.id]?.length ?? 0) === 0 && (
                     <li className="sidebar-empty muted">Loading…</li>
                   )}

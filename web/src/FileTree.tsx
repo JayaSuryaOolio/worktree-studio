@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { getFileTree, type FileNode } from "./api";
 import FileTypeIcon from "./icons/FileTypeIcon";
-import { CollapseAllIcon, GitBranchIcon } from "./icons/FileTreeIcons";
+import { CollapseAllIcon } from "./icons/FileTreeIcons";
 import { useWorktreeSummary } from "./useWorktreeSummary";
+import { registerActiveFileTreeActions } from "./activeFileTreeActions";
 
 interface FileTreeProps {
   repoId: string;
@@ -13,6 +14,13 @@ interface FileTreeProps {
    * and scrolled into view in the tree. See WorktreeDetail.tsx's dockview
    * onDidActivePanelChange wiring. */
   activePath?: string | null;
+  /** The worktree's full filesystem path — its basename is shown in the
+   * header (the git-filter/PR-badge controls that used to live here moved
+   * to the sidebar's expandable worktree card, see activeFileTreeActions.ts;
+   * collapse-all stays here since it only makes sense right next to the
+   * tree it acts on), and the full path is what the header's copy button
+   * copies. */
+  folderPath?: string;
 }
 
 // Prunes tree down to only the files in changedFiles (matched by their
@@ -70,12 +78,22 @@ function useElementSize<T extends HTMLElement>() {
 // WorktreeDetail.tsx's .worktree-body). Built on react-arborist rather
 // than a hand-rolled tree for a closer-to-VS-Code feel (keyboard nav,
 // virtualization) with far less of our own code to maintain.
-export default function FileTree({ repoId, worktreeId, onOpenFile, activePath }: FileTreeProps) {
+export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, folderPath }: FileTreeProps) {
   const [tree, setTree] = useState<FileNode[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterToChanged, setFilterToChanged] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
   const treeApiRef = useRef<TreeApi<FileNode> | undefined>(undefined);
   const [containerRef, size] = useElementSize<HTMLDivElement>();
+  const folderName = folderPath?.split("/").pop();
+
+  function copyFolderPath() {
+    if (!folderPath) return;
+    navigator.clipboard.writeText(folderPath).then(() => {
+      setPathCopied(true);
+      window.setTimeout(() => setPathCopied(false), 1500);
+    });
+  }
 
   // Always enabled (unlike WorktreeHoverPopover's hover-gated fetch) —
   // the header's git icon/PR badge should be ready the moment the panel
@@ -107,35 +125,36 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath }:
     return filterTreeToChangedFiles(tree, changedFilesSet);
   }, [tree, filterToChanged, changedFilesSet]);
 
+  // Registers the git-filter control (rendered in the sidebar's expandable
+  // worktree card) against this specific FileTree instance — only while
+  // it's actually mounted (i.e. only while the files panel is open), same
+  // no-deps re-register-every-render idiom as
+  // activeWorktreeFileOpener.ts/activeWorktreeActions.ts.
+  useEffect(() => {
+    registerActiveFileTreeActions({
+      worktreeId,
+      filterToChanged,
+      changedFilesAvailable: changedFilesSet.size > 0,
+      toggleChangedFilesFilter: () => setFilterToChanged((v) => !v),
+    });
+    return () => registerActiveFileTreeActions(null);
+  });
+
   return (
     <div className="file-tree-panel">
       <div className="file-tree-heading">
-        <div className="file-tree-heading-left">
-          <button
-            type="button"
-            className={filterToChanged ? "file-tree-git-icon active" : "file-tree-git-icon"}
-            title={
-              filterToChanged
-                ? "Showing only files changed in this branch — click to show all files"
-                : "Filter to only files changed in this branch"
-            }
-            aria-pressed={filterToChanged}
-            disabled={changedFilesSet.size === 0}
-            onClick={() => setFilterToChanged((v) => !v)}
-          >
-            <GitBranchIcon size={14} />
-          </button>
-          {summary?.pr && (
-            <button
-              type="button"
-              className="file-tree-pr-badge"
-              title={`Open PR #${summary.pr.number} in your browser: ${summary.pr.title}`}
-              onClick={() => window.open(summary.pr!.url, "_blank", "noopener,noreferrer")}
-            >
-              #{summary.pr.number} ↗
-            </button>
-          )}
-        </div>
+        <span className="file-tree-folder-name" title={folderPath}>
+          {folderName}
+        </span>
+        <button
+          type="button"
+          className="file-tree-copy-path"
+          title="Copy full folder path"
+          disabled={!folderPath}
+          onClick={copyFolderPath}
+        >
+          {pathCopied ? "Copied" : "⧉"}
+        </button>
         <button
           type="button"
           className="file-tree-collapse-all"
