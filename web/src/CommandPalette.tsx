@@ -64,7 +64,14 @@ export default function CommandPalette({ onAddRepo, onNewWorktree, onAttachWorkt
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const key = e.key.toLowerCase();
+      // Cmd/Ctrl+P is remapped to this palette too — this is a local tool
+      // for jumping around repos/worktrees/files, not a document anyone
+      // needs the browser's own print dialog for, and "P" already reads as
+      // "quick open" muscle memory from every editor this app is modeled
+      // on (VS Code, JetBrains, etc.).
+      if (key === "k" || key === "p") {
         e.preventDefault();
         setOpen((o) => !o);
       }

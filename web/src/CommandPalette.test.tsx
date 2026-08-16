@@ -65,6 +65,19 @@ describe("CommandPalette", () => {
     expect(screen.getByPlaceholderText(/jump to a repo\/worktree/i)).toBeInTheDocument();
   });
 
+  it("opens on Ctrl/Cmd+P too, and prevents the browser's print dialog", async () => {
+    render(<Harness />);
+    await waitFor(() => expect(listWorktrees).toHaveBeenCalled());
+
+    const event = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.getByPlaceholderText(/jump to a repo\/worktree/i)).toBeInTheDocument();
+  });
+
   it("navigates to a worktree when its item is selected, and closes", async () => {
     const user = userEvent.setup();
     render(<Harness />);
