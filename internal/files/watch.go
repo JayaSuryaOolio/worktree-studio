@@ -77,7 +77,13 @@ func (w *Watcher) addTreeRecursive(root string) error {
 			return nil // best-effort: a file disappearing mid-walk isn't fatal
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			// Same opaqueDirNames list files.go's tree listing uses to avoid
+			// descending into node_modules/build — the watcher needs it even
+			// more: recursively fsnotify.Add()-ing every directory inside a
+			// large node_modules tree exhausts the process's file descriptor
+			// limit ("too many open files"), which was a real reported
+			// failure, not hypothetical.
+			if d.Name() == ".git" || opaqueDirNames[d.Name()] {
 				return filepath.SkipDir
 			}
 			return w.fsWatcher.Add(path)

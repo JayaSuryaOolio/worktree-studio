@@ -99,6 +99,35 @@ func TestWatcherDebouncesBurst(t *testing.T) {
 	expectNoEvent(t, w.Events(), 500*time.Millisecond)
 }
 
+// Regression test for a real reported failure: recursively fsnotify-
+// watching every directory inside a large node_modules tree exhausted the
+// process's file descriptor limit ("too many open files"). The watcher
+// must skip opaque dirs (files.go's opaqueDirNames) the same way the file
+// tree's own listing does.
+func TestWatcherDoesNotWatchInsideOpaqueDirs(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "node_modules", "some-pkg")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nestedFile := filepath.Join(nested, "index.js")
+	if err := os.WriteFile(nestedFile, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := NewWatcher(dir)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	defer w.Close()
+
+	if err := os.WriteFile(nestedFile, []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	expectNoEvent(t, w.Events(), 700*time.Millisecond)
+}
+
 func TestManagerSharesWatcherAcrossSubscribers(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager()
