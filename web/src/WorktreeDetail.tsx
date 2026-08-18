@@ -27,6 +27,7 @@ import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
 import ClaudeIcon from "./icons/ClaudeIcon";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
+import { takePendingFileOpen } from "./pendingFileOpen";
 import { registerActiveWorktreeActions } from "./activeWorktreeActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
@@ -162,13 +163,13 @@ const components = { terminal: TerminalPanel, editor: EditorPanel };
 // (that's what lets Terminal.tsx/EditorPanel.tsx work as plain components
 // at all), so context set up in WorktreeDetailInner's render still reaches
 // this module-scope Watermark component through the portal.
-const WatermarkActionsContext = createContext<{
+const DockviewActionsContext = createContext<{
   onOpenShell: () => void;
   onOpenClaude: () => void;
 } | null>(null);
 
 function Watermark() {
-  const actions = useContext(WatermarkActionsContext);
+  const actions = useContext(DockviewActionsContext);
   return (
     <div className="dockview-watermark">
       <p>Nothing open in this worktree yet.</p>
@@ -183,6 +184,31 @@ function Watermark() {
         </div>
       )}
     </div>
+  );
+}
+
+// A "+" pinned to the far left of the tab strip (dockview's
+// prefixHeaderActionsComponent, which mounts into dv-pre-actions-container
+// — the first child, before any tabs; leftHeaderActionsComponent despite
+// its name renders AFTER the tabs, not before them). This is the one way
+// to open another shell once at least one panel already exists — the
+// per-worktree "new terminal" icon used to live in this component's own
+// toolbar, but that moved to the sidebar's expandable worktree card, which
+// the synthetic root worktree (a repo's own checkout) has no row/card for
+// at all. Reuses DockviewActionsContext (same bridge Watermark uses above)
+// since dockview-react renders this via the same portal-based tree.
+function NewTerminalPrefixAction() {
+  const actions = useContext(DockviewActionsContext);
+  if (!actions) return null;
+  return (
+    <button
+      type="button"
+      className="dockview-prefix-new-terminal"
+      title="New terminal tab"
+      onClick={actions.onOpenShell}
+    >
+      +
+    </button>
   );
 }
 
@@ -318,6 +344,33 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       branchCopiedTimeoutRef.current = window.setTimeout(() => setBranchCopied(false), 1500);
     });
   }
+
+  function toggleFiles() {
+    setFilesOpen((o) => {
+      const next = !o;
+      setStoredFilesOpen(next);
+      return next;
+    });
+  }
+
+  // Ctrl/Cmd+B toggles the file tree — the same shortcut VS Code and most
+  // other editors use for their own file explorer, so it's already muscle
+  // memory rather than something new to learn. Deliberately NOT intercepted
+  // while focus is inside a terminal pane: tmux's own default prefix key is
+  // literally Ctrl+B, so stealing it there would break every tmux binding
+  // (pane switching, copy-mode, etc.) for every shell in the app — a much
+  // worse regression than not having this shortcut work from a terminal.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "b") return;
+      if (e.target instanceof Element && e.target.closest(".xterm")) return;
+      e.preventDefault();
+      toggleFiles();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Seed dockview with a panel per known terminal that doesn't already
   // have one — used both as the fallback when there's no saved layout,
@@ -485,6 +538,18 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     return () => registerActiveFileOpener(null);
   });
 
+  // Consumes a file left for this worktree by RepoContext's /ws/open-file
+  // handler when it had to navigate here first (the target worktree wasn't
+  // already the open tab) — see pendingFileOpen.ts. Gated on dockviewApi so
+  // this fires once panels can actually be added, not on mount; takePendingFileOpen
+  // clears itself after one read, so this is safe to depend on dockviewApi
+  // alone rather than needing its own "already consumed" guard.
+  useEffect(() => {
+    if (!dockviewApi) return;
+    const path = takePendingFileOpen(worktreeId);
+    if (path) handleOpenFile(path);
+  }, [dockviewApi, worktreeId]);
+
   // Same "no deps, re-register every render" idiom as the file-opener
   // registration above — the sidebar's action icons for the currently-open
   // worktree call straight through into this instance's own handlers, and
@@ -494,12 +559,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     registerActiveWorktreeActions({
       worktreeId,
       filesOpen,
-      toggleFiles: () =>
-        setFilesOpen((o) => {
-          const next = !o;
-          setStoredFilesOpen(next);
-          return next;
-        }),
+      toggleFiles,
       vscodeAvailable,
       openVSCode: handleOpenInVSCode,
       openLog: () => setLogOpen(true),
@@ -555,7 +615,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               {branchCopied ? "Copied" : "⧉"}
             </button>
           </div>
-          <WatermarkActionsContext.Provider
+          <DockviewActionsContext.Provider
             value={{
               onOpenShell: () => handleNewTerminal("within"),
               onOpenClaude: () => handleNewTerminal("within", "claude", "claude"),
@@ -565,10 +625,11 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               components={components}
               tabComponents={tabComponents}
               watermarkComponent={Watermark}
+              prefixHeaderActionsComponent={NewTerminalPrefixAction}
               onReady={onDockviewReady}
               className="dockview-theme-abyss command-deck-dockview"
             />
-          </WatermarkActionsContext.Provider>
+          </DockviewActionsContext.Provider>
         </div>
       </div>
 

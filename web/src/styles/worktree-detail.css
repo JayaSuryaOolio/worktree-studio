@@ -183,6 +183,28 @@
   min-width: 0;
 }
 
+/* Pinned to the far left of the tab strip, before any tabs (dockview's
+   prefixHeaderActionsComponent — see WorktreeDetail.tsx's
+   NewTerminalPrefixAction) — the one way to open another shell once at
+   least one panel already exists, for worktrees (like the synthetic root
+   worktree) with no sidebar card of their own. */
+.dockview-prefix-new-terminal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 1.8rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 1rem;
+}
+
+.dockview-prefix-new-terminal:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 .worktree-body {
   flex: 1;
   min-height: 0;

@@ -21,6 +21,7 @@ import (
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
 	"worktree-studio/internal/gitops"
+	"worktree-studio/internal/openfile"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 )
@@ -36,7 +37,12 @@ type Server struct {
 	// pushed to browser tabs over /ws/attention. Never nil in practice
 	// (main.go always constructs one), but every handler that reads it
 	// should still be written defensively where cheap to do so.
-	Attention    *attention.Tracker
+	Attention *attention.Tracker
+	// OpenFile fans out "open this file in the editor" events triggered by
+	// the `worktree-studio open-file <path>` CLI subcommand — see
+	// internal/openfile and handleOpenFile. Never nil in practice (main.go
+	// always constructs one).
+	OpenFile     *openfile.Tracker
 	WorktreeRoot string // base dir for created worktrees, e.g. ~/.worktree-studio/worktrees
 	Log          *slog.Logger
 	// LogFilePath is where Log's own output is mirrored on disk (see
@@ -106,8 +112,10 @@ func (s *Server) Routes(r chi.Router) {
 	r.Get("/ws/terminals/{terminalID}", s.handleTerminalWS)
 	r.Get("/ws/files/{worktreeID}", s.handleFilesWS)
 	r.Get("/ws/attention", s.handleAttentionWS)
+	r.Get("/ws/open-file", s.handleOpenFileWS)
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
+	r.Post("/api/open-file", s.handleOpenFile)
 	r.Post("/api/claude-hook-context", s.handleClaudeHookContext)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)

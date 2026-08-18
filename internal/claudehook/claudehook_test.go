@@ -33,6 +33,27 @@ func TestParsePayloadInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestIsBlockingNotification(t *testing.T) {
+	cases := []struct {
+		message string
+		want    bool
+	}{
+		{"Claude needs your permission to use Bash", true},
+		{"Claude is waiting for your input", true},
+		{"Done — all tests pass", true},
+		{"Claude is waiting for background agents to finish before continuing", false},
+		{"Still waiting for background agent to respond", false},
+		{"WAITING FOR BACKGROUND AGENT", false}, // case-insensitive
+		{"waiting for background task to complete", false},
+		{"", true}, // no message at all isn't a reason to skip on its own
+	}
+	for _, c := range cases {
+		if got := IsBlockingNotification(c.message); got != c.want {
+			t.Errorf("IsBlockingNotification(%q) = %v, want %v", c.message, got, c.want)
+		}
+	}
+}
+
 // withFakeHome points HOME at a temp dir for the duration of the test, so
 // transcriptDir()'s os.UserHomeDir()-based resolution is testable without
 // touching the real ~/.claude/projects.

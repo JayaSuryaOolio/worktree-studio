@@ -21,6 +21,7 @@ import (
 	"worktree-studio/internal/attention"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
+	"worktree-studio/internal/openfile"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 	webembed "worktree-studio/web"
@@ -59,6 +60,9 @@ func main() {
 	// handled and exited before any of the server's own setup (store,
 	// audit log, worktree root) runs, since they don't need any of it.
 	if runHooksCommand(os.Args[1:]) {
+		return
+	}
+	if runOpenFileCommand(os.Args[1:]) {
 		return
 	}
 
@@ -128,6 +132,7 @@ func main() {
 		Term:         &term.Manager{Store: st, Audit: al},
 		Files:        files.NewManager(),
 		Attention:    attention.NewTracker(),
+		OpenFile:     openfile.NewTracker(),
 		WorktreeRoot: worktreeRoot,
 		Log:          logger,
 		LogFilePath:  logPath,

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"worktree-studio/internal/store"
 )
@@ -91,6 +92,38 @@ func TestClaudeHookNotificationMarksWorktreePending(t *testing.T) {
 		if e["event"] == "claude.session.create" {
 			t.Errorf("unexpected claude.session.create entry from a Notification hook: %+v", e)
 		}
+	}
+}
+
+// Regression test for direct feedback: a Notification whose message is
+// just background-progress chatter (e.g. still waiting on background
+// agents) must not badge the worktree — only a permission prompt,
+// waiting-for-input, or finished-result message should.
+func TestClaudeHookNotificationSkipsBackgroundAgentMessage(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/claude-hook", map[string]string{
+		"cwd":             wt.Path,
+		"hook_event_name": "Notification",
+		"message":         "Claude is waiting for background agents to finish before continuing",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST claude-hook (Notification): status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if _, pending := srv.Attention.Snapshot()[wt.ID]; pending {
+		t.Errorf("expected worktree %s to NOT be marked pending for a background-agent status message", wt.ID)
 	}
 }
 
@@ -251,6 +284,148 @@ func TestClaudeSessionTitleNotFound(t *testing.T) {
 	resp := doJSON(t, http.MethodGet, ts.URL+"/api/claude-sessions/does-not-exist/title", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestOpenFilePublishesEventForMatchingWorktree(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	events, unsubscribe := srv.OpenFile.Subscribe()
+	defer unsubscribe()
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/open-file", map[string]string{
+		"cwd":  wt.Path,
+		"path": "README.md",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST open-file: status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	select {
+	case ev := <-events:
+		if ev.WorktreeID != wt.ID || ev.Path != "README.md" {
+			t.Errorf("got %+v, want worktree_id=%s path=README.md", ev, wt.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for openfile event")
+	}
+}
+
+func TestOpenFileRelativeToSubdirectoryCwd(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	subdir := filepath.Join(wt.Path, "sub")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	events, unsubscribe := srv.OpenFile.Subscribe()
+	defer unsubscribe()
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/open-file", map[string]string{
+		"cwd":  subdir,
+		"path": "../README.md",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST open-file: status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	select {
+	case ev := <-events:
+		if ev.Path != "README.md" {
+			t.Errorf("path = %q, want README.md", ev.Path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for openfile event")
+	}
+}
+
+func TestOpenFileNoMatchingWorktreeIsANoOp(t *testing.T) {
+	ts, srv := newTestServer(t)
+
+	events, unsubscribe := srv.OpenFile.Subscribe()
+	defer unsubscribe()
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/open-file", map[string]string{
+		"cwd":  "/nowhere/tracked",
+		"path": "README.md",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (silent no-op)", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	select {
+	case ev := <-events:
+		t.Fatalf("expected no event to be published, got %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestOpenFileRejectsPathEscapingWorktree(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	events, unsubscribe := srv.OpenFile.Subscribe()
+	defer unsubscribe()
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/open-file", map[string]string{
+		"cwd":  wt.Path,
+		"path": "../../etc/passwd",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	select {
+	case ev := <-events:
+		t.Fatalf("expected no event to be published for an escaping path, got %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestOpenFileIgnoresMalformedBody(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	resp, err := http.Post(ts.URL+"/api/open-file", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST open-file with no body: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 }
 

@@ -147,6 +147,52 @@ describe("WorktreeDetail", () => {
     expect(term.closest(".terminal-panel-inset")).not.toHaveClass("cwd-mismatch");
   });
 
+  it("Ctrl/Cmd+B toggles the file tree panel", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+    expect(container.querySelector(".worktree-sidebar")).toBeInTheDocument();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }));
+    });
+    expect(container.querySelector(".worktree-sidebar")).not.toBeInTheDocument();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }));
+    });
+    expect(container.querySelector(".worktree-sidebar")).toBeInTheDocument();
+  });
+
+  // Regression guard: tmux's own default prefix key is Ctrl+B, so this
+  // shortcut must not steal that keystroke away from a focused terminal
+  // pane — see WorktreeDetail.tsx's own comment on this effect.
+  it("Ctrl+B does not toggle the file tree when the event originates inside a terminal (.xterm)", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+    expect(container.querySelector(".worktree-sidebar")).toBeInTheDocument();
+
+    const xterm = document.createElement("div");
+    xterm.className = "xterm";
+    document.body.appendChild(xterm);
+
+    act(() => {
+      xterm.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true }));
+    });
+    expect(container.querySelector(".worktree-sidebar")).toBeInTheDocument();
+
+    document.body.removeChild(xterm);
+  });
+
+  it("the far-left '+' in the tab strip creates a new terminal", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    await user.click(screen.getByTitle("New terminal tab"));
+    await waitFor(() => expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined));
+    expect(await screen.findByTestId("terminal-t2")).toBeInTheDocument();
+  });
+
   // The "+"/split-right/split-down buttons that used to live in this
   // component's own toolbar now live in the sidebar's expandable worktree
   // card and call through the activeWorktreeActions registry instead — see

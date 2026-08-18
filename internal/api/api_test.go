@@ -18,6 +18,7 @@ import (
 	"worktree-studio/internal/attention"
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
+	"worktree-studio/internal/openfile"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 )
@@ -83,6 +84,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 		Term:         &term.Manager{Store: st, Audit: al},
 		Files:        files.NewManager(),
 		Attention:    attention.NewTracker(),
+		OpenFile:     openfile.NewTracker(),
 		WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"),
 		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError + 1})),
 	}

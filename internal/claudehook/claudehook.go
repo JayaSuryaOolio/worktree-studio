@@ -51,6 +51,33 @@ func ParsePayload(raw []byte) (HookPayload, error) {
 	return p, nil
 }
 
+// nonBlockingMessagePhrases are substrings (case-insensitive) that mean a
+// Notification hook fired to report ongoing background progress — e.g.
+// still waiting on background agents/subagents to finish — rather than
+// something that actually needs the user right now. Message is
+// unstructured free text with no guaranteed wording (see HookPayload's
+// own comment and PLAN.md), so this is a best-effort exclusion list, not
+// exhaustive: extend it as new non-blocking phrasings are observed.
+var nonBlockingMessagePhrases = []string{
+	"waiting for background agent",
+	"waiting for background task",
+}
+
+// IsBlockingNotification reports whether a Notification hook's message
+// represents something that should actually badge the worktree and fire a
+// desktop notification — a permission prompt, idle-waiting-for-input, or
+// a finished result — as opposed to a transient "still working in the
+// background" status update.
+func IsBlockingNotification(message string) bool {
+	lower := strings.ToLower(message)
+	for _, phrase := range nonBlockingMessagePhrases {
+		if strings.Contains(lower, phrase) {
+			return false
+		}
+	}
+	return true
+}
+
 // ContextPayload is what the session-context hook script (see
 // contextScriptContent) POSTs, best-effort, to /api/claude-hook-context:
 // the cwd it resolved and the exact text it printed to stdout for Claude —

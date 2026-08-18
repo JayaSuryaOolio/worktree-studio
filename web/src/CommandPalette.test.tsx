@@ -12,6 +12,7 @@ vi.mock("./api", () => ({
   getSpotlightStatus: vi.fn(),
   getFileTree: vi.fn(),
   attentionWsUrl: vi.fn(() => "ws://localhost/ws/attention"),
+  openFileWsUrl: vi.fn(() => "ws://localhost/ws/open-file"),
   clearAttention: vi.fn(),
 }));
 

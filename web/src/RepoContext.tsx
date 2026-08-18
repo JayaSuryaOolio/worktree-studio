@@ -20,8 +20,11 @@ import {
 } from "./api";
 import { StatusScheduler } from "./statusScheduler";
 import { useAttentionStream } from "./useAttentionStream";
+import { useOpenFileStream } from "./useOpenFileStream";
 import { maybeDesktopNotify, playAttentionSound, requestNotificationPermission } from "./attentionNotify";
 import { getNotificationsEnabled } from "./notificationPreference";
+import { openFileInActiveWorktree } from "./activeWorktreeFileOpener";
+import { setPendingFileOpen } from "./pendingFileOpen";
 
 // How often a "hot" (recently focused) worktree's git/spotlight status gets
 // a background refresh. Not something a human notices lagging by a few
@@ -246,6 +249,27 @@ export function RepoProvider({ children }: { children: ReactNode }) {
       // tab if worktree-studio happens to be open in more than one.
       wt ? () => navigate(`/repo/${wt.repo_id}/worktree/${worktreeId}`) : undefined
     );
+  });
+
+  // `worktree-studio open-file <path>` (see internal/openfile) pushes here
+  // for every browser tab, regardless of which worktree is open in it — if
+  // it's this one, and this tab actually has focus, open the file directly
+  // via the same registry the file tree/command palette use (see
+  // activeWorktreeFileOpener.ts's own caveat: it takes no worktree id and
+  // trusts the caller to have already verified the match, which the
+  // worktreeId === focusedWorktreeId check below is doing). Otherwise
+  // there's no dockview instance to open it into yet, so stash the path and
+  // navigate there — WorktreeDetail's own mount effect picks it up once its
+  // dockview is ready (see pendingFileOpen.ts).
+  useOpenFileStream((worktreeId, path) => {
+    if (worktreeId === focusedWorktreeId && document.hasFocus()) {
+      openFileInActiveWorktree(path);
+      return;
+    }
+    const wt = worktreeByIdRef.current[worktreeId];
+    if (!wt) return;
+    setPendingFileOpen(worktreeId, path);
+    navigate(`/repo/${wt.repo_id}/worktree/${worktreeId}`);
   });
 
   // Keep worktree lookups current for the schedulers' fetchers, and

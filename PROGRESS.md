@@ -4,6 +4,27 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-17 — Open a file in the editor via `worktree-studio open-file <path>`
+
+Direct user request, originally asked as "can a command run inside a tmux shell open a file in CodeMirror," deferred as a `PLAN.md` TODO, then a follow-up question about tmux hooks led to picking the actual trigger mechanism: a CLI subcommand (not a real `tmux set-hook`, which only fires on tmux's own events like `pane-focus-in`/`session-closed`, not on arbitrary commands a person types).
+
+- **`internal/openfile`** (new package): a `Tracker` modeled on `internal/attention`'s pub/sub broadcaster, but deliberately simpler — "open this file" is a one-shot, transient instruction, not persistent state, so unlike `attention.Tracker` there's no pending map and no `Snapshot()` to replay to a client that connects late.
+- **`handleOpenFile`/`handleOpenFileWS`** (`internal/api`): `POST /api/open-file` resolves the calling shell's `cwd` to a tracked worktree via `store.FindWorktreeByPath` (same trick `handleClaudeHook` already uses), resolves the given path against that worktree's root through `internal/files.ResolvePath`'s existing escape guard (rejecting anything that traverses outside it), and publishes an event; `GET /ws/open-file` is a new global (not worktree-scoped) push channel, modeled on `/ws/attention` minus the snapshot-on-connect message.
+- **`worktree-studio open-file <path>`** (`cmd/worktree-studio/openfile.go`): new CLI subcommand, dispatched the same way `install-hooks`/`uninstall-hooks` already are. Resolves `os.Getwd()`, resolves the running server's URL the same `WORKTREE_STUDIO_ADDR`-env-var-else-default-port trick `installHooks()` uses, POSTs `{cwd, path}`. Real exit codes (unlike the hook scripts' always-exit-0 fire-and-forget posture) since this is run interactively, not from an automated hook with its own timeout.
+- Frontend: `useOpenFileStream.ts` (mirrors `useAttentionStream.ts`, trimmed of the snapshot branch and the returned state — just a callback), `pendingFileOpen.ts` (new small registry, same module-singleton idiom as `activeWorktreeFileOpener.ts`, for the "target worktree isn't the currently open tab" case: stash the path, `navigate()` there, `WorktreeDetail`'s mount effect consumes it once its dockview is ready), wired into `RepoContext.tsx` alongside the existing attention-stream handling — opens directly if the target worktree is already the focused, focused-window tab, otherwise navigates first.
+- Docs: `PLAN.md`'s TODO updated to DONE for the worktree-relative scope, with the "open literally any file on disk" half kept open as its own follow-up TODO (would mean relaxing `ResolvePath`'s worktree-root scoping, a bigger security-surface change than this feature). `README.md` gained a "CLI subcommands" section explaining the binary needs to be on `PATH` for this to work from an arbitrary shell — the `.claude/skills/worktree-studio/SKILL.md` "Installing worktree-studio" section gained the same note, plus a new "Opening a file from a shell command" section (kept byte-for-byte synced with `internal/skillasset/SKILL.md`, per its own `go test` check).
+
+**Verified working (real commands run, not just claimed):**
+
+- `go build ./... && go vet ./... && go test ./...` — 166 tests passing, including new `internal/openfile` tests (mirroring `internal/attention`'s own broadcast/unsubscribe/slow-subscriber coverage) and new `internal/api` tests for `handleOpenFile` (matching worktree, no-matching-worktree silent no-op, path-escape rejection, malformed body).
+- Frontend: `bunx tsc --noEmit -p .` clean, `bunx vitest run` — 160 tests passing, including new `useOpenFileStream.test.ts` (mirrors `useAttentionStream.test.ts`'s fake-websocket harness) and `pendingFileOpen.test.ts`.
+- Built the real binary and ran it against a real throwaway git repo + worktree (not just Go's httptest harness): registered the repo/worktree over the actual HTTP API, then ran the actual `worktree-studio open-file` CLI from a subdirectory of the worktree with a `../`-relative path (succeeded), from the worktree root with a path that traverses outside it (`400`, rejected), and from an untracked directory (silent no-op, exit 1) — all three matched the intended design.
+- Test server, repo, and worktree all cleaned up afterward.
+
+**Not built:** the arbitrary-absolute-path version (see the still-open `PLAN.md` TODO); no real tmux hook (`tmux set-hook`) involved at all, per the design decision above — worth remembering if this comes up again, since "tmux hooks" was the original framing but isn't what got built.
+
+---
+
 ## 2026-08-13 — Caught up docs/architecture.md, docs/design.md, and PLAN.md
 
 Asked directly whether docs were kept current alongside the code. `PROGRESS.md` had been — every commit in the 2026-08-11/12 run touched it — but `docs/architecture.md` and `docs/design.md` hadn't been updated since well before that run started (their last commits predate this whole batch of work), despite `PLAN.md`'s own stated convention ("every step... ends with a matching update to `docs/`"). Brought all three current:

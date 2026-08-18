@@ -436,6 +436,13 @@ export function attentionWsUrl(): string {
   return `${protocol}//${window.location.host}/ws/attention`;
 }
 
+/** Builds the websocket URL for the global (not worktree-scoped) open-file
+ * push channel — see useOpenFileStream.ts. */
+export function openFileWsUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/open-file`;
+}
+
 /** Returns the saved dockview layout for a worktree, or `null` if nothing
  * has been saved yet (a 404, which is the normal/expected first-open
  * state here — not routed through request()'s generic error handling,

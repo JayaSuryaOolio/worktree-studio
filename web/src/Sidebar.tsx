@@ -84,6 +84,17 @@ function SidebarWorktreeRow({
         <Link
           to={`/repo/${repoId}/worktree/${wt.id}`}
           className={isActive ? "sidebar-worktree active" : "sidebar-worktree"}
+          // Navigating to the worktree you're already on is a no-op (same
+          // route, same mounted WorktreeDetail instance) — repurposed as
+          // the expand/collapse toggle instead, so a second click on the
+          // already-focused row does something instead of nothing. This is
+          // meant to become a muscle-memory habit: click once to open,
+          // click again (now focused) to expand.
+          onClick={(e) => {
+            if (!isActive) return;
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }}
         >
           <span className="sidebar-worktree-branch">{wt.branch}</span>
           <span className="sidebar-worktree-meta">
@@ -363,6 +374,21 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                     }
                   >
                     {r.name}
+                    {/* The repo root is a real (synthetic) worktree row
+                        server-side (see rootWorktree.ts/EnsureRootWorktree),
+                        so a claude session running there can page this the
+                        same way a real worktree's row does — it just has no
+                        card of its own to show it next to. */}
+                    {attentionPending[rootWorktreeId(r.id)] !== undefined && (
+                      <span
+                        className={
+                          attentionBlinking.has(rootWorktreeId(r.id))
+                            ? "sidebar-dot sidebar-dot-attention blinking"
+                            : "sidebar-dot sidebar-dot-attention"
+                        }
+                        title={attentionPending[rootWorktreeId(r.id)] || "Claude is waiting for your input"}
+                      />
+                    )}
                   </Link>
                   {/* Grouped in their own right-aligned cluster (rather than
                       as two siblings of the row's justify-content:

@@ -37,6 +37,14 @@ go build -o worktree-studio ./cmd/worktree-studio
 
 Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or your existing registered repos, if `~/.worktree-studio/studio.db` already has data from a prior run — this state persists across restarts by design).
 
+**Put the binary on `PATH` too, not just in this checkout.** `go build -o worktree-studio ./cmd/worktree-studio` only produces a binary in the current directory — running plain `worktree-studio` from anywhere else (e.g. a tmux pane sitting in some worktree's own directory, which is exactly where `open-file` below gets used) fails with a zsh/bash "command not found" until it's actually installed somewhere your shell already searches:
+
+```bash
+cp worktree-studio ~/.local/bin/    # or wherever's already on your PATH — check with `echo $PATH`
+```
+
+Rebuild-and-recopy after any change to `cmd/worktree-studio/` (this binary also embeds `web/dist`, so also recopy after a frontend rebuild if you want the CLI's copy serving the latest UI too, though for the pure-CLI subcommands below only the Go code matters).
+
 Once the server is running, check dependency status (tmux, spotlight, this skill globally, the claude hook) via the settings modal (gear icon in the sidebar) or `curl http://localhost:8787/api/settings/dependencies` — see "Global settings" and "Claude Code session-tracking hook" below for the two dependencies that are actionable (install/uninstall) directly from there. There's still no automatic report at server startup or a standalone `doctor` CLI — checking is on-demand via that endpoint/UI, not push-notified.
 
 ## Starting the server
@@ -227,6 +235,24 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/ope
 Files over 5MB or that aren't valid UTF-8 text (binaries, images) refuse to open here (`422`) — use VS Code for those. Paths are validated against escaping the worktree root (`../../etc/passwd`-style attempts get a `400`), the same seriousness as the absolute-path rejection on repo registration.
 
 Built as a layered adapter (`web/src/editors/`) rather than hard-wiring CodeMirror everywhere — see `docs/editor.md` and `docs/editor-plan.md` if you need to swap or add an editing engine later; nothing about the file tree, dockview wiring, or save/reload flow needs to change to do that.
+
+## Opening a file from a shell command
+
+`worktree-studio open-file <path>` tells the browser tab that has a worktree open to open a file in its CodeMirror editor — run it from inside that worktree's own directory (e.g. one of its tmux-backed terminal panes, or set as `$EDITOR` so `git commit` and similar tools hand off to it):
+
+```bash
+cd ~/.worktree-studio/worktrees/<repoId>/<name>   # or a subdirectory of it
+worktree-studio open-file src/main.go             # relative to cwd, or an absolute path
+```
+
+Requires the `worktree-studio` binary to be on `PATH` (see "Installing worktree-studio" above) — a zsh `command not found` here means it isn't yet, not that the feature is broken. It also requires the running server (whichever one is already serving the UI you want the file to open in) — this subcommand just POSTs to it, it doesn't start anything itself.
+
+What happens depends on where the target worktree is right now:
+- If its detail page is already the open, focused browser tab, the file opens immediately.
+- Otherwise the browser navigates there first (or gets a queued instruction, if the tab is open on a different worktree/page) and opens it right after.
+- If the shell's current directory isn't inside any worktree `worktree-studio` is tracking, it's a silent no-op (exit 1, nothing happens) — the same "no matching worktree" tolerance the Claude Code hook uses for the same reason: this can be run from anywhere, and a shell outside a tracked worktree is an expected, common case, not an error.
+
+Scope is deliberately worktree-relative: `<path>` must resolve inside the target worktree's root (same `../../etc/passwd`-style escape rejection as the file-editor endpoints above) — opening an arbitrary file anywhere on disk isn't supported (see the open TODO in `PLAN.md`).
 
 ## Using Spotlight
 
