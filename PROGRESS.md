@@ -4,6 +4,22 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-18 — Open a shell at the repo root when spotlight starts
+
+Direct user request: "when spotlight is turned on - open a new or focus on existing shell that is already at the repo root. (open new one for now, for simplicity)."
+
+- `Sidebar.tsx`'s `handleSpotlightStart` now passes an `onDone` to `startSpotlightWithFriendlyError` that calls a new `openShellAtRepoRoot(repoId)` alongside the existing `refreshWorktrees()` — so it only fires on an actual successful start, not on the friendly-error/conflict path.
+- `openShellAtRepoRoot` targets the repo's synthetic root worktree (`rootWorktreeId`, already used for the sidebar's "open the repo root like a worktree" link): if that worktree's tab is already the open one (checked via the existing `activeWorktreeActions` bridge), it calls `.newTerminal()` directly; otherwise it stashes an instruction in a new `pendingNewTerminal.ts` module (a `worktreeId`-keyed one-shot registry, same idiom as `pendingFileOpen.ts`) and `navigate()`s to the root worktree's route.
+- `WorktreeDetail.tsx` gained a mount effect (gated on `dockviewApi`, same as the existing `pendingFileOpen` consumer effect right above it) that calls `takePendingNewTerminal(worktreeId)` and, if true, calls its own `handleNewTerminal("within")` — so the new tab shows up once the navigated-to page's dockview is actually ready to accept panels.
+- Deliberately always opens a brand new terminal — no check for "is there already a shell at the root" to focus instead. Per the user's own framing this is the simple version for now; the real "focus existing" version is recorded as its own `PLAN.md` TODO rather than attempted here.
+
+**Verified working:**
+
+- `go build ./... && go vet ./... && go test ./...` — 166 tests passing (this pass touched no Go code, so this is a no-regression check).
+- `bunx tsc --noEmit -p .` clean, `bunx vitest run` — 164 tests passing, including new `pendingNewTerminal.test.ts` and a new `Sidebar.test.tsx` case that clicks "Start spotlight" and asserts navigation to `/repo/r1/worktree/root-r1` (the harness has no `WorktreeDetail` mounted, so this exercises the navigate-and-stash fallback path specifically, not the direct `activeWorktreeActions.newTerminal()` path — that path is simple enough it wasn't given its own separate test).
+
+---
+
 ## 2026-08-17 — Open a file in the editor via `worktree-studio open-file <path>`
 
 Direct user request, originally asked as "can a command run inside a tmux shell open a file in CodeMirror," deferred as a `PLAN.md` TODO, then a follow-up question about tmux hooks led to picking the actual trigger mechanism: a CLI subcommand (not a real `tmux set-hook`, which only fires on tmux's own events like `pane-focus-in`/`session-closed`, not on arbitrary commands a person types).

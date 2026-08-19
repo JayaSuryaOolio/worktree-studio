@@ -28,6 +28,7 @@ import { useRepoContext } from "./RepoContext";
 import ClaudeIcon from "./icons/ClaudeIcon";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { takePendingFileOpen } from "./pendingFileOpen";
+import { takePendingNewTerminal } from "./pendingNewTerminal";
 import { registerActiveWorktreeActions } from "./activeWorktreeActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
@@ -548,6 +549,16 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     if (!dockviewApi) return;
     const path = takePendingFileOpen(worktreeId);
     if (path) handleOpenFile(path);
+  }, [dockviewApi, worktreeId]);
+
+  // Consumes a "open a new terminal here" instruction left for this
+  // worktree by Sidebar.tsx's spotlight-start handler when it had to
+  // navigate here first (the repo-root worktree wasn't already the open
+  // tab) — see pendingNewTerminal.ts. Same gating as the pendingFileOpen
+  // effect above.
+  useEffect(() => {
+    if (!dockviewApi) return;
+    if (takePendingNewTerminal(worktreeId)) handleNewTerminal("within");
   }, [dockviewApi, worktreeId]);
 
   // Same "no deps, re-register every render" idiom as the file-opener

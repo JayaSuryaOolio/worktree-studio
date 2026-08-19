@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useMatch } from "react-router-dom";
+import { Link, useMatch, useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 import { useRepoContext } from "./RepoContext";
 import SettingsModal from "./SettingsModal";
@@ -20,6 +20,7 @@ import VSCodeIcon from "./icons/VSCodeIcon";
 import { useAttentionBlink } from "./useAttentionBlink";
 import { useActiveWorktreeActions } from "./activeWorktreeActions";
 import { useActiveFileTreeActions } from "./activeFileTreeActions";
+import { setPendingNewTerminal } from "./pendingNewTerminal";
 
 interface Props {
   onAddRepo: () => void;
@@ -274,15 +275,43 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   // background scheduler's own next naturally-due tick, which read as the
   // action itself being slow (a real reported bug) when it wasn't.
   const [spotlightPending, setSpotlightPending] = useState<Record<string, boolean>>({});
+  const navigate = useNavigate();
 
   async function handleSpotlightStart(wt: Worktree) {
     setSpotlightPending((p) => ({ ...p, [wt.id]: true }));
     try {
-      await startSpotlightWithFriendlyError(wt, { onDone: refreshWorktrees, onError: setError });
+      await startSpotlightWithFriendlyError(wt, {
+        onDone: () => {
+          refreshWorktrees();
+          openShellAtRepoRoot(wt.repo_id);
+        },
+        onError: setError,
+      });
       await refreshSpotlightStatus(wt.id);
     } finally {
       setSpotlightPending((p) => ({ ...p, [wt.id]: false }));
     }
+  }
+
+  // Turning spotlight on mirrors the repo's root checkout from this
+  // worktree — direct user request: also open a shell there, since the
+  // whole point is to have the root's dependencies/build output available
+  // to work with. Always opens a fresh terminal tab rather than checking
+  // for one already sitting at the root (a "focus existing instead"
+  // version is a possible follow-up, deliberately skipped for now). If the
+  // root worktree's own tab is already open, adds the panel directly via
+  // activeWorktreeActions (same bridge the sidebar's per-worktree terminal
+  // icons use); otherwise navigates there first and leaves a
+  // pendingNewTerminal instruction for that page to pick up once its
+  // dockview is ready (same idiom as pendingFileOpen.ts).
+  function openShellAtRepoRoot(repoId: string) {
+    const rootId = rootWorktreeId(repoId);
+    if (activeWorktreeActions?.worktreeId === rootId) {
+      activeWorktreeActions.newTerminal();
+      return;
+    }
+    setPendingNewTerminal(rootId);
+    navigate(`/repo/${repoId}/worktree/${rootId}`);
   }
 
   async function handleSpotlightStop(wt: Worktree) {
