@@ -41,7 +41,7 @@ interface RowProps {
   onSpotlightStop: () => void;
   onViewLog: () => void;
   onArchive: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   activeWorktreeActions: ReturnType<typeof useActiveWorktreeActions>;
   activeFileTreeActions: ReturnType<typeof useActiveFileTreeActions>;
 }
@@ -74,10 +74,28 @@ function SidebarWorktreeRow({
   activeFileTreeActions,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
+  // Guards against a double-click firing two overlapping delete flows —
+  // each stacks its own confirm() dialog and, if both are answered, sends
+  // two concurrent DELETE requests for the same worktree. A real reported
+  // bug: the second request's confirm()/await chain could still be running
+  // when the row unmounts (delete succeeded, worktree gone from the list),
+  // so this is intentionally local state, not something threaded back into
+  // an already-gone row.
+  const [deleting, setDeleting] = useState(false);
 
   const forThisWorktree = activeWorktreeActions?.worktreeId === wt.id ? activeWorktreeActions : null;
   const fileTreeForThisWorktree = activeFileTreeActions?.worktreeId === wt.id ? activeFileTreeActions : null;
   const inactiveTitle = "Open this worktree first";
+
+  async function handleDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete();
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <li className="sidebar-worktree-card">
@@ -234,7 +252,7 @@ function SidebarWorktreeRow({
             <button type="button" title="Archive" onClick={onArchive}>
               🗄
             </button>
-            <button type="button" className="danger" title="Delete" onClick={onDelete}>
+            <button type="button" className="danger" title="Delete" disabled={deleting} onClick={handleDelete}>
               🗑
             </button>
           </div>

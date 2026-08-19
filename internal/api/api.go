@@ -626,14 +626,28 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 // hardRemoveWorktree does the actual destructive teardown shared by
 // handleDeleteWorktree (a user-initiated delete) and
 // SweepExpiredArchivedWorktrees (archive_sweep.go, the 60-day retention
-// cleanup for archived worktrees): close any terminal sessions (otherwise
-// the tmux session — a real OS process — becomes a permanent orphan once
-// its DB row disappears via ON DELETE CASCADE, found the hard way while
-// testing step 7.4), remove the git worktree checkout, and delete the DB
+// cleanup for archived worktrees): remove the git worktree checkout, close
+// any terminal sessions (otherwise the tmux session — a real OS process —
+// becomes a permanent orphan once its DB row disappears via ON DELETE
+// CASCADE, found the hard way while testing step 7.4), and delete the DB
 // row outright. Does NOT delete the worktree's branch, same as this flow
 // has always done (see gitops.RemoveWorktree's own doc comment for why
 // that's a separate call).
+//
+// Git removal runs FIRST, deliberately: gitops.RemoveWorktree is the one
+// step here that can fail in a way the caller needs to act on
+// (ErrWorktreeDirty -> handleDeleteWorktree's 409, "retry with force=true
+// or clean up first"). A real bug had this closing every terminal session
+// up front, so a delete attempt on a dirty worktree — the normal, expected
+// first half of the confirm/force-retry flow in
+// web/src/worktreeActions.ts — killed all its shells even though the
+// worktree itself survived and the user hadn't even answered the "remove
+// anyway?" retry prompt yet.
 func (s *Server) hardRemoveWorktree(repo store.Repo, wt store.Worktree, force bool) error {
+	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
+		return err // may wrap gitops.ErrWorktreeDirty — callers check with errors.Is
+	}
+
 	sessions, err := s.Store.ListTerminalSessions(wt.ID)
 	if err != nil {
 		return fmt.Errorf("list terminal sessions: %w", err)
@@ -642,10 +656,6 @@ func (s *Server) hardRemoveWorktree(repo store.Repo, wt store.Worktree, force bo
 		if err := s.Term.CloseSession(ts); err != nil {
 			return fmt.Errorf("close terminal session %s: %w", ts.ID, err)
 		}
-	}
-
-	if err := gitops.RemoveWorktree(repo.Path, wt.Path, force); err != nil {
-		return err // may wrap gitops.ErrWorktreeDirty — callers check with errors.Is
 	}
 
 	if err := s.Store.RemoveWorktree(wt.ID); err != nil {

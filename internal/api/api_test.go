@@ -483,6 +483,54 @@ func TestDeleteDirtyWorktreeRequiresForce(t *testing.T) {
 	}
 }
 
+// TestDeleteDirtyWorktreeRefusalKeepsTerminalSessionsAlive verifies the fix
+// for a real bug: hardRemoveWorktree used to close every terminal session
+// before attempting the git removal, so a delete attempt on a dirty
+// worktree — refused with a 409, per TestDeleteDirtyWorktreeRequiresForce
+// above — killed all its shells anyway, even though the worktree itself
+// survived and the user hadn't confirmed the force-retry yet.
+func TestDeleteDirtyWorktreeRefusalKeepsTerminalSessionsAlive(t *testing.T) {
+	requireGit(t)
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not found on PATH")
+	}
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "dirty-with-shell"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/", map[string]string{"tab_label": "shell"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create terminal: status = %d, want 201", resp.StatusCode)
+	}
+	var termSession store.TerminalSession
+	decodeInto(t, resp, &termSession)
+
+	if err := os.WriteFile(filepath.Join(wt.Path, "scratch.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, http.MethodDelete, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("DELETE dirty worktree (no force): status = %d, want 409", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	live, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	if err != nil {
+		t.Fatalf("tmux list-sessions: %v", err)
+	}
+	if !strings.Contains(string(live), termSession.TmuxSessionName) {
+		t.Fatalf("expected tmux session %q to survive a refused delete, got:\n%s", termSession.TmuxSessionName, live)
+	}
+}
+
 func TestDeleteWorktreeNotFound(t *testing.T) {
 	ts, _ := newTestServer(t)
 	repoPath := newTestGitRepo(t)

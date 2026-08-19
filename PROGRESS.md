@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-19 — Fixed: deleting a worktree could kill its shells even when the delete was refused
+
+Direct user report: "double delete click is closing and removing the shells in the workspace."
+
+- **Root cause, `internal/api/api.go`'s `hardRemoveWorktree`**: it closed every terminal session for a worktree *before* attempting `gitops.RemoveWorktree` — so a delete attempt on a dirty worktree (the normal first half of the confirm/force-retry flow) killed all its shells even though `gitops.RemoveWorktree` then failed with `ErrWorktreeDirty` (409) and the worktree itself survived. No double-click was even required to hit this — one click on a dirty worktree did it. Fixed by reordering: git removal now runs first, and terminal sessions are only closed once it's known to succeed.
+- **Double-click amplification, `Sidebar.tsx`'s Delete button**: unlike the file/VS Code/terminal icons in the same expanded card, it had no in-flight guard — two quick clicks could stack two `confirm()` dialogs and send two concurrent DELETE requests for the same worktree. Added local `deleting` state to `SidebarWorktreeRow` (disables the button and short-circuits `handleDelete` while a delete is in flight, mirroring the `spotlightPending` pattern already used for the spotlight toggle elsewhere in this file).
+- Added `internal/api.TestDeleteDirtyWorktreeRefusalKeepsTerminalSessionsAlive` (creates a terminal session on a dirty worktree, attempts an unforced delete, asserts the tmux session is still alive after the expected 409) and `Sidebar.test.tsx`'s "ignores a second click while the first delete is still in flight" (asserts `confirm()`/`deleteWorktree` are each called exactly once across two rapid clicks).
+
+**Verified working:** `go build ./... && go vet ./... && go test ./...` — 167 tests passing. `bunx tsc --noEmit -p .` clean, `bunx vitest run` — 165 tests passing.
+
+---
+
 ## 2026-08-18 — Open a shell at the repo root when spotlight starts
 
 Direct user request: "when spotlight is turned on - open a new or focus on existing shell that is already at the repo root. (open new one for now, for simplicity)."

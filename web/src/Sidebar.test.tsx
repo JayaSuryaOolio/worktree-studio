@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,12 +12,14 @@ vi.mock("./api", () => ({
   getSpotlightStatus: vi.fn(),
   getWorktreeSummary: vi.fn(),
   startSpotlight: vi.fn(),
+  deleteWorktree: vi.fn(),
   attentionWsUrl: vi.fn(() => "ws://localhost/ws/attention"),
   openFileWsUrl: vi.fn(() => "ws://localhost/ws/open-file"),
   clearAttention: vi.fn(),
 }));
 
 import {
+  deleteWorktree,
   getSpotlightStatus,
   getWorktreeStatus,
   getWorktreeSummary,
@@ -123,5 +125,30 @@ describe("Sidebar spotlight start", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location")).toHaveTextContent("/repo/r1/worktree/root-r1");
     });
+  });
+});
+
+describe("Sidebar worktree delete", () => {
+  it("ignores a second click while the first delete is still in flight", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // Kept unresolved for the length of the test — the point is to observe
+    // behavior *during* the in-flight window a real double-click would race
+    // against, not after it settles.
+    vi.mocked(deleteWorktree).mockReturnValue(new Promise(() => {}));
+    render(<Harness />);
+
+    const deleteButton = await screen.findByTitle("Delete");
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    // A real bug: with no guard, this second click opened its own confirm()
+    // dialog and, once answered, sent a second concurrent DELETE request —
+    // see the PLAN.md/PROGRESS.md entry on hardRemoveWorktree closing
+    // terminal sessions before the git removal was known to succeed.
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(deleteWorktree).toHaveBeenCalledTimes(1);
+    expect(deleteButton).toBeDisabled();
+
+    confirmSpy.mockRestore();
   });
 });
