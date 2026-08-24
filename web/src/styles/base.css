@@ -121,8 +121,24 @@ tbody tr:last-child td {
   max-width: 26rem;
 }
 
-.path-cell .mono {
+/* Same head-shrinks/tail-pinned middle truncation as a sidebar branch
+   row — see .sidebar-worktree-branch and branchLabel.ts. */
+.path-cell-text {
+  display: flex;
+  min-width: 0;
   color: var(--text-2);
+}
+
+.path-cell-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.path-cell-tail {
+  flex: 0 0 auto;
+  white-space: pre;
 }
 
 .path-cell-copy {
@@ -153,12 +169,18 @@ tr:hover .path-cell-copy,
   color: var(--warn);
 }
 
+/* No fixed height here on purpose. It used to be `height: var(--row-h-lg)`,
+   which silently squashed every button whose content was taller than one
+   line of text — the Appearance tab's theme options overlapped each other
+   because a 48px preview swatch was being forced into a 32px box. Padding
+   plus line-height gets the same resting size for an ordinary button and
+   lets an unusual one grow instead of clipping. */
 button {
   font: inherit;
   font-size: var(--fs-3);
+  line-height: 1.2;
   cursor: pointer;
-  padding: var(--space-1) var(--space-3);
-  height: var(--row-h-lg);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius);
   border: 1px solid var(--rule);
   background: transparent;
@@ -253,14 +275,20 @@ form {
 /* Links take text colour with a quiet underline rather than a colour of
    their own — --info is a status colour, not a link colour, and a list of
    coloured links reads as a list of warnings. */
+/* Underlined, but barely, at rest. --text-3 was too strong here: in a
+   table whose first column is a link on every row, a visible underline
+   twenty times over is furniture, not affordance. The rule is drawn in
+   --rule and comes up to full strength on hover. */
 .repo-link {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 2px;
-  text-decoration-color: var(--text-3);
+  text-decoration-color: var(--rule);
+  transition: text-decoration-color var(--dur-fast) var(--ease);
 }
 
-.repo-link:hover {
+.repo-link:hover,
+tr:hover .repo-link {
   text-decoration-color: var(--text);
 }
 

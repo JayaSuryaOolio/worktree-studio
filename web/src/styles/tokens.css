@@ -232,6 +232,7 @@
   --shadow-strong: #2b2a263d;
 
   --radius: 0px;
+  --radius-lg: 0px;
   --row-h: 1.75rem; /* 28px */
 }
 
@@ -266,6 +267,7 @@
   --shadow-strong: #0000008c;
 
   --radius: 0px;
+  --radius-lg: 0px;
   --row-h: 1.75rem; /* 28px */
 }
 

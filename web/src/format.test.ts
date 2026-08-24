@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commonValue, relativeTime, shortenPath } from "./format";
+import { commonValue, dominantValue, leafName, parentDir, relativeTime, shortenPath } from "./format";
 
 const now = new Date("2026-08-25T12:00:00Z");
 const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
@@ -70,5 +70,59 @@ describe("commonValue", () => {
   it("returns null for an empty list or a missing value", () => {
     expect(commonValue([], (r: { v?: string }) => r.v)).toBeNull();
     expect(commonValue(rows(undefined, undefined), (r) => r.v)).toBeNull();
+  });
+});
+
+describe("dominantValue", () => {
+  const rows = (...vals: (string | undefined)[]) => vals.map((v) => ({ v }));
+  const M = "origin/master";
+
+  it("hoists what most rows share and counts the ones that don't", () => {
+    // The real case: nine worktrees created from origin/master, two
+    // attached from elsewhere. commonValue gives up here and the column
+    // keeps printing origin/master nine times.
+    const items = rows(...Array(9).fill(M), undefined, undefined);
+    expect(commonValue(items, (r) => r.v)).toBeNull();
+    expect(dominantValue(items, (r) => r.v)).toEqual({ value: M, exceptions: 2 });
+  });
+
+  it("reports zero exceptions when every row agrees", () => {
+    expect(dominantValue(rows(M, M, M), (r) => r.v)).toEqual({ value: M, exceptions: 0 });
+  });
+
+  it("gives up when no value covers 60% — the column is carrying real information", () => {
+    expect(dominantValue(rows("a", "b", "c", "d"), (r) => r.v)).toBeNull();
+    expect(dominantValue(rows("a", "a", "b", "c", "d"), (r) => r.v)).toBeNull();
+  });
+
+  it("gives up below three items, where a caption costs more than it saves", () => {
+    expect(dominantValue(rows(M, M), (r) => r.v)).toBeNull();
+    expect(dominantValue([], (r: { v?: string }) => r.v)).toBeNull();
+  });
+
+  it("counts only real values, so a column of blanks hoists nothing", () => {
+    expect(dominantValue(rows(undefined, undefined, undefined), (r) => r.v)).toBeNull();
+  });
+
+  it("breaks ties deterministically rather than on Map ordering", () => {
+    const a = dominantValue(rows("beta", "beta", "alpha", "alpha"), (r) => r.v);
+    const b = dominantValue(rows("alpha", "alpha", "beta", "beta"), (r) => r.v);
+    expect(a).toEqual(b);
+  });
+});
+
+describe("parentDir / leafName", () => {
+  it("splits a path at its last separator", () => {
+    expect(parentDir("/a/b/c")).toBe("/a/b");
+    expect(leafName("/a/b/c")).toBe("c");
+  });
+
+  it("treats a bare name as having no directory part", () => {
+    expect(parentDir("c")).toBe("");
+    expect(leafName("c")).toBe("c");
+  });
+
+  it("does not claim the root slash as a parent", () => {
+    expect(parentDir("/c")).toBe("");
   });
 });

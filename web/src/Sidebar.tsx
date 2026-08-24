@@ -608,7 +608,13 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       {(worktreesByRepo[r.id] ?? []).some(
                         (wt) => attentionPending[wt.id] !== undefined
                       ) && <span className="sidebar-dot sidebar-dot-attention" />}
-                      <span className="sidebar-repo-count">{(worktreesByRepo[r.id] ?? []).length}</span>
+                      {/* No "0". An empty collapsed group printing a zero
+                          is the exact rule this redesign is built on
+                          being broken in miniature: nothing to report
+                          should look like nothing. */}
+                      {(worktreesByRepo[r.id] ?? []).length > 0 && (
+                        <span className="sidebar-repo-count">{(worktreesByRepo[r.id] ?? []).length}</span>
+                      )}
                     </span>
                   )}
                   <div className="sidebar-repo-row-actions">

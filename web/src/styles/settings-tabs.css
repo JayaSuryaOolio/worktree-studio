@@ -21,6 +21,7 @@
 .theme-option {
   display: flex;
   align-items: center;
+  min-height: 0;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-3) var(--space-3) var(--space-3) var(--space-2);
