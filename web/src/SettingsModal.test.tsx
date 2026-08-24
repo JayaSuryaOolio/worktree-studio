@@ -38,11 +38,13 @@ beforeEach(() => {
   });
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-mode");
 });
 
 afterEach(() => {
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-mode");
 });
 
 describe("SettingsModal", () => {
@@ -80,26 +82,50 @@ describe("SettingsModal", () => {
     expect(within(otherRow).getByRole("button", { name: "Install" })).toBeInTheDocument();
   });
 
-  it("switches to Appearance and toggling the switch applies data-theme", async () => {
+  it("switches to Appearance and picking a theme applies both attributes", async () => {
     const user = userEvent.setup();
     render(<SettingsModal onClose={() => {}} />);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
-    const toggle = await screen.findByRole("switch", { name: /light theme/i });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Dark")).toBeInTheDocument();
+    const graphite = await screen.findByRole("radio", { name: /Graphite/ });
+    expect(graphite).toHaveAttribute("aria-checked", "true");
 
-    await user.click(toggle);
+    await user.click(screen.getByRole("radio", { name: /Ledger/ }));
 
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("Light")).toBeInTheDocument();
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(localStorage.getItem("worktree-studio-theme")).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("ledger");
+    expect(localStorage.getItem("worktree-studio-theme-family")).toBe("ledger");
+    expect(screen.getByRole("radio", { name: /Ledger/ })).toHaveAttribute("aria-checked", "true");
+    expect(graphite).toHaveAttribute("aria-checked", "false");
+  });
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-    expect(localStorage.getItem("worktree-studio-theme")).toBe("dark");
+  it("the mode axis is independent of the theme family", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={() => {}} />);
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    await user.click(await screen.findByRole("radio", { name: "Light" }));
+
+    expect(document.documentElement.getAttribute("data-mode")).toBe("light");
+    expect(localStorage.getItem("worktree-studio-theme-mode")).toBe("light");
+    // Family untouched by a mode change.
+    expect(document.documentElement.getAttribute("data-theme")).toBe("graphite");
+
+    await user.click(screen.getByRole("radio", { name: /Command Deck/ }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("deck");
+    expect(document.documentElement.getAttribute("data-mode")).toBe("light");
+  });
+
+  // "system" is a stored choice, but never a value CSS has to understand:
+  // what reaches the DOM is always a concrete dark/light (see theme.ts).
+  it("resolves System to a concrete mode on the element", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={() => {}} />);
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    await user.click(await screen.findByRole("radio", { name: "System" }));
+
+    expect(localStorage.getItem("worktree-studio-theme-mode")).toBe("system");
+    expect(document.documentElement.getAttribute("data-mode")).toMatch(/^(dark|light)$/);
   });
 
   it("switches to Logs and shows the log file path plus recent errors", async () => {

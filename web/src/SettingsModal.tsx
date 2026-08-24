@@ -12,7 +12,17 @@ import {
   ServerLogs,
   uninstallHook,
 } from "./api";
-import { getStoredTheme, setTheme, Theme } from "./theme";
+import {
+  getStoredTheme,
+  resolveMode,
+  setTheme,
+  ThemeChoice,
+  ThemeFamily,
+  ThemeMode,
+  THEME_FAMILIES,
+  THEME_FAMILY_BLURBS,
+  THEME_FAMILY_LABELS,
+} from "./theme";
 import { notificationPermission, requestNotificationPermission } from "./attentionNotify";
 import { getNotificationsEnabled, setNotificationsEnabled } from "./notificationPreference";
 
@@ -246,43 +256,102 @@ function HooksSection() {
 }
 
 // The theme itself lives outside React state — applyTheme/setTheme (see
-// theme.ts) toggle a data-theme attribute on <html> that styles/tokens.css
+// theme.ts) stamp data-theme/data-mode on <html> that styles/tokens.css
 // reads directly, so every already-mounted component re-themes for free
-// without needing to re-render. This component's own state is just for
-// which side the switch shows as on.
+// without needing to re-render. This component's own state only tracks
+// which option shows as chosen.
+//
+// This replaced a sun/moon pill toggle labelled "Dark", which never said
+// whether "Dark" was the current state or the thing the switch would do
+// to you. Two labelled radio groups say it outright — and the family
+// options preview themselves, since a theme name means nothing until you
+// can see it.
 function AppearanceTab() {
-  const [theme, setThemeState] = useState<Theme>(getStoredTheme);
+  const [choice, setChoice] = useState<ThemeChoice>(getStoredTheme);
 
-  function handleToggle() {
-    const next: Theme = theme === "dark" ? "light" : "dark";
+  function pick(next: ThemeChoice) {
     setTheme(next);
-    setThemeState(next);
+    setChoice(next);
   }
+
+  const modes: { value: ThemeMode; label: string }[] = [
+    { value: "dark", label: "Dark" },
+    { value: "light", label: "Light" },
+    { value: "system", label: "System" },
+  ];
 
   return (
     <section className="settings-section">
       <h3>Theme</h3>
-      <div className="theme-switch-row">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={theme === "light"}
-          aria-label="Light theme"
-          className="theme-switch"
-          onClick={handleToggle}
-        >
-          <span className="theme-switch-icon theme-switch-icon-moon" aria-hidden="true">
-            🌙
-          </span>
-          <span className="theme-switch-icon theme-switch-icon-sun" aria-hidden="true">
-            ☀️
-          </span>
-          <span className="theme-switch-thumb" />
-        </button>
-        <span className="theme-switch-label">{theme === "dark" ? "Dark" : "Light"}</span>
+      <div className="theme-picker" role="radiogroup" aria-label="Theme">
+        {THEME_FAMILIES.map((family) => (
+          <button
+            key={family}
+            type="button"
+            role="radio"
+            aria-checked={choice.family === family}
+            className={`theme-option${choice.family === family ? " selected" : ""}`}
+            onClick={() => pick({ ...choice, family })}
+          >
+            <ThemeSwatch family={family} mode={choice.mode} />
+            <span className="theme-option-text">
+              <span className="theme-option-name">{THEME_FAMILY_LABELS[family]}</span>
+              <span className="theme-option-blurb">{THEME_FAMILY_BLURBS[family]}</span>
+            </span>
+          </button>
+        ))}
       </div>
+
+      <h3>Mode</h3>
+      <div className="segmented" role="radiogroup" aria-label="Mode">
+        {modes.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            role="radio"
+            aria-checked={choice.mode === m.value}
+            className={choice.mode === m.value ? "selected" : ""}
+            onClick={() => pick({ ...choice, mode: m.value })}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-hint">
+        {choice.mode === "system"
+          ? "Following the operating system, and switching live when it does."
+          : `Always ${choice.mode}, regardless of the operating system.`}
+      </p>
+
       <NotificationsSection />
     </section>
+  );
+}
+
+// A miniature of the sidebar, rendered with the candidate palette's own
+// tokens rather than hand-copied hex values: tokens.css declares each
+// palette on a plain [data-theme][data-mode] selector (not :root), so
+// stamping those two attributes on this element gives it the real thing.
+// A palette can't drift out of sync with its own preview.
+function ThemeSwatch({ family, mode }: { family: ThemeFamily; mode: ThemeMode }) {
+  return (
+    <span
+      className="theme-swatch"
+      data-theme={family}
+      data-mode={resolveMode(mode)}
+      aria-hidden="true"
+    >
+      <span className="theme-swatch-row selected">
+        <span className="theme-swatch-bar" />
+      </span>
+      <span className="theme-swatch-row">
+        <span className="theme-swatch-bar short" />
+        <span className="theme-swatch-dot" />
+      </span>
+      <span className="theme-swatch-row">
+        <span className="theme-swatch-bar" />
+      </span>
+    </span>
   );
 }
 

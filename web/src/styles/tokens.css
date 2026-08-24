@@ -1,80 +1,375 @@
-/* "Command Deck" — see docs/design.md for the full rationale. High-
-   density, mission-control-for-parallel-tasks. Named color tokens (not
-   generic grays), a 3-tier type system (display/UI/data), and one
-   subject-derived signature element: sidebar worktree rows styled as
-   flight strips — the paper strips air-traffic controllers use to track
-   simultaneous in-progress flights.
+/* The design system's single source of truth — see docs/design-system.md
+   for the rationale and the rules each token is held to.
 
-   Every other stylesheet in styles/ consumes these custom properties
-   only — never a raw hex color — which is what makes the theme switch
-   below (see ThemeToggle in SettingsModal.tsx) a matter of overriding
-   this one file's variables rather than hunting through every component's
-   rules. Dark is the default and needs no attribute; picking light in
-   Settings sets `data-theme="light"` on <html> (see theme.ts), which the
-   `:root[data-theme="light"]` block below overrides. There's no
-   `prefers-color-scheme` media query — the theme is an explicit, stored
-   choice, not one that silently follows the OS. */
+   Two axes, both stamped on <html> by theme.ts (and, pre-paint, by the
+   inline script in index.html):
+
+     data-theme  graphite | ledger | deck    the palette family
+     data-mode   dark | light                the resolved mode
+
+   "Resolved" matters: the stored mode can also be "system", but what
+   lands on the element is always a concrete dark/light — CSS never has to
+   know about prefers-color-scheme, and there is no third code path where
+   a token might be undefined. The bare :root below is a complete,
+   valid palette on its own (graphite dark), so the app still renders
+   correctly if JS never runs at all.
+
+   THE CONTRACT: every palette block defines exactly the same token names.
+   A theme that needs a token the others don't have isn't a theme, it's a
+   redesign — that guardrail is what stops this file sprawling back into
+   the per-component color soup it replaced. Every other stylesheet in
+   styles/ consumes these custom properties only, never a raw hex.
+
+   Contrast is a hard rule, not a preference (this tool gets stared at all
+   day): --text >= 7:1 on --surface-0, --text-2 >= 4.5:1, --text-3 >= 3:1.
+   The values below were checked, not eyeballed — notably Command Deck's
+   old --text-dim (#6b7684) measured 4.19:1 and is lifted to #7c8694
+   (5.25:1) as --text-2, with the original kept as --text-3 where it's
+   only ever used for counts and timestamps. */
 
 :root {
+  /* ---------------------------------------------------------------
+     Structure — identical across every theme except where a palette
+     block deliberately overrides --radius / --row-h / --font-ui.
+     --------------------------------------------------------------- */
+
+  /* Type scale: five sizes, no others. A sixth size is a bug, which is
+     what makes "is this on the scale?" a reviewable question rather than
+     an argument about whether 13.5px looks better here. */
+  --fs-1: 0.6875rem; /* 11px — counts, ticks, timestamps, eyebrow labels */
+  --fs-2: 0.75rem; /* 12px — dense data rows, sidebar branch names */
+  --fs-3: 0.8125rem; /* 13px — default UI text, buttons, form labels */
+  --fs-4: 0.9375rem; /* 15px — section headings, dialog titles */
+  --fs-5: 1.25rem; /* 20px — page titles. The largest text in the app. */
+
+  /* Space scale: 4px steps to 16, then 24/32. Same rule as type. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* One row height per theme, set here and never overridden per
+     component — a list whose rows are 26px in one place and 30px in
+     another is what makes an app feel assembled rather than designed. */
+  --row-h: 1.625rem; /* 26px */
+  --row-h-lg: 2rem; /* 32px — repo rows, toolbar buttons, inputs */
+
+  --radius: 4px;
+  --radius-lg: 8px; /* dialogs and popovers only */
+
+  /* Motion: fast enough to feel like a response, never long enough to
+     wait on. --dur-slow is the ceiling for anything, including the
+     sidebar accordion. */
+  --dur-fast: 120ms;
+  --dur: 160ms;
+  --dur-slow: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --sidebar-w: 250px;
+
+  /* Type faces. There is deliberately no display face: headings get
+     their hierarchy from size and weight, which is one less thing that
+     can fail to load and one less voice competing with the terminal.
+     --font-display is kept as an alias so nothing downstream breaks. */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: var(--font-ui);
+
+  /* ---------------------------------------------------------------
+     Palette — Graphite dark. Also declared on the explicit selector
+     below, so it works both as the bare-root fallback and as a palette a
+     nested element can opt into by name (see the Appearance tab's live
+     theme swatches, which are real palettes on a div rather than
+     hand-copied hexes).
+     --------------------------------------------------------------- */
   color-scheme: dark;
 
-  /* Color */
-  --bg: #0b0f14; /* deep blue-black, "cockpit at night" — not near-black */
-  --bg-elevated: #12181f; /* sidebar / dialogs / dockview group headers */
-  --bg-hover: #1a212b;
-  --border: #232b35; /* hairline seams, avionics-panel-seam feel */
-  --text: #d9e1e8; /* soft instrument-white, not pure #fff */
-  --text-dim: #6b7684;
-  --amber: #e8a33d; /* primary accent: selected / active / focus */
-  --amber-dim: #e8a33d33;
-  --cyan: #4fb6c7; /* secondary accent: links, spotlight-active, info */
-  --cyan-dim: #4fb6c733;
-  --green: #5fa777; /* status: clean / in-sync; also the sidebar's "currently selected worktree" accent */
-  --green-dim: #5fa77733;
-  --red: #d9534f; /* status: dirty / error / conflict */
-  --red-dim: #d9534f33;
+  --surface-0: #131517; /* workspace + terminal ground */
+  --surface-1: #17191c; /* sidebar, dialogs, tab strips */
+  --surface-2: #202429; /* hover / pressed — the only per-row background */
+  --surface-sunk: #0e1013; /* inputs, code blocks, terminal insets */
 
-  /* Modal backdrops and elevation shadows — dark in both themes (a
-     shadow reads as a shadow regardless of surrounding theme), but
-     tokenized anyway so nothing in styles/ reaches for a raw hex. */
+  --rule: #24282c; /* structural seams between panels */
+  --rule-soft: #1c1f22; /* the faintest allowed division */
+
+  --text: #dfe1e4;
+  --text-2: #9aa1a8;
+  --text-3: #6c747c;
+
+  --accent: #e0913c; /* selection, focus, active tab. One hue, period. */
+  --accent-soft: #e0913c1c; /* selected-row wash */
+  --accent-on: #131517; /* text drawn on top of a full --accent fill */
+
+  --attention: #f0b429; /* a session is waiting on you — the one saturated fill */
+  --ok: #6fae7c;
+  --warn: #d9a441;
+  --danger: #d1685f;
+  --danger-soft: #d1685f24;
+  --info: #7fa8bd;
+
+  --overlay: #0b0d0fcc;
+  --shadow-soft: #00000059;
+  --shadow-strong: #0000008c;
+
+  /* ---------------------------------------------------------------
+     Compatibility aliases. The pre-redesign token names, re-pointed at
+     the contract above so every stylesheet that hasn't been migrated
+     yet keeps working and keeps re-theming. Declared once here (not per
+     palette) — custom properties substitute using :root's own final
+     computed values, so these follow whichever palette block won.
+
+     These are a migration scaffold, not part of the contract: new rules
+     use the names above. --green in particular no longer means
+     "selected" anywhere (selection is --accent now); it's the status
+     colour only.
+     --------------------------------------------------------------- */
+  --bg: var(--surface-0);
+  --bg-elevated: var(--surface-1);
+  --bg-hover: var(--surface-2);
+  --border: var(--rule);
+  --text-dim: var(--text-2);
+  --amber: var(--accent);
+  --amber-dim: var(--accent-soft);
+  --cyan: var(--info);
+  --cyan-dim: color-mix(in srgb, var(--info) 20%, transparent);
+  --green: var(--ok);
+  --green-dim: color-mix(in srgb, var(--ok) 20%, transparent);
+  --red: var(--danger);
+  --red-dim: var(--danger-soft);
+
+  font-family: var(--font-ui);
+  font-size: var(--fs-3);
+  background: var(--surface-0);
+  color: var(--text);
+}
+
+/* Graphite dark, again, under its own name — see the note in :root. The
+   values are the same by definition; keeping one block per palette here
+   is what lets an element carry a palette without knowing what the root
+   is set to. */
+[data-theme="graphite"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #131517;
+  --surface-1: #17191c;
+  --surface-2: #202429;
+  --surface-sunk: #0e1013;
+
+  --rule: #24282c;
+  --rule-soft: #1c1f22;
+
+  --text: #dfe1e4;
+  --text-2: #9aa1a8;
+  --text-3: #6c747c;
+
+  --accent: #e0913c;
+  --accent-soft: #e0913c1c;
+  --accent-on: #131517;
+
+  --attention: #f0b429;
+  --ok: #6fae7c;
+  --warn: #d9a441;
+  --danger: #d1685f;
+  --danger-soft: #d1685f24;
+  --info: #7fa8bd;
+
+  --overlay: #0b0d0fcc;
+  --shadow-soft: #00000059;
+  --shadow-strong: #0000008c;
+}
+
+/* =================================================================
+   Graphite — the modern default. Neutral graphite with a barely-there
+   cool bias and one warm amber accent. Surfaces sit within ~4%
+   lightness of each other on purpose: depth comes from spacing and
+   type weight, not from stacking progressively lighter greys, which is
+   what produces the "everything is a card" look this replaced.
+   ================================================================= */
+
+[data-theme="graphite"][data-mode="light"] {
+  color-scheme: light;
+
+  --surface-0: #fbfbfa;
+  --surface-1: #f4f4f3;
+  --surface-2: #ececea;
+  --surface-sunk: #ffffff;
+
+  --rule: #e3e3e0;
+  --rule-soft: #eeeeec;
+
+  --text: #1b1d20;
+  --text-2: #5b6167;
+  --text-3: #83898f;
+
+  --accent: #9c5c07; /* darker + more saturated than the dark theme's
+                        amber, which washes out entirely on near-white */
+  --accent-soft: #9c5c0714;
+  --accent-on: #ffffff;
+
+  --attention: #a86a00;
+  --ok: #2f7a4f;
+  --warn: #8a5a05;
+  --danger: #b2453d;
+  --danger-soft: #b2453d1f;
+  --info: #3f6f88;
+
+  --overlay: #1b1d2073;
+  --shadow-soft: #1b1d201f;
+  --shadow-strong: #1b1d2038;
+}
+
+/* =================================================================
+   Ledger — the classic option. Warm paper and ink, square corners, one
+   deep editor blue, in the Solarized/Sublime lineage without copying
+   any of them. Deliberately more structured than Graphite: hairlines
+   are meant to be visible here, and rows are a step taller. That
+   structure is what makes it read as classic rather than unfinished —
+   it's a different answer to the same brief, not a worse one.
+   ================================================================= */
+
+[data-theme="ledger"][data-mode="light"] {
+  color-scheme: light;
+
+  --surface-0: #f7f4ed;
+  --surface-1: #fffdf7;
+  --surface-2: #ece7da;
+  --surface-sunk: #fffdf7;
+
+  --rule: #ddd6c6;
+  --rule-soft: #e8e2d5;
+
+  --text: #2b2a26;
+  --text-2: #6b675c;
+  --text-3: #8d887a;
+
+  --accent: #1c5d99;
+  --accent-soft: #1c5d9914;
+  --accent-on: #ffffff;
+
+  --attention: #a35c00;
+  --ok: #3f7043;
+  --warn: #8a5a05;
+  --danger: #a33a2e;
+  --danger-soft: #a33a2e1f;
+  --info: #1c5d99;
+
+  --overlay: #2b2a2673;
+  --shadow-soft: #2b2a2624;
+  --shadow-strong: #2b2a263d;
+
+  --radius: 0px;
+  --row-h: 1.75rem; /* 28px */
+}
+
+[data-theme="ledger"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #10151a;
+  --surface-1: #151b21;
+  --surface-2: #1d252d;
+  --surface-sunk: #0c1014;
+
+  --rule: #232c35;
+  --rule-soft: #1a222a;
+
+  --text: #ccd6df;
+  --text-2: #8a97a3;
+  --text-3: #667582;
+
+  --accent: #6fa8d0;
+  --accent-soft: #6fa8d01c;
+  --accent-on: #10151a;
+
+  --attention: #d8a24a;
+  --ok: #6fa87c;
+  --warn: #d8a24a;
+  --danger: #c9635a;
+  --danger-soft: #c9635a24;
+  --info: #6fa8d0;
+
+  --overlay: #080c10cc;
+  --shadow-soft: #00000059;
+  --shadow-strong: #0000008c;
+
+  --radius: 0px;
+  --row-h: 1.75rem; /* 28px */
+}
+
+/* =================================================================
+   Command Deck — what shipped before this redesign, kept as a
+   selectable theme so nothing is lost. Mapped onto the contract rather
+   than preserved verbatim: its four full-strength accents (amber /
+   cyan / green / red, with green meaning "selected" AND "clean" AND
+   "active") collapse to one accent plus three exception colours, and
+   --text-dim is lifted from #6b7684 (4.19:1 — below the contract's
+   floor) to #7c8694, with the original demoted to --text-3 where it
+   only carries counts and timestamps.
+   ================================================================= */
+
+[data-theme="deck"][data-mode="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #0b0f14;
+  --surface-1: #12181f;
+  --surface-2: #1a212b;
+  --surface-sunk: #070a0e;
+
+  --rule: #232b35;
+  --rule-soft: #1a2129;
+
+  --text: #d9e1e8;
+  --text-2: #7c8694;
+  --text-3: #6b7684;
+
+  --accent: #e8a33d;
+  --accent-soft: #e8a33d33;
+  --accent-on: #0b0f14;
+
+  --attention: #e8a33d;
+  --ok: #5fa777;
+  --warn: #e8a33d;
+  --danger: #d9534f;
+  --danger-soft: #d9534f33;
+  --info: #4fb6c7;
+
   --overlay: #000000cc;
   --shadow-soft: #00000066;
   --shadow-strong: #000000aa;
 
-  /* Type — three tiers, deliberately not one display font slapped on
-     everything: display for page/section titles only, UI for chrome
-     (buttons/labels/nav), data (mono) for anything that's actually data —
-     branch names, paths, status figures, terminal content. */
-  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-  font-family: var(--font-ui);
-  background: var(--bg);
-  color: var(--text);
+  --radius: 3px;
 }
 
-/* Light theme — same token names, same semantic meaning per accent
-   (amber = active/focus, cyan = link/info, green = clean/selected,
-   red = dirty/error), re-tuned for contrast on a light background rather
-   than a straight invert. Accents are noticeably darker/more saturated
-   than their dark-theme counterparts: the dark theme's amber/cyan/green
-   read fine on near-black but wash out badly on near-white. */
-:root[data-theme="light"] {
+[data-theme="deck"][data-mode="light"] {
   color-scheme: light;
 
-  --bg: #f7f8fa;
-  --bg-elevated: #ffffff;
-  --bg-hover: #edf0f3;
-  --border: #dde2e7;
+  --surface-0: #f7f8fa;
+  --surface-1: #ffffff;
+  --surface-2: #edf0f3;
+  --surface-sunk: #ffffff;
+
+  --rule: #dde2e7;
+  --rule-soft: #e8ecf0;
+
   --text: #1b232c;
-  --text-dim: #5b6672;
-  --amber: #a3650a;
-  --amber-dim: #a3650a24;
-  --cyan: #0f7285;
-  --cyan-dim: #0f728524;
-  --green: #2f7a4f;
-  --green-dim: #2f7a4f24;
-  --red: #b93a35;
-  --red-dim: #b93a3524;
+  --text-2: #5b6672;
+  --text-3: #78838f;
+
+  --accent: #a3650a;
+  --accent-soft: #a3650a24;
+  --accent-on: #ffffff;
+
+  --attention: #a3650a;
+  --ok: #2f7a4f;
+  --warn: #a3650a;
+  --danger: #b93a35;
+  --danger-soft: #b93a3524;
+  --info: #0f7285;
+
+  --overlay: #1b232c73;
+  --shadow-soft: #1b232c1f;
+  --shadow-strong: #1b232c38;
+
+  --radius: 3px;
 }

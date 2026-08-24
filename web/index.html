@@ -6,28 +6,52 @@
     <title>worktree-studio</title>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#0b0f14" />
-    <!-- Applies a stored light-theme choice before first paint (see
-         theme.ts) — without this, the page would flash dark (tokens.css's
-         default) and then repaint light a beat later, once main.tsx's own
-         JS has loaded and run. Duplicated here rather than imported from
-         theme.ts deliberately: this has to run synchronously, inline,
-         before any CSS paints — importing a module would mean waiting on
-         the module graph first. -->
+    <meta name="theme-color" content="#131517" />
+    <!-- Resolves and applies the stored theme before first paint (see
+         theme.ts for the storage keys and the family/mode model). Without
+         this the page would paint the default palette and then repaint a
+         beat later, once main.tsx's module graph has loaded — a visible
+         flash on every reload. Duplicated here rather than imported from
+         theme.ts deliberately: it has to run synchronously, inline,
+         before any CSS paints, and an import means waiting on modules.
+         Kept deliberately tiny and total — any failure falls through to
+         the bare :root palette in tokens.css, which is itself complete. -->
     <script>
-      if (localStorage.getItem("worktree-studio-theme") === "light") {
-        document.documentElement.setAttribute("data-theme", "light");
-      }
+      (function () {
+        var family = "graphite";
+        var mode = "system";
+        try {
+          var f = localStorage.getItem("worktree-studio-theme-family");
+          if (f === "graphite" || f === "ledger" || f === "deck") family = f;
+          var m = localStorage.getItem("worktree-studio-theme-mode");
+          if (m === "dark" || m === "light" || m === "system") {
+            mode = m;
+          } else {
+            // Pre-redesign key: keep the light/dark an existing install chose.
+            var legacy = localStorage.getItem("worktree-studio-theme");
+            if (legacy === "light" || legacy === "dark") mode = legacy;
+          }
+        } catch (e) {}
+        if (mode === "system") {
+          mode =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        }
+        document.documentElement.setAttribute("data-theme", family);
+        document.documentElement.setAttribute("data-mode", mode);
+      })();
     </script>
-    <!-- Command Deck's display/UI typefaces (Space Grotesk / Inter) — via
-         Google Fonts CDN. Fully optional: every rule that uses them lists
-         a real system-font fallback first in the stack, so working
-         offline just means slightly-less-on-brand headings, not broken
-         layout or missing text. -->
+    <!-- The one UI typeface. There is no display face any more: headings
+         take their hierarchy from the type scale in tokens.css, which is
+         one less font to load and one less voice competing with the
+         terminal. Fully optional either way — --font-ui lists a real
+         system-font fallback first, so offline means slightly-off-brand
+         chrome, not broken layout. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
   </head>
