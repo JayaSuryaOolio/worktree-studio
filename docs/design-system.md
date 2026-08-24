@@ -109,9 +109,16 @@ colour soup.
 
 ### Scales, fixed
 
-- **Type**: `--fs-1` 11px · `--fs-2` 12px · `--fs-3` 13px · `--fs-4` 15px ·
-  `--fs-5` 20px. Five sizes, no others. A sixth is a bug, which makes
+- **Type**: `--fs-1` 11px · `--fs-2` 13px · `--fs-3` 14px · `--fs-4` 16px ·
+  `--fs-5` 21px. Five sizes, no others. A sixth is a bug, which makes
   "is this on the scale?" reviewable instead of arguable.
+- **Never set `font-size` on `:root`.** It redefines what `1rem` *means*,
+  so every rem-based token below it silently renders at a fraction of its
+  designed size. This shipped once: `:root { font-size: var(--fs-3) }`
+  put the entire app at 81%, with `--fs-2` landing at 9.75px instead of
+  12 and `--row-h` at 21px instead of 26. Nothing looked broken, it just
+  looked cramped, which is the hardest kind of bug to see. The document
+  default belongs on `body`.
 - **Space**: `--space-1..6` = 4 / 8 / 12 / 16 / 24 / 32px.
 - **Motion**: `--dur-fast` 120ms · `--dur` 160ms · `--dur-slow` 200ms,
   all on `--ease`. `--dur-slow` is a ceiling, not a default.

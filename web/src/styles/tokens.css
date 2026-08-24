@@ -37,10 +37,10 @@
      what makes "is this on the scale?" a reviewable question rather than
      an argument about whether 13.5px looks better here. */
   --fs-1: 0.6875rem; /* 11px — counts, ticks, timestamps, eyebrow labels */
-  --fs-2: 0.75rem; /* 12px — dense data rows, sidebar branch names */
-  --fs-3: 0.8125rem; /* 13px — default UI text, buttons, form labels */
-  --fs-4: 0.9375rem; /* 15px — section headings, dialog titles */
-  --fs-5: 1.25rem; /* 20px — page titles. The largest text in the app. */
+  --fs-2: 0.8125rem; /* 13px — dense data rows */
+  --fs-3: 0.875rem; /* 14px — default UI text, sidebar rows, buttons */
+  --fs-4: 1rem; /* 16px — section headings, dialog titles */
+  --fs-5: 1.3125rem; /* 21px — page titles. The largest text in the app. */
 
   /* Space scale: 4px steps to 16, then 24/32. Same rule as type. */
   --space-1: 0.25rem;
@@ -53,8 +53,8 @@
   /* One row height per theme, set here and never overridden per
      component — a list whose rows are 26px in one place and 30px in
      another is what makes an app feel assembled rather than designed. */
-  --row-h: 1.625rem; /* 26px */
-  --row-h-lg: 2rem; /* 32px — repo rows, toolbar buttons, inputs */
+  --row-h: 1.75rem; /* 28px */
+  --row-h-lg: 2.125rem; /* 34px — headers, tab strips, toolbar buttons, inputs */
 
   --radius: 4px;
   --radius-lg: 8px; /* dialogs and popovers only */
@@ -67,7 +67,7 @@
   --dur-slow: 200ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
-  --sidebar-w: 250px;
+  --sidebar-w: 260px;
 
   /* Type faces. There is deliberately no display face: headings get their
      hierarchy from size and weight, which is one less thing that can fail
@@ -112,9 +112,18 @@
   --shadow-strong: #0000008c;
 
   font-family: var(--font-ui);
-  font-size: var(--fs-3);
   background: var(--surface-0);
   color: var(--text);
+
+  /* NO font-size here. It used to be `font-size: var(--fs-3)`, which is a
+     trap: setting font-size on :root redefines what 1rem MEANS, so every
+     rem-based token below it silently rendered at 13/16 = 81% of its
+     designed size. --fs-2 came out at 9.75px instead of 12, --fs-1 at
+     8.9px instead of 11, --row-h at 21px instead of 26, and every
+     --space-* was a fifth short. The whole app was quietly one size too
+     small, which is exactly how it looked. The document default belongs
+     on body (see base.css), where it styles text without moving the unit
+     everything else is measured in. */
 }
 
 /* Graphite dark, again, under its own name — see the note in :root. The
@@ -233,7 +242,7 @@
 
   --radius: 0px;
   --radius-lg: 0px;
-  --row-h: 1.75rem; /* 28px */
+  --row-h: 1.875rem; /* 30px — Ledger runs one step roomier throughout */
 }
 
 [data-theme="ledger"][data-mode="dark"] {
@@ -268,7 +277,7 @@
 
   --radius: 0px;
   --radius-lg: 0px;
-  --row-h: 1.75rem; /* 28px */
+  --row-h: 1.875rem; /* 30px — Ledger runs one step roomier throughout */
 }
 
 /* =================================================================
