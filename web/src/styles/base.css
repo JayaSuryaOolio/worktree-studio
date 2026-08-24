@@ -89,8 +89,68 @@ tbody tr:last-child td {
 
 /* Anything that lines up in a column reads as a column: tabular figures
    so digits don't shift width row to row. */
-.num {
+.num,
+.col-right {
   font-variant-numeric: tabular-nums;
+}
+
+/* Numbers, ages and actions belong at the right edge, where a scan can
+   compare them without tracking across variable-width text. */
+.col-right {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A value every row shares, hoisted out of the table into one line above
+   it — see RepoSettings.tsx's WorktreeTable. Quiet: it's the constant,
+   not the content. */
+.table-caption {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-2);
+  color: var(--text-3);
+}
+
+/* An elided path plus a copy affordance that shows on approach. The full
+   value is on the cell's title either way, so nothing here is a dead
+   end if the clipboard is unavailable. */
+.path-cell {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 26rem;
+}
+
+.path-cell .mono {
+  color: var(--text-2);
+}
+
+.path-cell-copy {
+  flex-shrink: 0;
+  height: 1.25rem;
+  padding: 0 var(--space-1);
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-1);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+tr:hover .path-cell-copy,
+.path-cell-copy:focus-visible {
+  opacity: 1;
+}
+
+.path-cell-copy:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+/* An archived worktree about to be auto-deleted for good — the one
+   row-level urgency in that table, so the one colour in it. */
+.soon {
+  color: var(--warn);
 }
 
 button {

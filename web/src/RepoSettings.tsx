@@ -11,6 +11,7 @@ import {
   updateRepoBaseBranch,
   Worktree,
 } from "./api";
+import { commonValue, relativeTime, shortenPath } from "./format";
 import { useRepoContext } from "./RepoContext";
 import { daysUntilAutoDelete, unarchiveWorktreeSafe } from "./worktreeActions";
 
@@ -246,9 +247,9 @@ function WorktreesTab({ repoId }: { repoId: string }) {
                 <tr key={entry.path}>
                   <td className="mono">{entry.branch || <span className="muted">(detached)</span>}</td>
                   <td>
-                    <code>{entry.path}</code>
+                    <PathCell path={entry.path} shortened />
                   </td>
-                  <td>
+                  <td className="col-right">
                     <button type="button" disabled={attaching === entry.path} onClick={() => handleAttach(entry)}>
                       {attaching === entry.path ? "…" : "Attach"}
                     </button>
@@ -294,7 +295,7 @@ function ArchivedWorktreesTable({
           <tr>
             <th>Branch</th>
             <th>Path</th>
-            <th>Auto-deletes in</th>
+            <th className="col-right">Auto-deletes</th>
             <th />
           </tr>
         </thead>
@@ -305,10 +306,14 @@ function ArchivedWorktreesTable({
               <tr key={wt.id}>
                 <td className="mono">{wt.branch}</td>
                 <td>
-                  <code>{wt.path}</code>
+                  <PathCell path={wt.path} shortened />
                 </td>
-                <td>{daysLeft !== null && (daysLeft > 0 ? `${daysLeft} day(s)` : "any time now")}</td>
-                <td>
+                {/* The only row-level urgency in this table, so it's the
+                    only place a colour appears in it. */}
+                <td className={daysLeft !== null && daysLeft <= 1 ? "col-right soon" : "col-right"}>
+                  {daysLeft !== null && (daysLeft > 1 ? `in ${daysLeft} days` : "any time now")}
+                </td>
+                <td className="col-right">
                   <button type="button" disabled={unarchiving === wt.id} onClick={() => handleUnarchive(wt)}>
                     {unarchiving === wt.id ? "…" : "Unarchive"}
                   </button>
@@ -322,6 +327,18 @@ function ArchivedWorktreesTable({
   );
 }
 
+// One line per worktree. This table used to take three wrapped lines per
+// row for five columns, of which three said the same thing on every row:
+// the full path (~62 identical leading characters, wrapping), the source
+// branch ("origin/master" everywhere), and a "Status: active" badge on
+// 100% of rows. See docs/design-system.md — "show the difference, not the
+// data", and "if it renders on every row, it isn't a signal".
+//
+// Nothing is actually lost. A value every row shares is hoisted into one
+// caption above the table (and reappears per-row the moment rows
+// disagree, since then it IS telling them apart); the path is elided to
+// its last two segments with the full value on hover and behind a copy
+// action; and the timestamp is relative, with the exact one in its title.
 function WorktreeTable({
   worktrees,
   loading,
@@ -334,35 +351,93 @@ function WorktreeTable({
   if (loading) return <p className="muted">Loading…</p>;
   if (worktrees.length === 0) return <p className="muted">{emptyText}</p>;
 
+  const sharedSource = commonValue(worktrees, (w) => w.source_branch);
+  const sharedStatus = commonValue(worktrees, (w) => w.status);
+  const sharedRoot = commonValue(worktrees, (w) => w.path.slice(0, w.path.lastIndexOf("/")));
+
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Branch</th>
-          <th>Created from</th>
-          <th>Path</th>
-          <th>Status</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {worktrees.map((wt) => (
-          <tr key={wt.id}>
-            <td>
-              <Link className="repo-link mono" to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>{wt.branch}</Link>
-            </td>
-            <td>{wt.source_branch || <span className="muted">—</span>}</td>
-            <td>
-              <code>{wt.path}</code>
-            </td>
-            <td>
-              <span className={`badge badge-status-${wt.status}`}>{wt.status}</span>
-            </td>
-            <td>{new Date(wt.created_at).toLocaleString()}</td>
+    <>
+      {(sharedSource || sharedRoot) && (
+        <p className="table-caption">
+          {sharedSource && (
+            <>
+              All created from <span className="mono">{sharedSource}</span>
+            </>
+          )}
+          {sharedSource && sharedRoot && <> · </>}
+          {sharedRoot && (
+            <>
+              in <span className="mono">{sharedRoot}/</span>
+            </>
+          )}
+        </p>
+      )}
+      <table>
+        <thead>
+          <tr>
+            <th>Branch</th>
+            {!sharedSource && <th>Created from</th>}
+            <th>Path</th>
+            {!sharedStatus && <th>Status</th>}
+            <th className="col-right">Created</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {worktrees.map((wt) => (
+            <tr key={wt.id}>
+              <td>
+                <Link className="repo-link mono" to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>
+                  {wt.branch}
+                </Link>
+              </td>
+              {!sharedSource && (
+                <td className="mono">{wt.source_branch || <span className="muted">—</span>}</td>
+              )}
+              <td>
+                <PathCell path={wt.path} shortened={sharedRoot === null} />
+              </td>
+              {!sharedStatus && (
+                <td>
+                  <span className={`badge badge-status-${wt.status}`}>{wt.status}</span>
+                </td>
+              )}
+              <td className="col-right mono" title={new Date(wt.created_at).toLocaleString()}>
+                {relativeTime(wt.created_at)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+// The full path stays available — on hover, and as a copy — it just stops
+// taking the widest column in the table to say the same thing twenty
+// times. When the shared root has already been hoisted into the caption,
+// only the leaf is worth printing at all.
+function PathCell({ path, shortened }: { path: string; shortened: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const leaf = path.slice(path.lastIndexOf("/") + 1);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard denied (no permission, insecure context) — the full
+      // path is still on the title attribute, so this isn't a dead end.
+    }
+  }
+
+  return (
+    <span className="path-cell" title={path}>
+      <span className="mono elide">{shortened ? shortenPath(path) : leaf}</span>
+      <button type="button" className="path-cell-copy" title="Copy full path" onClick={copy}>
+        {copied ? "Copied" : "⧉"}
+      </button>
+    </span>
   );
 }
 
@@ -386,7 +461,7 @@ function ShellsTab({ repoId }: { repoId: string }) {
         <tr>
           <th>Worktree</th>
           <th>Tab</th>
-          <th>Created</th>
+          <th className="col-right">Started</th>
           <th />
         </tr>
       </thead>
@@ -395,7 +470,9 @@ function ShellsTab({ repoId }: { repoId: string }) {
           <tr key={s.id}>
             <td className="mono">{s.worktree_branch || s.worktree_name}</td>
             <td className="mono">{s.tab_label}</td>
-            <td>{new Date(s.created_at).toLocaleString()}</td>
+            <td className="col-right mono" title={new Date(s.created_at).toLocaleString()}>
+              {relativeTime(s.created_at)}
+            </td>
             <td>
               <Link to={`/repo/${repoId}/worktree/${s.worktree_id}?terminal=${s.id}`}>Open</Link>
             </td>
