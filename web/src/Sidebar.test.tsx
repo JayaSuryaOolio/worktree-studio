@@ -66,6 +66,21 @@ beforeEach(() => {
 });
 
 describe("Sidebar worktree row", () => {
+  // The filter is the control you reach for BECAUSE the list is long, so
+  // it can't live in the same scroll container as the list.
+  it("keeps the filter and the Repos heading out of the scrolling region", async () => {
+    render(<Harness />);
+    await screen.findByTitle("feature");
+
+    const pinned = document.querySelector(".sidebar-top")!;
+    const scroller = document.querySelector(".sidebar-scroll")!;
+
+    expect(pinned.contains(screen.getByLabelText("Filter worktrees"))).toBe(true);
+    expect(pinned.contains(screen.getByText("Repos"))).toBe(true);
+    expect(scroller.contains(screen.getByTitle("feature"))).toBe(true);
+    expect(scroller.contains(screen.getByLabelText("Filter worktrees"))).toBe(false);
+  });
+
   it("the filter narrows the list across repos, and Escape clears it", async () => {
     vi.mocked(listWorktrees).mockResolvedValue([
       { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active" },

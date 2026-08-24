@@ -460,8 +460,14 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
 
   return (
     <nav className="sidebar" aria-label="Repos and worktrees">
-      <div className="sidebar-header">
-        <Link to="/" className="sidebar-brand">
+      {/* Pinned. The brand, the filter and the "Repos" heading used to sit
+          inside the sidebar's single scroll container, so scrolling to a
+          repo near the bottom of a long list scrolled the search box off
+          the top — the one control you reach for *because* the list is
+          long. Only the tree scrolls now. */}
+      <div className="sidebar-top">
+        <div className="sidebar-header">
+          <Link to="/" className="sidebar-brand">
           worktree-studio
         </Link>
         {/* The one number worth putting in the chrome: how many claude
@@ -517,12 +523,16 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
             }
           }}
         />
-        <kbd className="sidebar-filter-hint" aria-hidden="true">
-          /
-        </kbd>
-      </div>
+          {/* A hint, not a control. This was a bordered keycap, which read
+              as a button sitting inside the text field — something you
+              could click, and which did nothing. It's a dim glyph now,
+              and it clears out of the way the moment the field is
+              focused. */}
+          <span className="sidebar-filter-hint" aria-hidden="true">
+            /
+          </span>
+        </div>
 
-      <div className="sidebar-section">
         <div className="sidebar-section-title">
           <span>Repos</span>
           <button
@@ -535,7 +545,9 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
             +
           </button>
         </div>
+      </div>
 
+      <div className="sidebar-scroll">
         {reposLoading ? (
           <p className="sidebar-empty muted">Loading…</p>
         ) : repos.length === 0 ? (
