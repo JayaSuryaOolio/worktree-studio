@@ -1,7 +1,13 @@
 /* Modal dialogs: the generic backdrop/dialog shell (AddRepoDialog,
-   NewWorktreeDialog, AttachWorktreeDialog, ...), the audit-log dialog, and
-   the settings modals (both the main SettingsModal and the per-repo
-   RepoSettings page reuse .settings-modal-tabs/.settings-section). */
+   NewWorktreeDialog, AttachWorktreeDialog, ...), the audit-log dialog,
+   and the settings modals (both the main SettingsModal and the per-repo
+   RepoSettings page reuse .settings-modal-tabs/.settings-section).
+
+   Sized to their content, within limits. The settings modal used to be
+   min-width 36rem / max-width 48rem / 90vw wide by a flat 60vh tall,
+   which on a large display put two controls in a box roughly 1000x900 —
+   nine-tenths empty reads as "something failed to load", not "there
+   isn't much here". */
 
 .dialog-backdrop {
   position: fixed;
@@ -11,26 +17,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: var(--space-5);
 }
 
 .dialog {
-  background: var(--bg-elevated);
+  background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.5rem;
-  min-width: 24rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  min-width: 22rem;
+  max-width: 100%;
+  box-shadow: 0 16px 48px var(--shadow-strong);
 }
 
 .dialog h2 {
-  margin-top: 0;
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-4);
 }
 
 .dialog label {
-  font-size: 0.8rem;
-  color: var(--text-dim);
-  margin-top: 0.6rem;
   display: block;
+  margin-top: var(--space-3);
+  font-size: var(--fs-2);
+  color: var(--text-2);
 }
 
 .dialog form {
@@ -38,17 +48,22 @@
   align-items: stretch;
 }
 
+.dialog input[type="text"] {
+  width: 100%;
+  min-width: 0;
+}
+
 .dialog .actions {
   display: flex;
   flex-direction: row;
   justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 .audit-log-dialog {
-  min-width: 28rem;
-  max-width: 36rem;
+  min-width: 26rem;
+  max-width: 34rem;
 }
 
 .audit-log-list {
@@ -62,9 +77,9 @@
 .audit-log-entry {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .audit-log-entry:last-child {
@@ -73,6 +88,7 @@
 
 .audit-log-icon {
   flex-shrink: 0;
+  color: var(--text-3);
 }
 
 .audit-log-body {
@@ -80,112 +96,130 @@
   min-width: 0;
 }
 
-.audit-log-label {
-  font-family: var(--font-ui);
-}
-
 .audit-log-summary {
   font-family: var(--font-mono);
-  color: var(--text-dim);
+  font-size: var(--fs-2);
+  color: var(--text-2);
 }
 
 .audit-log-time {
   display: block;
-  font-size: 0.8em;
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }
 
 .audit-log-context {
   display: block;
-  margin: 0.35rem 0 0;
+  margin: var(--space-1) 0 0;
   max-width: 100%;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-mono);
-  font-size: 0.85em;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.5rem;
+  font-size: var(--fs-1);
+  color: var(--text-2);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-2);
 }
 
 .audit-log-raw {
   flex-shrink: 0;
-  font-size: 0.8em;
-  color: var(--text-dim);
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }
 
 .audit-log-raw pre {
-  max-width: 24rem;
+  max-width: 22rem;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 0.9em;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.5rem;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-2);
 }
 
 .settings-modal {
-  min-width: 36rem;
-  max-width: 48rem;
-  width: 90vw;
+  width: min(38rem, 100%);
+  min-width: 0;
 }
 
 .settings-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
+}
+
+.settings-modal-header h2 {
+  margin: 0;
 }
 
 .settings-modal-header button {
+  height: 1.75rem;
+  padding: 0 var(--space-2);
   background: transparent;
   border: none;
-  color: var(--text-dim);
-  font-size: 1rem;
+  color: var(--text-3);
 }
 
 .settings-modal-header button:hover {
   color: var(--text);
+  background: var(--surface-2);
 }
 
 .settings-modal-tabs {
   display: flex;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 1rem;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--space-4);
 }
 
 .settings-modal-tabs button {
+  height: auto;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 0.5rem 0.25rem;
-  color: var(--text-dim);
+  padding: var(--space-2) 0;
+  color: var(--text-2);
   border-radius: 0;
+}
+
+.settings-modal-tabs button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
 }
 
 .settings-modal-tabs button.active {
   color: var(--text);
-  border-bottom-color: var(--amber);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
-/* A fixed height, not max-height: the modal used to visibly resize
+/* A stable height, not a free one: the modal used to visibly resize
    between tabs (Installation's dependency list is much taller than
-   Appearance's toggle), which read as jumpy/unstable — a real reported
-   bug. Fixed height + scroll for whichever tab overflows it instead. */
+   Appearance's controls), which read as jumpy — a real reported bug. But
+   a flat 60vh is only a fix on a small screen. Clamped so it can't grow
+   into a mostly-empty box on a large display, and each tab scrolls
+   inside it instead. */
 .settings-modal-body {
-  height: 60vh;
+  height: clamp(17rem, 52vh, 26rem);
   overflow-y: auto;
 }
 
 .repo-settings-body {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--space-5);
 }
 
 .settings-section h3 {
-  margin-bottom: 0.15rem;
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-3);
+  color: var(--text);
+}
+
+.settings-section h3 + * {
+  margin-top: 0;
 }

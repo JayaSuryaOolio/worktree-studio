@@ -1,4 +1,8 @@
-/* Command palette (cmdk) — CommandPalette.tsx. */
+/* Command palette (cmdk) — CommandPalette.tsx.
+
+   Under the contract this is the app's primary navigation surface (the
+   sidebar is a status board, not a directory), so it gets the one piece
+   of real elevation in the UI: a strong shadow on --surface-1. */
 
 .command-palette-overlay {
   position: fixed;
@@ -9,71 +13,80 @@
 
 .command-palette-content {
   position: fixed;
-  top: 15vh;
+  top: 14vh;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1001;
-  width: min(34rem, 90vw);
+  width: min(34rem, 92vw);
   max-height: 60vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--bg-elevated);
+  background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
   box-shadow: 0 16px 48px var(--shadow-strong);
 }
 
 .command-palette [cmdk-input] {
   font: inherit;
   font-family: var(--font-mono);
-  font-size: 1rem;
-  padding: 0.75rem 1rem;
+  font-size: var(--fs-4);
+  padding: var(--space-3) var(--space-4);
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
   background: transparent;
   color: var(--text);
   outline: none;
 }
 
 .command-palette [cmdk-input]::placeholder {
-  color: var(--text-dim);
+  color: var(--text-3);
   font-family: var(--font-ui);
 }
 
 .command-palette [cmdk-list] {
   overflow-y: auto;
-  padding: 0.4rem;
+  padding: var(--space-1);
 }
 
 .command-palette [cmdk-group-heading] {
-  font-family: var(--font-ui);
-  font-size: 0.75rem;
+  font-size: var(--fs-1);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  padding: 0.5rem 0.6rem 0.2rem;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+  padding: var(--space-2) var(--space-2) var(--space-1);
 }
 
 .command-palette [cmdk-item] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-mono);
-  padding: 0.5rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
+  font-size: var(--fs-3);
+  height: var(--row-h-lg);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  border-left: 2px solid transparent;
   cursor: pointer;
   color: var(--text);
 }
 
+/* Same selection language as a sidebar row: a wash plus an accent rail,
+   on exactly one item at a time. Deliberately not accent-coloured text —
+   the palette moves selection on every keystroke, and recolouring the
+   label made the whole list flicker. */
 .command-palette [cmdk-item][data-selected="true"] {
-  background: var(--amber-dim);
-  color: var(--amber);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 .command-palette [cmdk-empty] {
   font-family: var(--font-ui);
-  padding: 1rem;
+  padding: var(--space-4);
   text-align: center;
-  color: var(--text-dim);
-  font-size: 0.9rem;
+  color: var(--text-3);
+  font-size: var(--fs-3);
 }

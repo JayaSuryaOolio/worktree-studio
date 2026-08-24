@@ -1,16 +1,6 @@
-/* FileTree.tsx — the worktree-detail sidebar's file/folder tree, see
-   docs/editor-plan.md. */
-
-.worktree-sidebar {
-  width: 15rem;
-  flex-shrink: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
+/* FileTree.tsx — the worktree-detail file/folder tree, see
+   docs/editor-plan.md. Its outer panel (.worktree-sidebar) lives in
+   worktree-detail.css, next to the layout it's part of. */
 
 .file-tree-panel {
   display: flex;
@@ -20,22 +10,23 @@
 }
 
 /* The git-filter/PR-badge controls that used to live here moved to the
-   sidebar's expandable worktree card (see Sidebar.tsx's SidebarWorktreeRow
-   and activeFileTreeActions.ts) — this is now the folder name (which takes
-   the remaining space so the buttons stay grouped at the right edge
-   regardless of name length) plus copy-path/collapse-all, which stay here
-   since they only make sense right next to the tree they act on. */
+   sidebar's expandable worktree card (see Sidebar.tsx's
+   SidebarWorktreeRow and activeFileTreeActions.ts) — this is now the
+   folder name (which takes the remaining space so the buttons stay
+   grouped at the right edge regardless of name length) plus
+   copy-path/collapse-all, which stay here since they only make sense
+   right next to the tree they act on. */
 .file-tree-heading {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-ui);
-  font-size: 0.8rem;
+  gap: var(--space-1);
+  height: var(--row-h-lg);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-2);
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-2);
 }
 
 .file-tree-folder-name {
@@ -46,6 +37,7 @@
   min-width: 0;
 }
 
+/* Available, not announced — same rule as the sidebar's row actions. */
 .file-tree-copy-path,
 .file-tree-collapse-all {
   flex-shrink: 0;
@@ -54,69 +46,85 @@
   justify-content: center;
   background: none;
   border: none;
-  border-radius: 3px;
-  color: var(--text-dim);
-  width: 1.4rem;
-  height: 1.4rem;
+  border-radius: var(--radius);
+  color: var(--text-3);
+  width: 1.25rem;
+  height: 1.25rem;
   padding: 0;
   line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.file-tree-heading:hover .file-tree-copy-path,
+.file-tree-heading:hover .file-tree-collapse-all,
+.file-tree-copy-path:focus-visible,
+.file-tree-collapse-all:focus-visible {
+  opacity: 1;
 }
 
 .file-tree-copy-path:hover,
 .file-tree-collapse-all:hover {
-  background: var(--bg-hover);
+  background: var(--surface-2);
   color: var(--text);
 }
 
 .file-tree-body {
   flex: 1;
   min-height: 0;
-  padding: 0.5rem 0.6rem;
+  padding: var(--space-1) var(--space-1) var(--space-2);
 }
 
 .file-tree-loading,
 .file-tree-error,
 .file-tree-empty {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
-  padding: 0.5rem;
+  font-size: var(--fs-2);
+  padding: var(--space-2);
 }
 
 .file-tree-error {
-  color: var(--red);
+  color: var(--danger);
 }
 
 .file-tree-loading,
 .file-tree-empty {
-  color: var(--text-dim);
+  color: var(--text-3);
 }
 
 .file-tree-row {
   display: flex;
   align-items: center;
   width: 100%;
+  height: 100%;
   text-align: left;
   background: none;
   border: none;
+  border-left: 2px solid transparent;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.85rem;
-  border-radius: 3px;
+  font-size: var(--fs-2);
+  border-radius: var(--radius);
   cursor: pointer;
+  padding: 0;
+  transition: background var(--dur-fast) var(--ease);
 }
 
 .file-tree-row:hover {
-  background: var(--bg-hover);
+  background: var(--surface-2);
 }
 
+/* Same selection language as a sidebar row and a palette item: a wash
+   plus an accent rail, not recoloured text. */
 .file-tree-row-selected {
-  background: var(--amber-dim);
-  color: var(--amber);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 .file-tree-row-opaque {
-  color: var(--text-dim);
+  color: var(--text-3);
   cursor: default;
 }
 
@@ -124,7 +132,7 @@
   display: inline-block;
   width: 1rem;
   flex-shrink: 0;
-  color: var(--text-dim);
+  color: var(--text-3);
   text-align: center;
 }
 
@@ -142,8 +150,7 @@
 
 .file-tree-opaque-note {
   flex-shrink: 0;
-  margin-left: 0.4rem;
-  font-size: 0.75rem;
-  font-style: italic;
-  color: var(--text-dim);
+  margin-left: var(--space-1);
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }

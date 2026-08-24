@@ -602,29 +602,34 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           {/* Sits directly above the shell tabs, not spanning the file
               tree column too — a title for this worktree's terminal/editor
               area specifically. */}
+          {/* Branch name first, PR trailing and quiet. This used to open
+              with "[No pull request for this branch]" — bracketed, in
+              first position, ahead of the branch name — which made the
+              most prominent string in the workspace a statement that
+              nothing exists. No PR now renders nothing at all: the normal
+              state of the UI is silence (docs/design-system.md). */}
           <div className="worktree-header">
-            {summary?.pr ? (
-              <a
-                className="worktree-header-pr"
-                href={summary.pr.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                [PR #{summary.pr.number}
-                {summary.pr.is_draft ? " (draft)" : ""} — {summary.pr.title}]
-              </a>
-            ) : (
-              <span className="worktree-header-pr-none">[No pull request for this branch]</span>
-            )}
             <span className="worktree-header-branch-name">{worktree?.branch}</span>
             <button
               type="button"
-              className="worktree-header-copy"
+              className={branchCopied ? "worktree-header-copy copied" : "worktree-header-copy"}
               title="Copy branch name"
               onClick={copyBranch}
             >
               {branchCopied ? "Copied" : "⧉"}
             </button>
+            {summary?.pr && (
+              <a
+                className="worktree-header-pr"
+                href={summary.pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={summary.pr.title}
+              >
+                #{summary.pr.number}
+                {summary.pr.is_draft ? " draft" : ""} · {summary.pr.title}
+              </a>
+            )}
           </div>
           <DockviewActionsContext.Provider
             value={{
@@ -638,7 +643,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               watermarkComponent={Watermark}
               prefixHeaderActionsComponent={NewTerminalPrefixAction}
               onReady={onDockviewReady}
-              className="dockview-theme-abyss command-deck-dockview"
+              className="dockview-theme-abyss app-dockview"
             />
           </DockviewActionsContext.Provider>
         </div>

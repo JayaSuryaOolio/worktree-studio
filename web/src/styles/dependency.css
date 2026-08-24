@@ -11,9 +11,10 @@
 .dependency-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--rule-soft);
+  min-height: var(--row-h-lg);
 }
 
 .dependency-row:last-child {
@@ -21,14 +22,18 @@
 }
 
 .dependency-label {
-  font-family: var(--font-ui);
-  min-width: 14rem;
+  min-width: 13rem;
+  font-size: var(--fs-3);
 }
 
+/* The path or hint. Secondary, mono, and allowed to elide — it's a
+   confirmation you glance at, not a value you read. */
 .dependency-detail {
   flex: 1;
+  min-width: 0;
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: var(--fs-2);
+  color: var(--text-2);
 }
 
 .dependency-actions {

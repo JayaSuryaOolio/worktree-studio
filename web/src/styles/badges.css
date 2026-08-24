@@ -1,38 +1,41 @@
-/* Small status badges — worktree lifecycle status, git dirty/clean,
-   dependency-installed checks. */
+/* Small status badges — git dirty/clean and worktree lifecycle status.
+
+   Under the contract these are exception markers, so they're colour-only
+   text rather than outlined pills: an outlined "active" badge printed on
+   every row (which is what the worktrees table did) is furniture, not
+   information. A badge earns a colour only when the state is abnormal;
+   the normal state is plain --text-3, or nothing at all. */
 
 .badge-status-active {
-  color: var(--green);
+  color: var(--text-3);
 }
 
 .badge-status-archived {
-  color: var(--text-dim);
+  color: var(--text-3);
 }
 
 .badge-status-deleted {
-  color: var(--red);
+  color: var(--danger);
 }
 
 .git-status-badges {
   display: inline-flex;
-  gap: 0.4rem;
+  gap: var(--space-2);
   align-items: center;
   font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
-  font-size: 0.85em;
-  padding: 0.1rem 0.4rem;
-  border-radius: 3px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }
 
 .badge-dirty {
-  color: var(--red);
-  border-color: var(--red);
+  color: var(--warn);
 }
 
 .badge-clean {
-  color: var(--text-dim);
+  color: var(--text-3);
 }

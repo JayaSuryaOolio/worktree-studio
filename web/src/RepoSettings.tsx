@@ -244,7 +244,7 @@ function WorktreesTab({ repoId }: { repoId: string }) {
             <tbody>
               {external.map((entry) => (
                 <tr key={entry.path}>
-                  <td>{entry.branch || <span className="muted">(detached)</span>}</td>
+                  <td className="mono">{entry.branch || <span className="muted">(detached)</span>}</td>
                   <td>
                     <code>{entry.path}</code>
                   </td>
@@ -303,7 +303,7 @@ function ArchivedWorktreesTable({
             const daysLeft = daysUntilAutoDelete(wt.archived_at);
             return (
               <tr key={wt.id}>
-                <td>{wt.branch}</td>
+                <td className="mono">{wt.branch}</td>
                 <td>
                   <code>{wt.path}</code>
                 </td>
@@ -349,7 +349,7 @@ function WorktreeTable({
         {worktrees.map((wt) => (
           <tr key={wt.id}>
             <td>
-              <Link to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>{wt.branch}</Link>
+              <Link className="repo-link mono" to={`/repo/${wt.repo_id}/worktree/${wt.id}`}>{wt.branch}</Link>
             </td>
             <td>{wt.source_branch || <span className="muted">—</span>}</td>
             <td>
@@ -393,8 +393,8 @@ function ShellsTab({ repoId }: { repoId: string }) {
       <tbody>
         {sessions.map((s) => (
           <tr key={s.id}>
-            <td>{s.worktree_branch || s.worktree_name}</td>
-            <td>{s.tab_label}</td>
+            <td className="mono">{s.worktree_branch || s.worktree_name}</td>
+            <td className="mono">{s.tab_label}</td>
             <td>{new Date(s.created_at).toLocaleString()}</td>
             <td>
               <Link to={`/repo/${repoId}/worktree/${s.worktree_id}?terminal=${s.id}`}>Open</Link>

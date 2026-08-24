@@ -1,127 +1,251 @@
-/* Global element defaults: resets, typography, the small set of plain-HTML
-   elements (table/button/input/form) shared across every page rather than
-   scoped to one feature. */
+/* Global element defaults: resets, typography, and the small set of
+   plain-HTML elements (table/button/input/form) shared across every page
+   rather than scoped to one feature.
+
+   Everything here is on the contract's scales — see docs/design-system.md.
+   Headings in particular get their hierarchy from --fs-* and weight
+   alone: there is no display face any more. */
 
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: var(--surface-0);
   color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-3);
+  -webkit-font-smoothing: antialiased;
 }
 
 .container {
-  max-width: 56rem;
+  max-width: 60rem;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: var(--space-5);
 }
 
 h1,
-h2 {
-  font-family: var(--font-display);
+h2,
+h3 {
   font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 h1 {
-  font-size: 1.4rem;
+  font-size: var(--fs-5);
+  margin: 0 0 var(--space-2);
 }
 
 h2 {
-  font-size: 1.1rem;
-  margin-top: 2rem;
+  font-size: var(--fs-4);
+  margin: var(--space-6) 0 var(--space-2);
 }
 
+h3 {
+  font-size: var(--fs-3);
+  margin: var(--space-5) 0 var(--space-1);
+}
+
+/* Tables are data: a hairline under each row is the whole structure, no
+   zebra striping and no cell borders. Headers are the quietest thing in
+   the table because you read them once. */
 table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 0.75rem;
+  margin-top: var(--space-3);
 }
 
 th,
 td {
   text-align: left;
-  padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
-}
-
-/* Data columns (branch, path) read like telemetry; non-data columns stay
-   in the UI face. */
-td:nth-child(1),
-td:nth-child(2) {
-  font-family: var(--font-mono);
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: var(--fs-3);
+  vertical-align: baseline;
 }
 
 th {
-  font-family: var(--font-ui);
+  padding-top: 0;
+  border-bottom-color: var(--rule);
+  font-size: var(--fs-1);
   font-weight: 600;
-  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Data reads like data. Replaces a td:nth-child(1), td:nth-child(2)
+   rule that guessed which columns were data by position — which was
+   wrong the moment a column moved, and silently. Applied explicitly at
+   the call site instead. */
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+}
+
+/* Anything that lines up in a column reads as a column: tabular figures
+   so digits don't shift width row to row. */
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 button {
   font: inherit;
+  font-size: var(--fs-3);
   cursor: pointer;
-  padding: 0.35rem 0.8rem;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
+  padding: var(--space-1) var(--space-3);
+  height: var(--row-h-lg);
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--text);
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-3);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* One accent, and focus is one of its three jobs. Applied globally so a
+   new control can't ship without a visible focus state. */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The primary action in a dialog — the one place a filled accent button
+   is warranted, because there's exactly one of them on screen. */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+
+/* Destructive intent shows on approach, not at rest. A permanently red
+   button is a small alarm sitting in the layout the whole time. */
+button.danger {
   color: var(--text);
 }
 
-button:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-dim);
-}
-
-button.danger {
-  border-color: var(--red);
-  color: var(--red);
+button.danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 
 input[type="text"] {
   font: inherit;
   font-family: var(--font-mono);
-  padding: 0.35rem 0.5rem;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  font-size: var(--fs-3);
+  height: var(--row-h-lg);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--surface-sunk);
   color: var(--text);
-  min-width: 20rem;
+  min-width: 12rem;
+}
+
+input[type="text"]::placeholder {
+  color: var(--text-3);
+  font-family: var(--font-ui);
 }
 
 input[type="text"]:focus {
   outline: none;
-  border-color: var(--amber);
-  box-shadow: 0 0 0 2px var(--amber-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 form {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
-  margin-top: 0.75rem;
+  margin-top: var(--space-3);
 }
 
 .error {
-  color: var(--red);
-  margin-top: 0.5rem;
-  font-size: 0.9rem;
+  color: var(--danger);
+  margin-top: var(--space-2);
+  font-size: var(--fs-2);
 }
 
+/* Links take text colour with a quiet underline rather than a colour of
+   their own — --info is a status colour, not a link colour, and a list of
+   coloured links reads as a list of warnings. */
 .repo-link {
-  color: var(--cyan);
+  color: var(--text);
   text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--text-3);
+}
+
+.repo-link:hover {
+  text-decoration-color: var(--text);
 }
 
 code {
   font-family: var(--font-mono);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
+  font-size: var(--fs-2);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius);
 }
 
+/* Empty states and placeholders. Deliberately the quietest text in the
+   app: "there is nothing here" is almost never the thing you came to
+   read, and it used to be set at full contrast in italics. */
 .muted {
-  opacity: 0.6;
-  font-style: italic;
-  color: var(--text-dim);
+  color: var(--text-3);
+}
+
+/* Two ways to say less. Used by the tables and lists that were printing
+   the same 60-character path on every row. */
+.elide {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

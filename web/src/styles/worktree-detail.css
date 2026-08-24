@@ -1,49 +1,74 @@
-/* WorktreeDetail.tsx: the PR/branch header, the dockview host (terminal +
-   editor panels), and dockview's own theme-variable overrides. */
+/* WorktreeDetail.tsx: the branch/PR header, the dockview host (terminal +
+   editor panels), and dockview's own theme-variable overrides.
+
+   Principle in force here: the terminal is the app, everything else is a
+   frame, and frames are quiet. The terminal used to sit inside a bordered,
+   rounded, inset box nested inside a bordered panel inside a padded
+   container — four edges around the one thing you actually look at. Now
+   the dockview host runs to the panel edge and the only seam is the one
+   under the header. */
 
 .worktree-detail {
   max-width: none;
-  height: calc(100vh - 2rem);
+  height: 100vh;
+  padding: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
-/* Replaces the old terminal-toolbar — the icon actions that used to live
-   here (files/VS Code/log/split terminal) moved to the sidebar's
-   expandable worktree card (see Sidebar.tsx's SidebarWorktreeRow and
-   activeWorktreeActions.ts); this is now just PR + copyable branch info. */
+/* Branch name first. This used to open with
+   "[No pull request for this branch]" — bracketed, in first position,
+   ahead of the branch name — which made the most prominent string in the
+   workspace a statement that nothing exists. The PR link is now trailing
+   and secondary, and its empty state renders nothing at all. */
 .worktree-header {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
+  gap: var(--space-2);
+  height: var(--row-h-lg);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-2);
   min-width: 0;
 }
 
 .worktree-header-branch-name {
   font-family: var(--font-mono);
   font-weight: 600;
+  color: var(--text);
   flex-shrink: 0;
 }
 
 .worktree-header-copy {
+  height: 1.25rem;
+  padding: 0 var(--space-1);
   border: none;
   background: transparent;
-  color: var(--text-dim);
-  padding: 0;
-  font-size: 0.8rem;
+  color: var(--text-3);
+  font-size: var(--fs-1);
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.worktree-header:hover .worktree-header-copy,
+.worktree-header-copy:focus-visible,
+.worktree-header-copy.copied {
+  opacity: 1;
 }
 
 .worktree-header-copy:hover {
   color: var(--text);
+  background: transparent;
 }
 
+/* Links take text colour with a quiet underline — see base.css's
+   .repo-link for why --info isn't a link colour here. */
 .worktree-header-pr {
-  color: var(--cyan);
+  color: var(--text-2);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -52,21 +77,15 @@
 }
 
 .worktree-header-pr:hover {
+  color: var(--text);
   text-decoration: underline;
-}
-
-.worktree-header-pr-none {
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+  text-underline-offset: 2px;
 }
 
 .button-with-icon {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--space-1);
 }
 
 .terminal-area {
@@ -74,68 +93,80 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--surface-0);
+  min-width: 0;
 }
 
-/* Per-pane inset — see the comment above TerminalPanel in WorktreeDetail.tsx
-   for why this can't just live on .terminal-area alone. */
+/* Per-pane inset — see the comment above TerminalPanel in
+   WorktreeDetail.tsx for why this can't just live on .terminal-area. Small
+   and even; the frame this used to sit inside is gone. */
 .terminal-panel-inset {
   box-sizing: border-box;
   height: 100%;
   width: 100%;
-  padding: 0.5rem;
+  padding: var(--space-2);
 }
 
 /* A one-shot check at panel-open (see TerminalPanel in WorktreeDetail.tsx
    and getTerminalCwd) flags a shell whose cwd has drifted outside its
-   worktree — deliberately faint (a thin border, not a filled banner) since
+   worktree — deliberately faint (a thin edge, not a filled banner) since
    this is informational, not an error. */
 .terminal-panel-inset.cwd-mismatch {
-  border: 1px solid var(--red-dim);
+  box-shadow: inset 0 0 0 1px var(--danger-soft);
 }
 
-/* dockview host: override its generic --dv-* variables with Command Deck
-   tokens rather than fighting its DOM structure (the layout/drag/resize
-   logic itself is exactly what's not worth reimplementing). Started from
-   the built-in "abyss" theme (closest existing base to this palette) —
-   see web/node_modules/dockview-react/dist/styles/dockview.css for every
-   variable this theme otherwise sets. Reads tokens.css's variables, so it
-   re-themes for free on a light/dark switch — no separate light overrides
-   needed here.
+/* dockview host: override its generic --dv-* variables with the design
+   system's tokens rather than fighting its DOM structure (the layout/
+   drag/resize logic is exactly what's not worth reimplementing). Started
+   from the built-in "abyss" theme (the closest existing base) — see
+   web/node_modules/dockview-react/dist/styles/dockview.css for every
+   variable that theme otherwise sets. Reads tokens.css's contract, so it
+   re-themes for free across all three families and both modes — no
+   per-theme work here at all.
 
-   The four "hiddenpanel" variables below are NOT optional extras: dockview's
-   own generic .dv-tab.dv-inactive-tab rule (dockview.css) reads them for
-   every tab that isn't the currently-selected one in its group — the
-   ordinary, common case whenever more than one tab is open. Missing them
-   here was a real reported bug: those tabs silently fell back to the
-   abyss theme's own hardcoded near-black background + translucent-white
-   text regardless of which theme was actually selected ("tab buttons are
-   still dark and white, doesn't follow the theme") — confirmed by reading
-   dockview.css's base (non-theme-specific) tab rules, not guessed. */
-.command-deck-dockview {
+   The four "hiddenpanel" variables below are NOT optional extras:
+   dockview's own generic .dv-tab.dv-inactive-tab rule reads them for
+   every tab that isn't the selected one in its group — the ordinary case
+   whenever more than one tab is open. Missing them was a real reported
+   bug: those tabs silently fell back to abyss's hardcoded near-black
+   background and translucent-white text regardless of the selected theme
+   ("tab buttons are still dark and white, doesn't follow the theme"),
+   confirmed by reading dockview's base tab rules rather than guessed. */
+.app-dockview {
   flex: 1;
   min-height: 0;
-  --dv-group-view-background-color: var(--bg);
-  --dv-tabs-and-actions-container-background-color: var(--bg-elevated);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-elevated);
+  --dv-group-view-background-color: var(--surface-0);
+  --dv-tabs-and-actions-container-background-color: var(--surface-1);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--surface-0);
   --dv-activegroup-visiblepanel-tab-color: var(--text);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-elevated);
-  --dv-activegroup-hiddenpanel-tab-color: var(--text-dim);
-  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
-  --dv-inactivegroup-visiblepanel-tab-color: var(--text-dim);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
-  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-dim);
-  --dv-tab-divider-color: var(--border);
-  --dv-separator-border: var(--border);
-  --dv-sash-color: var(--border);
-  --dv-active-sash-color: var(--amber);
-  --dv-icon-hover-background-color: var(--bg-hover);
-  --dv-tab-group-color: var(--amber);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-1);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-2);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-0);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-1);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-3);
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: var(--rule);
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--accent);
+  --dv-icon-hover-background-color: var(--surface-2);
+  --dv-tab-group-color: var(--accent);
   --dv-floating-box-shadow: 0 8px 24px var(--shadow-soft);
-  --dv-floating-border: 1px solid var(--border);
+  --dv-floating-border: 1px solid var(--rule);
+  --dv-tabs-container-height: var(--row-h-lg);
   font-family: var(--font-mono);
+  font-size: var(--fs-2);
+}
+
+/* The selected tab is marked by an accent underline rather than a
+   divider between every tab — same "one railed thing at a time" rule the
+   sidebar and command palette follow. */
+.app-dockview .dv-tab {
+  border-bottom: 2px solid transparent;
+}
+
+.app-dockview .dv-tab.dv-active-tab {
+  border-bottom-color: var(--accent);
 }
 
 .dockview-watermark {
@@ -143,17 +174,18 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   height: 100%;
-  padding: 2rem;
+  padding: var(--space-6);
   text-align: center;
-  color: var(--text-dim);
+  color: var(--text-3);
   font-family: var(--font-ui);
+  font-size: var(--fs-3);
 }
 
 .dockview-watermark-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .terminal-pane {
@@ -168,9 +200,9 @@
 .terminal-tab-with-icon {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--space-1);
   height: 100%;
-  padding-left: 0.5rem;
+  padding-left: var(--space-2);
   min-width: 0;
 }
 
@@ -186,28 +218,43 @@
 /* Pinned to the far left of the tab strip, before any tabs (dockview's
    prefixHeaderActionsComponent — see WorktreeDetail.tsx's
    NewTerminalPrefixAction) — the one way to open another shell once at
-   least one panel already exists, for worktrees (like the synthetic root
+   least one panel exists, for worktrees (like the synthetic root
    worktree) with no sidebar card of their own. */
 .dockview-prefix-new-terminal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  width: 1.8rem;
+  width: 1.75rem;
+  padding: 0;
   border: none;
+  border-radius: 0;
   background: transparent;
-  color: var(--text-dim);
-  font-size: 1rem;
+  color: var(--text-3);
+  font-size: var(--fs-4);
 }
 
 .dockview-prefix-new-terminal:hover {
   color: var(--text);
-  background: var(--bg-hover);
+  background: var(--surface-2);
 }
 
 .worktree-body {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* A seam, not a frame: the file tree is divided from the terminal by one
+   hairline, where it used to be a bordered rounded panel floating beside
+   another bordered rounded panel. */
+.worktree-sidebar {
+  width: 15rem;
+  flex-shrink: 0;
+  background: var(--surface-1);
+  border-right: 1px solid var(--rule);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
