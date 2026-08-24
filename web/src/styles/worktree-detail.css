@@ -37,18 +37,19 @@
 
 .worktree-header-branch-name {
   font-family: var(--font-mono);
+  font-size: var(--fs-3);
   font-weight: 600;
   color: var(--text);
   flex-shrink: 0;
 }
 
 .worktree-header-copy {
-  height: 1.25rem;
+  height: 1.375rem;
   padding: 0 var(--space-1);
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-size: var(--fs-1);
+  font-size: var(--fs-2);
   flex-shrink: 0;
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
@@ -65,21 +66,69 @@
   background: transparent;
 }
 
-/* Links take text colour with a quiet underline — see base.css's
-   .repo-link for why --info isn't a link colour here. */
+/* Branch state — rendered only when there's something to report, so a
+   clean, in-sync worktree shows a bare branch name and nothing else. */
+.worktree-header-ticks {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.worktree-header-changed {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  color: var(--warn);
+  flex-shrink: 0;
+}
+
+.worktree-header-spacer {
+  flex: 1;
+  min-width: var(--space-2);
+}
+
+/* The PR sits at the far end: it's the thing you leave for, not the thing
+   you're working in. The number stays put while the title is what gives
+   way as the window narrows. */
 .worktree-header-pr {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
   color: var(--text-2);
   text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-width: 0;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius);
 }
 
 .worktree-header-pr:hover {
   color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background: var(--surface-2);
+}
+
+.worktree-header-pr-number {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  flex-shrink: 0;
+}
+
+.worktree-header-pr-draft {
+  font-size: var(--fs-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  flex-shrink: 0;
+}
+
+.worktree-header-pr-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .button-with-icon {
@@ -155,18 +204,33 @@
   --dv-floating-border: 1px solid var(--rule);
   --dv-tabs-container-height: var(--row-h-lg);
   font-family: var(--font-mono);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
 }
 
-/* The selected tab is marked by an accent underline rather than a
-   divider between every tab — same "one railed thing at a time" rule the
-   sidebar and command palette follow. */
+/* Tabs get real padding and a full-height hit area. Dockview's defaults
+   are sized for a dense IDE dock; this is a shell switcher you reach for
+   dozens of times a day. */
 .app-dockview .dv-tab {
+  padding: 0 var(--space-3);
+  min-width: 0;
   border-bottom: 2px solid transparent;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
+.app-dockview .dv-tab:hover {
+  background: var(--surface-2);
+}
+
+/* The selected tab is marked by an accent underline plus weight, not by
+   a divider between every tab — the same "one railed thing at a time"
+   rule the sidebar, palette and file tree follow. */
 .app-dockview .dv-tab.dv-active-tab {
   border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.app-dockview .dv-default-tab-content {
+  font-size: var(--fs-3);
 }
 
 .dockview-watermark {
@@ -225,13 +289,14 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  width: 1.75rem;
+  width: 2rem;
   padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-3);
   font-size: var(--fs-4);
+  border-right: 1px solid var(--rule);
 }
 
 .dockview-prefix-new-terminal:hover {

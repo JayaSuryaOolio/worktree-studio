@@ -143,8 +143,13 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, f
   return (
     <div className="file-tree-panel">
       <div className="file-tree-heading">
-        <span className="file-tree-folder-name" title={folderPath}>
-          {folderName}
+        {/* A label, not the folder name. A worktree's directory is named
+            after its branch, so this used to print the exact string the
+            worktree header beside it was already showing — two headers,
+            one piece of information. The full path is still on the title
+            and behind the copy button to the right. */}
+        <span className="file-tree-heading-label" title={folderPath || folderName}>
+          Files
         </span>
         <button
           type="button"

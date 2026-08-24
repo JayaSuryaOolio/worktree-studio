@@ -66,11 +66,18 @@ describe("FileTree", () => {
     expect(row.closest(".file-tree-row")?.textContent).not.toMatch(/[▾▸]/);
   });
 
-  it("shows the folder's basename in the header", async () => {
+  // The header used to print the folder's basename, which is a worktree
+  // directory named after its branch — the exact string the worktree
+  // header immediately to its right was already showing. Two headers, one
+  // piece of information. It's a region label now, with the full path
+  // still on the title and behind the copy button.
+  it("labels the panel rather than repeating the branch name", async () => {
     render(
       <FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} folderPath="/tmp/adelaide-wt/my-worktree" />
     );
-    expect(await screen.findByText("my-worktree")).toBeInTheDocument();
+    const label = await screen.findByText("Files");
+    expect(label).toHaveAttribute("title", "/tmp/adelaide-wt/my-worktree");
+    expect(screen.queryByText("my-worktree")).not.toBeInTheDocument();
   });
 
   it("copies the full folder path when the copy button is clicked", async () => {

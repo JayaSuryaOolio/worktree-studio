@@ -85,6 +85,11 @@ beforeEach(() => {
   vi.mocked(saveWorktreeLayout).mockResolvedValue(undefined);
   vi.mocked(getFileTree).mockResolvedValue([]);
   vi.mocked(deleteTerminal).mockResolvedValue(undefined);
+  // The WorktreeSummary cache is localStorage-backed (prGitCache.ts, 5min
+  // TTL), so without this the first test's summary is served to every
+  // later one regardless of what getWorktreeSummary is mocked to return.
+  localStorage.clear();
+
   // Matches the active worktree's own path by default, i.e. no
   // cwd-mismatch border — individual tests override this to exercise the
   // mismatch case.
@@ -224,6 +229,60 @@ describe("WorktreeDetail", () => {
     expect(await screen.findByTestId("terminal-t3")).toBeInTheDocument();
 
     expect(createTerminal).toHaveBeenCalledTimes(2);
+  });
+
+  // The header used to hold the branch name and nothing else, beside a
+  // file-tree panel showing that same string. It now carries what you'd
+  // otherwise run `git status` for — and each part renders only when
+  // there's something to report.
+  describe("worktree header", () => {
+    it("stays silent for a clean, in-sync branch", async () => {
+      renderPage();
+      await screen.findByTestId("terminal-t1");
+
+      expect(screen.getByText("feature")).toBeInTheDocument();
+      expect(screen.queryByText(/changed$/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^[↑↓]/)).not.toBeInTheDocument();
+      // An absent PR renders nothing at all, not "[No pull request…]".
+      expect(screen.queryByText(/pull request/i)).not.toBeInTheDocument();
+    });
+
+    it("reports ahead/behind and a changed-file count when there is any", async () => {
+      vi.mocked(getWorktreeSummary).mockResolvedValue({
+        branch: "feature",
+        ahead: 2,
+        behind: 54,
+        has_upstream: true,
+        dirty: true,
+        changed_files: ["a.go", "b.go", "c.go"],
+        pr: null,
+      });
+      renderPage();
+      await screen.findByTestId("terminal-t1");
+
+      expect(await screen.findByText("3 changed")).toBeInTheDocument();
+      const ticks = await screen.findByTitle("2 ahead, 54 behind upstream");
+      expect(ticks.textContent).toBe("↑2 ↓54");
+    });
+
+    it("shows a PR as a number plus title, with draft called out separately", async () => {
+      vi.mocked(getWorktreeSummary).mockResolvedValue({
+        branch: "feature",
+        ahead: 0,
+        behind: 0,
+        has_upstream: true,
+        dirty: false,
+        changed_files: [],
+        pr: { number: 2841, title: "Order id migration", url: "https://example/pr", is_draft: true },
+      });
+      renderPage();
+      await screen.findByTestId("terminal-t1");
+
+      expect(await screen.findByText("#2841")).toBeInTheDocument();
+      expect(screen.getByText("Order id migration")).toBeInTheDocument();
+      expect(screen.getByText("draft")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /2841/ })).toHaveAttribute("href", "https://example/pr");
+    });
   });
 
   it("fetches the saved layout for this worktree on mount", async () => {

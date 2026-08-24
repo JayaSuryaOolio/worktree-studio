@@ -24,17 +24,19 @@
   height: var(--row-h-lg);
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--rule);
-  font-size: var(--fs-2);
-  font-weight: 600;
-  color: var(--text-2);
 }
 
-.file-tree-folder-name {
+/* An eyebrow label in the same language as the sidebar's "REPOS" — it
+   names the region and gets out of the way, rather than repeating the
+   branch name the header beside it already shows. */
+.file-tree-heading-label {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-width: 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
 }
 
 /* Available, not announced — same rule as the sidebar's row actions. */
@@ -80,7 +82,7 @@
 .file-tree-error,
 .file-tree-empty {
   font-family: var(--font-mono);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
   padding: var(--space-2);
 }
 
@@ -104,7 +106,7 @@
   border-left: 2px solid transparent;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
   border-radius: var(--radius);
   cursor: pointer;
   padding: 0;

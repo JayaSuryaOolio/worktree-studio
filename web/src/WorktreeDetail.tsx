@@ -608,6 +608,14 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               most prominent string in the workspace a statement that
               nothing exists. No PR now renders nothing at all: the normal
               state of the UI is silence (docs/design-system.md). */}
+          {/* Branch name, then the state of that branch, then its PR.
+              This bar used to hold the branch name and nothing else,
+              sitting directly beside a file-tree panel whose header showed
+              the same string (a worktree directory is named after its
+              branch) — two headers, one piece of information between
+              them. It now carries what you'd otherwise run `git status`
+              to find out, and each part renders only when there's
+              something to say. */}
           <div className="worktree-header">
             <span className="worktree-header-branch-name">{worktree?.branch}</span>
             <button
@@ -618,7 +626,29 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
             >
               {branchCopied ? "Copied" : "⧉"}
             </button>
-            {summary?.pr && (
+
+            {summary?.has_upstream && (summary.ahead > 0 || summary.behind > 0) && (
+              <span
+                className="worktree-header-ticks"
+                title={`${summary.ahead} ahead, ${summary.behind} behind upstream`}
+              >
+                {summary.ahead > 0 && `↑${summary.ahead}`}
+                {summary.ahead > 0 && summary.behind > 0 && " "}
+                {summary.behind > 0 && `↓${summary.behind}`}
+              </span>
+            )}
+            {summary && summary.changed_files.length > 0 && (
+              <span
+                className="worktree-header-changed"
+                title={summary.changed_files.join("\n")}
+              >
+                {summary.changed_files.length} changed
+              </span>
+            )}
+
+            <span className="worktree-header-spacer" />
+
+            {summary?.pr ? (
               <a
                 className="worktree-header-pr"
                 href={summary.pr.url}
@@ -626,10 +656,11 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
                 rel="noopener noreferrer"
                 title={summary.pr.title}
               >
-                #{summary.pr.number}
-                {summary.pr.is_draft ? " draft" : ""} · {summary.pr.title}
+                <span className="worktree-header-pr-number">#{summary.pr.number}</span>
+                {summary.pr.is_draft && <span className="worktree-header-pr-draft">draft</span>}
+                <span className="worktree-header-pr-title">{summary.pr.title}</span>
               </a>
-            )}
+            ) : null}
           </div>
           <DockviewActionsContext.Provider
             value={{
