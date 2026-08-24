@@ -14,13 +14,19 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-// Keeps the "System" mode choice actually live. index.html's inline
-// snippet already resolved and applied the theme before first paint —
-// this only matters afterwards, when the OS flips light/dark (or a
-// scheduled Night Shift-style switch fires) while the app is open. A
-// no-op unless the stored mode is "system": applyTheme re-resolves from
-// matchMedia each time, so an explicit dark/light choice re-applies to
-// the same value it already had.
+// index.html's inline snippet already stamped data-theme/data-mode before
+// first paint (that's the whole point of it). Re-applying once here is
+// still needed for one thing the snippet can't do: syncing
+// <meta name="theme-color"> to the palette, which reads a computed custom
+// property and therefore has to run after the stylesheet has loaded.
+// Everything else about this call is a no-op re-setting the same values.
+applyTheme(getStoredTheme());
+
+// Keeps the "System" mode choice actually live — without this, picking
+// System would resolve once at load and never follow the OS again until
+// reload. A no-op unless the stored mode is "system": applyTheme
+// re-resolves from matchMedia each time, so an explicit dark/light choice
+// re-applies to the value it already had.
 watchSystemMode(() => applyTheme(getStoredTheme()));
 
 // Registering a service worker (even a no-op one) is what makes Chrome/Edge

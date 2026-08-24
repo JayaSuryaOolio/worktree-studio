@@ -91,6 +91,25 @@ export function applyTheme(choice: ThemeChoice): void {
   const root = document.documentElement;
   root.setAttribute("data-theme", choice.family);
   root.setAttribute("data-mode", resolveMode(choice.mode));
+  syncThemeColor();
+}
+
+// Keeps <meta name="theme-color"> on the current palette.
+//
+// Installed as a PWA (which is how this is meant to be used — see
+// public/manifest.webmanifest), the browser paints its own window title
+// bar with this colour. A static value meant that bar stayed one theme's
+// surface no matter which theme was selected, leaving a mismatched band
+// across the top of the window in every theme but one.
+//
+// Read from the computed style rather than a duplicated table of hexes,
+// so it can't drift from tokens.css. Attribute changes above are already
+// reflected in getComputedStyle by the time this runs.
+function syncThemeColor(): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const surface = getComputedStyle(document.documentElement).getPropertyValue("--surface-1").trim();
+  if (surface) meta.setAttribute("content", surface);
 }
 
 export function setTheme(choice: ThemeChoice): void {

@@ -106,3 +106,32 @@ describe("theme", () => {
     expect(() => watchSystemMode(() => {})()).not.toThrow();
   });
 });
+
+// Installed as a PWA, the browser paints its window title bar with this —
+// a static value left a mismatched band across the top in every theme but
+// the one it was hardcoded to.
+describe("theme-color", () => {
+  it("follows the applied palette", () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    meta.setAttribute("content", "#000000");
+    document.head.appendChild(meta);
+
+    // jsdom doesn't apply stylesheets, so --surface-1 resolves to "" and
+    // the guard below is what actually gets exercised here: never clobber
+    // a real colour with an empty string.
+    applyTheme({ family: "ledger", mode: "dark" });
+    expect(meta.getAttribute("content")).not.toBe("");
+
+    document.documentElement.style.setProperty("--surface-1", "#151b21");
+    applyTheme({ family: "ledger", mode: "dark" });
+    expect(meta.getAttribute("content")).toBe("#151b21");
+
+    document.documentElement.style.removeProperty("--surface-1");
+    meta.remove();
+  });
+
+  it("is a no-op when the page has no theme-color meta at all", () => {
+    expect(() => applyTheme({ family: "graphite", mode: "dark" })).not.toThrow();
+  });
+});

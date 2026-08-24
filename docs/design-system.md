@@ -53,6 +53,13 @@ against is a mood board.
 5. **Show the difference, not the data.** *Rule: never print the same
    string twice in a column — elide shared prefixes, middle-truncate
    identifiers, use relative times with the exact value on hover.*
+   - Hoist the value **most** rows share, not only one they all do
+     (`dominantValue`, not `commonValue`, in `format.ts`). The first
+     version required unanimity, and a repo with nine worktrees from
+     `origin/master` plus two attached from elsewhere went straight back
+     to printing `origin/master` nine times. Blank the matching cells,
+     leave the exceptions to speak — which is also what makes them
+     findable.
 6. **The sidebar answers "what needs me?", ⌘K answers "take me there".**
    *Rule: navigation features go in the palette, not in more sidebar; the
    sidebar gets filtering, counting and marking instead.*
@@ -94,6 +101,7 @@ colour soup.
 | `--ok` / `--warn` / `--danger` / `--info` | Status | Only on the exception |
 | `--danger-soft` | Destructive hover | |
 | `--overlay`, `--shadow-*` | Backdrops, elevation | |
+| `--surface-1` (again) | Also the PWA window title bar | `theme.ts` syncs `<meta name="theme-color">` to it |
 | `--font-ui` | Chrome | One face. No display face. |
 | `--font-mono` | Everything data-shaped | Branches, paths, counts, terminal |
 | `--row-h`, `--row-h-lg` | List row heights | A theme picks these; components never override |
