@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
+import { splitBranchLabel } from "./branchLabel";
 import { useRepoContext } from "./RepoContext";
 import SettingsModal from "./SettingsModal";
 import WorktreeAuditLog from "./WorktreeAuditLog";
@@ -83,6 +84,8 @@ function SidebarWorktreeRow({
   // an already-gone row.
   const [deleting, setDeleting] = useState(false);
 
+  const { head: branchHead, tail: branchTail } = splitBranchLabel(wt.branch);
+
   const forThisWorktree = activeWorktreeActions?.worktreeId === wt.id ? activeWorktreeActions : null;
   const fileTreeForThisWorktree = activeFileTreeActions?.worktreeId === wt.id ? activeFileTreeActions : null;
   const inactiveTitle = "Open this worktree first";
@@ -115,7 +118,16 @@ function SidebarWorktreeRow({
             setExpanded((v) => !v);
           }}
         >
-          <span className="sidebar-worktree-branch">{wt.branch}</span>
+          {/* Split so the ellipsis lands in the MIDDLE of the name, not
+              at its end — branch names are prefix-clustered, so the tail
+              is what tells rows apart (see branchLabel.ts and the
+              .sidebar-worktree-branch rules). The two spans are written
+              without whitespace between them on purpose: JSX would render
+              it as a real space inside the branch name. */}
+          <span className="sidebar-worktree-branch" title={wt.branch}>
+            <span className="sidebar-worktree-branch-head">{branchHead}</span>
+            {branchTail !== "" && <span className="sidebar-worktree-branch-tail">{branchTail}</span>}
+          </span>
           <span className="sidebar-worktree-meta">
             {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
               <span
@@ -412,8 +424,8 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                   {/* Opens the repo's own root checkout through the same
                       worktree-detail UI as a real worktree (terminals,
                       files, layout) — see rootWorktree.ts and
-                      EnsureRootWorktree. Highlighted green, like an active
-                      worktree row, whenever that's what's currently open. */}
+                      EnsureRootWorktree. Takes the same accent rail as any
+                      other selected row whenever that's what's open. */}
                   <Link
                     to={`/repo/${r.id}/worktree/${rootWorktreeId(r.id)}`}
                     className={
@@ -464,14 +476,13 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                 </div>
 
                 <ul className="sidebar-worktree-list">
-                  {/* "Flight strip" row — see docs/design.md. Only the
-                      currently-selected worktree gets a color (green);
-                      dirty/clean isn't encoded via the row's own border
-                      color anymore (see style.css for why — per direct
-                      feedback that was noise, not signal), just the
-                      ahead/behind ticks below. Expands, accordion-style,
-                      into a card with the full name/PR/action icons — see
-                      SidebarWorktreeRow above. */}
+                  {/* A plain row — no border, no card. Only the currently
+                      selected worktree is coloured, via an accent rail
+                      (see docs/design-system.md: "rows, not cards", and
+                      one railed row on screen at a time). Ahead/behind
+                      ticks render only when non-zero. Expands,
+                      accordion-style, into a panel with the full name and
+                      the per-worktree actions — see SidebarWorktreeRow. */}
                   {(worktreesByRepo[r.id] ?? []).map((wt) => (
                     <SidebarWorktreeRow
                       key={wt.id}

@@ -65,6 +65,30 @@ beforeEach(() => {
 });
 
 describe("Sidebar worktree row", () => {
+  // jsdom can't tell us where the ellipsis lands, but it can tell us the
+  // row still spells the branch name exactly — which is the thing the
+  // head/tail split could plausibly break (a stray JSX space between the
+  // spans, a dropped or doubled character at the seam).
+  it("renders a long branch name split for middle-truncation, without altering it", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      {
+        id: "w1",
+        repo_id: "r1",
+        name: "hotfix-worktree",
+        branch: "hotfix-backend-services",
+        path: "/tmp/adelaide-wt/hotfix",
+        created_at: "2026-01-01T00:00:00Z",
+        status: "active",
+      },
+    ]);
+    render(<Harness />);
+
+    const label = await screen.findByTitle("hotfix-backend-services");
+    expect(label.textContent).toBe("hotfix-backend-services");
+    expect(label.querySelector(".sidebar-worktree-branch-head")).toHaveTextContent("hotfix-backend");
+    expect(label.querySelector(".sidebar-worktree-branch-tail")).toHaveTextContent("-services");
+  });
+
   it("clicking the already-active row toggles the card open, then closed again", async () => {
     const user = userEvent.setup();
     render(<Harness />);

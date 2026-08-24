@@ -1,10 +1,20 @@
-/* App shell + the persistent left sidebar (Sidebar.tsx): repo/worktree
-   tree, the "flight strip" worktree rows, and the icon buttons shared
-   throughout the sidebar's rows. */
+/* App shell + the persistent left sidebar (Sidebar.tsx).
+
+   Rewritten against the token contract (docs/design-system.md). The
+   governing rule here is "rows, not cards": a worktree row has no border,
+   no radius and no background of its own. Twenty bordered boxes read as
+   twenty separate objects you have to evaluate one at a time — which is
+   what a list of twenty branches was doing before. Separation now comes
+   from a fixed row height, indentation and space between groups.
+
+   Selection is a background wash plus a 2px accent rail, and there is
+   exactly one railed row on screen at a time — which is precisely why it
+   reads instantly. Everything else in the sidebar is chrome and sits at
+   --text-2 or below. */
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr;
   height: 100vh;
 }
 
@@ -14,62 +24,73 @@
 }
 
 .sidebar {
-  background: var(--bg-elevated);
-  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+  border-right: 1px solid var(--rule);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  /* Scrollbar is chrome: present when in use, invisible when not. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
 }
 
 .sidebar-header {
-  padding: 1rem;
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-3) var(--space-3) var(--space-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .sidebar-brand {
-  font-family: var(--font-display);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
   text-decoration: none;
-  font-weight: 600;
 }
 
 .sidebar-section {
-  padding: 0.75rem 1rem;
+  padding: 0 var(--space-2) var(--space-3);
 }
 
+/* "REPOS" — an eyebrow label, not a heading. Smallest size, tertiary
+   colour: it names the region and then gets out of the way. */
 .sidebar-section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.75rem;
+  padding: 0 var(--space-2);
+  height: var(--row-h);
+  font-size: var(--fs-1);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  margin-bottom: 0.5rem;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
 }
 
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
-  border-radius: 3px;
+  border-radius: var(--radius);
   border: none;
   background: transparent;
-  color: var(--text-dim);
-  font-size: 1.05rem;
-  opacity: 0.7;
+  color: var(--text-3);
+  font-size: var(--fs-3);
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
 .icon-button:hover {
-  opacity: 1;
   color: var(--text);
-  background: var(--bg-hover);
+  background: var(--surface-2);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .sidebar-repo-tree {
@@ -78,42 +99,45 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  /* Groups are separated by space, not by rules — the gap between one
+     repo's last worktree and the next repo's header is the divider. */
+  gap: var(--space-4);
 }
 
 .sidebar-repo-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
+  gap: var(--space-1);
+  height: var(--row-h);
 }
 
 .sidebar-repo-row-actions {
   display: flex;
   align-items: center;
-  gap: 0.15rem;
+  gap: 1px;
   flex-shrink: 0;
 }
 
+/* Per-repo actions stay hidden until the group is hovered: they're
+   available, not announced. opacity rather than display so the row
+   doesn't reflow — and focus-within keeps them reachable by keyboard,
+   which a pure :hover reveal would silently break. */
 .sidebar-repo-row .icon-button {
   opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 
-.sidebar-repo-group:hover .sidebar-repo-row .icon-button {
-  opacity: 0.8;
-}
-
-.sidebar-repo-group .sidebar-worktree-list {
-  margin-left: 0.4rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid var(--border);
-  margin-top: 0.25rem;
+.sidebar-repo-group:hover .sidebar-repo-row .icon-button,
+.sidebar-repo-group:focus-within .sidebar-repo-row .icon-button {
+  opacity: 1;
 }
 
 .sidebar-empty {
-  font-size: 0.85rem;
+  font-size: var(--fs-2);
+  color: var(--text-3);
   margin: 0;
-  padding: 0.2rem 0.5rem;
+  padding: var(--space-1) var(--space-2);
 }
 
 .sidebar-repo-list,
@@ -123,146 +147,185 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
 }
 
+/* The repo name doubles as the group header and as a link to the repo's
+   root checkout. Uppercase + tertiary as a label; it takes --text and the
+   accent rail only when that root checkout is what's actually open, which
+   is the same treatment any other selected row gets. */
 .sidebar-repo {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.4rem;
-  border-radius: 4px;
-  color: var(--text);
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2);
+  border-left: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-3);
   text-decoration: none;
-  font-size: 0.88rem;
-  font-weight: 500;
-}
-
-.sidebar-repo:hover {
-  background: var(--bg-hover);
-}
-
-.sidebar-repo.active {
-  color: var(--green);
+  font-size: var(--fs-1);
   font-weight: 600;
-}
-
-/* The signature element: a worktree row styled as an ATC flight strip — a
-   thin card with the branch name as the "callsign". Per direct feedback,
-   the left-edge tab is NOT color-coded by dirty/clean status anymore
-   (red+green+amber-for-active on every row read as visual noise, not
-   signal) — every row is a neutral gray/white by default, and green is
-   reserved for exactly one meaning: this is the worktree you're currently
-   viewing. Dirty/clean and ahead-behind are still available (the ticks
-   next to the branch name, and the full Status column in Workspace's
-   table) — just not fighting for attention via the row's own border. */
-.sidebar-worktree {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 3px;
-  color: var(--text);
-  text-decoration: none;
-  font-size: 0.85rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border);
-}
-
-.sidebar-worktree:hover {
-  background: var(--bg-hover);
-}
-
-.sidebar-worktree.active {
-  border-left-color: var(--green);
-  box-shadow: inset 0 0 0 1px var(--green-dim);
-}
-
-.sidebar-worktree.active .sidebar-worktree-branch {
-  color: var(--green);
-  font-weight: 600;
-}
-
-.sidebar-worktree-branch {
-  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.sidebar-repo:hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.sidebar-repo.active {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* ---------------------------------------------------------------------
+   The worktree row. No border, no radius, no background — see the file
+   header. Indented one step from its repo header; the indent alone marks
+   the nesting, without a guide line competing with the selection rail at
+   the same x position.
+   --------------------------------------------------------------------- */
+.sidebar-worktree {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-h);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  margin-left: var(--space-2);
+  border-left: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+  font-size: var(--fs-2);
+  min-width: 0;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.sidebar-worktree:hover {
+  background: var(--surface-2);
+}
+
+.sidebar-worktree.active {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.sidebar-worktree.active .sidebar-worktree-branch {
+  font-weight: 600;
+}
+
+.sidebar-worktree:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Middle truncation. CSS can only ellipsise the tail, but branch names
+   are prefix-clustered — the tail is the part that tells rows apart (see
+   branchLabel.ts). So the head shrinks and ellipsises while the tail is
+   held at its natural width and never allowed to shrink. The browser
+   still does the measuring, so this stays correct at any sidebar width.
+
+   The two spans must not be separated by whitespace in the JSX or a space
+   appears in the middle of the branch name. */
+.sidebar-worktree-branch {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono);
+}
+
+.sidebar-worktree-branch-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sidebar-worktree-branch-tail {
+  flex: 0 0 auto;
+  white-space: pre;
 }
 
 .sidebar-worktree-meta {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 
+/* Ahead/behind. Rendered only when non-zero (Sidebar.tsx) — a "0" on
+   every row is a background, not a signal — and at the smallest size in
+   the tertiary colour, because it's an annotation on the branch name
+   rather than a thing to read. */
 .sidebar-ticks {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-dim);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 .sidebar-dot {
-  width: 0.45rem;
-  height: 0.45rem;
+  width: 0.375rem;
+  height: 0.375rem;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
-/* The "spotlight sync is active" indicator — a lamp icon (StatusIcons.tsx),
-   not a dot; the dot look moved to .sidebar-dot-attention below instead. */
+/* Spotlight is active on this worktree. No glow: it's an ambient state,
+   not a summons. */
 .sidebar-spotlight-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--cyan);
-  filter: drop-shadow(0 0 2px var(--cyan));
+  color: var(--info);
 }
 
-/* Shown for the full duration of a spotlight start/stop action (see
-   Sidebar.tsx's handleSpotlightStart/Stop) — reuses the same pulse
-   keyframes as .sidebar-status-refreshing below rather than a spinner, so
-   it reads as "working on it" without implying a fixed-length load. */
+/* Shown for the duration of a spotlight start/stop (see Sidebar.tsx's
+   handleSpotlightStart/Stop) — a pulse rather than a spinner, so it reads
+   as "working on it" without implying a fixed-length load. */
 .sidebar-spotlight-icon.pending {
-  animation: sidebar-status-refreshing-pulse 1s ease-in-out infinite;
+  animation: sidebar-pulse 1s ease-in-out infinite;
 }
 
-/* "A claude session here is waiting on you" — the plain glowing-dot look
-   that used to mark spotlight (see .sidebar-spotlight-icon above for where
-   that moved to), repurposed for this instead since it demands attention
-   more than a status icon would. Amber (matches the existing
-   changed-files-filter "active" accent elsewhere). Solid/steady by
-   default — only .blinking (the first 10s after it appears, see
-   useAttentionBlink.ts) pulses; blinking for as long as it's pending read
-   as more alarming than useful, but the dot itself must never disappear
-   on its own regardless (see Sidebar.tsx's own comment). */
+/* "A claude session here is waiting on you" — the single most important
+   signal in the app, and the only saturated fill in it. That exclusivity
+   is what makes it findable; it used to also carry a box-shadow glow,
+   which stopped being necessary once every other row went quiet.
+
+   Solid and steady by default: only .blinking (the first 10s after it
+   appears — useAttentionBlink.ts) animates. Blinking for as long as it's
+   pending read as alarming rather than useful, but the dot itself must
+   never disappear on its own regardless (see Sidebar.tsx's comment). */
 .sidebar-dot-attention {
-  background: var(--amber);
-  box-shadow: 0 0 5px var(--amber);
+  background: var(--attention);
 }
 
 .sidebar-dot-attention.blinking {
-  animation: sidebar-status-refreshing-pulse 1.2s ease-in-out infinite;
+  animation: sidebar-pulse 1.2s ease-in-out infinite;
 }
 
 /* A brief, non-blocking cue that the focused worktree's status was stale
-   and is being re-fetched — a soft pulse, not a spinner, so it doesn't
-   read as a loading state that blocks anything. Its debounced-in/held/
-   fade-out lifecycle is driven by useTransientIndicator.ts; the 300ms
-   transition here matches that hook's default fadeMs so the CSS fade and
-   the "hidden" state land at the same time. */
+   and is being re-fetched. Its debounced/held/fade-out lifecycle is driven
+   by useTransientIndicator.ts; the transition below matches that hook's
+   default fadeMs so the CSS fade and the "hidden" state land together. */
 .sidebar-status-refreshing {
-  width: 0.4rem;
-  height: 0.4rem;
+  width: 0.3125rem;
+  height: 0.3125rem;
   border-radius: 50%;
   display: inline-block;
-  background: var(--text-dim);
-  opacity: 0.9;
-  animation: sidebar-status-refreshing-pulse 1s ease-in-out infinite;
-  transition: opacity 300ms ease;
+  background: var(--text-3);
+  animation: sidebar-pulse 1s ease-in-out infinite;
+  transition: opacity var(--dur-slow) var(--ease);
 }
 
 .sidebar-status-refreshing.fading {
@@ -270,72 +333,95 @@
   animation: none;
 }
 
-@keyframes sidebar-status-refreshing-pulse {
+@keyframes sidebar-pulse {
   0%,
   100% {
     opacity: 0.25;
   }
   50% {
-    opacity: 0.9;
+    opacity: 1;
+  }
+}
+
+/* The one motion exemption in the app is still an exemption for people
+   who've asked the OS for none. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-dot-attention.blinking,
+  .sidebar-spotlight-icon.pending,
+  .sidebar-status-refreshing {
+    animation: none;
   }
 }
 
 .sidebar-error {
-  margin: 0.5rem 1rem;
-  font-size: 0.8rem;
+  margin: var(--space-2) var(--space-3);
+  font-size: var(--fs-2);
 }
 
-/* Expand/collapse toggle on each worktree row — sits next to the kebab
-   menu, so it needs the same preventDefault()/stopPropagation() treatment
-   (see WorktreeActionsMenu.tsx's own comment) since it's rendered inside
-   the row's <Link>. Rotates via transform, not a different icon, when
-   expanded. */
+/* Expand/collapse toggle. Hidden until the row is hovered, focused,
+   selected or already expanded — the same "available, not announced" rule
+   the repo actions follow. A chevron on all twenty rows was twenty pieces
+   of permanent furniture advertising an action nobody takes twenty times.
+
+   Sits inside the row's <Link>, so it needs the preventDefault()/
+   stopPropagation() treatment in Sidebar.tsx. Rotates via transform
+   rather than swapping icons. */
 .sidebar-worktree-expand-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1rem;
+  height: 1rem;
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-dim);
-  border-radius: 3px;
+  color: var(--text-3);
+  border-radius: var(--radius);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.sidebar-worktree:hover .sidebar-worktree-expand-toggle,
+.sidebar-worktree.active .sidebar-worktree-expand-toggle,
+.sidebar-worktree-expand-toggle:focus-visible,
+.sidebar-worktree-expand-toggle[aria-expanded="true"] {
+  opacity: 1;
 }
 
 .sidebar-worktree-expand-toggle:hover {
   color: var(--text);
-  background: var(--bg-hover);
+}
+
+.sidebar-worktree-expand-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
 }
 
 .sidebar-worktree-expand-toggle svg {
-  transition: transform 200ms ease;
+  transition: transform var(--dur-slow) var(--ease);
 }
 
 .sidebar-worktree-expand-toggle[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
 
-/* The accordion card itself. grid-template-rows: 0fr -> 1fr (rather than
-   a fixed max-height, or toggling display) is what makes this animate
-   smoothly for genuinely variable content height without either snapping
-   instantly or guessing at a "big enough" max-height that would leave a
-   pause at the end of the transition once content is shorter than it.
-   overflow:hidden on the inner wrapper is what actually clips the 0fr
-   state — grid alone doesn't clip a track's content by itself.
+/* The accordion panel. grid-template-rows 0fr -> 1fr (rather than a fixed
+   max-height, or toggling display) is what animates smoothly for
+   genuinely variable content height without either snapping instantly or
+   guessing at a "big enough" max-height that leaves a pause at the end of
+   the transition. overflow:hidden on the inner wrapper is what actually
+   clips the 0fr state — grid alone doesn't clip a track's content.
 
-   Border/background/padding on .sidebar-worktree-card-inner are ALSO
-   gated on the .expanded modifier (not just the grid row itself): a
-   border's width is painted at full size regardless of how small its box
-   is squeezed to, so a border set unconditionally here left a visible
-   1-2px sliver even at grid-template-rows: 0fr — a real reported bug.
-   Transitioning them alongside the grid-rows keeps the whole thing
-   feeling like one smooth reveal rather than a border/background
-   popping in abruptly right as the row finishes growing. */
+   Unlike a worktree row, this is a one-at-a-time panel rather than a
+   repeatable item, so it's allowed a background of its own. It gets no
+   border: padding on the inner element is also gated on .expanded, since
+   a border paints at full width regardless of how small its box is
+   squeezed to and left a visible sliver at 0fr — a real reported bug. */
 .sidebar-worktree-card-wrapper {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 200ms ease;
+  margin-left: var(--space-4);
+  transition: grid-template-rows var(--dur-slow) var(--ease);
 }
 
 .sidebar-worktree-card {
@@ -348,81 +434,77 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0 0.7rem;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
   background: transparent;
-  font-size: 0.8rem;
-  transition: padding 200ms ease, border-color 200ms ease, background-color 200ms ease;
+  font-size: var(--fs-2);
+  transition: padding var(--dur-slow) var(--ease), background-color var(--dur-slow) var(--ease);
 }
 
 .sidebar-worktree-card-wrapper.expanded .sidebar-worktree-card-inner {
-  padding: 0.75rem 0.7rem 0.6rem;
-  border-color: var(--border);
-  background: var(--bg);
+  padding: var(--space-2);
+  background: var(--surface-2);
 }
 
 .sidebar-worktree-card-name {
-  font-weight: 600;
+  color: var(--text-2);
   overflow-wrap: break-word;
 }
 
 .sidebar-worktree-card-icons {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.2rem;
-  margin-top: 0.15rem;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
 }
 
 .sidebar-worktree-card-icons button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-elevated);
-  color: var(--text-dim);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
 .sidebar-worktree-card-icons button:hover:not(:disabled) {
   color: var(--text);
-  background: var(--bg-hover);
+  background: var(--surface-1);
 }
 
 .sidebar-worktree-card-icons button:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
 .sidebar-worktree-card-icons button.active {
-  color: var(--cyan);
-  border-color: var(--cyan);
+  color: var(--accent);
 }
 
-/* Delete — used to live behind the row's kebab menu (WorktreeActionsMenu.tsx,
-   removed), now just another icon button here, styled to still read as a
-   destructive action. */
 .sidebar-worktree-card-icons button.danger {
-  color: var(--red);
+  color: var(--text-2);
 }
 
+/* Destructive intent shows on approach, not at rest — a permanently red
+   delete icon is a small alarm sitting in the panel the whole time. */
 .sidebar-worktree-card-icons button.danger:hover:not(:disabled) {
-  border-color: var(--red);
-  background: var(--red-dim);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
-/* WorktreeHoverPopover.tsx — the full-name/PR/git-summary flyout shown on
-   hover. Rendered via a portal into document.body and positioned with
-   `position: fixed` from a viewport-relative getBoundingClientRect (see
-   that component's computePosition) rather than absolute-positioned
-   in-place — the sidebar's own overflow:auto scroll container clipped an
-   in-place popover the moment it extended past the sidebar's edge, no
-   matter how it was positioned; escaping to a portal is what actually
-   fixes that, not a different position/placement. */
+/* WorktreeHoverPopover.tsx — the full-name/PR/git-summary flyout. Rendered
+   via a portal into document.body and positioned with `position: fixed`
+   from a viewport-relative getBoundingClientRect (see that component's
+   computePosition) rather than absolute-positioned in place: the
+   sidebar's own overflow:auto scroll container clipped an in-place
+   popover the moment it extended past the sidebar's edge, no matter how
+   it was positioned. Escaping to a portal is what fixes that. */
 .worktree-hover-target {
   position: relative;
 }
@@ -432,58 +514,59 @@
   z-index: 1200;
   width: 20rem;
   max-width: 80vw;
-  background: var(--bg-elevated);
+  background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
   box-shadow: 0 8px 24px var(--shadow-soft);
-  font-size: 0.85rem;
+  font-size: var(--fs-2);
 }
 
 .worktree-hover-popover-name {
-  font-family: var(--font-ui);
   font-weight: 600;
   overflow-wrap: break-word;
 }
 
 .worktree-hover-popover-branch {
   font-family: var(--font-mono);
-  color: var(--text-dim);
-  font-size: 0.8rem;
-  margin-bottom: 0.5rem;
+  color: var(--text-2);
+  margin-bottom: var(--space-2);
   overflow-wrap: break-word;
 }
 
 .worktree-hover-popover-pr {
-  margin-bottom: 0.4rem;
+  margin-bottom: var(--space-1);
 }
 
 .worktree-hover-popover-pr a {
-  color: var(--cyan);
-  text-decoration: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--text-3);
 }
 
 .worktree-hover-popover-pr a:hover {
-  text-decoration: underline;
+  text-decoration-color: var(--text);
 }
 
 .worktree-hover-popover-git {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
+  color: var(--text-2);
 }
 
 .worktree-hover-popover-files {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   max-height: 10rem;
   overflow-y: auto;
-  font-size: 0.8rem;
+  color: var(--text-2);
 }
 
 .worktree-hover-popover-files li {
-  padding: 0.1rem 0;
+  padding: 1px 0;
   overflow-wrap: break-word;
 }
