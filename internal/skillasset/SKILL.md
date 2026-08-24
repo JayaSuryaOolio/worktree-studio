@@ -272,6 +272,20 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/spo
 
 Requires the standalone `spotlight` CLI to actually be installed (`github.com/JayaSuryaOolio/spotlight`, plus its own `fswatch` dependency) — if it's missing, the status endpoint reports `{"available": false}` rather than erroring, and start/stop return `503`. See `docs/spotlight-sync.md` for the full design (including a correction: this used to be planned backwards before the real tool was found) and for debugging directly against the CLI (`spotlight list`, etc.) if something looks off.
 
+### Starting spotlight from a shell command (e.g. as Claude, without touching the UI)
+
+`worktree-studio spotlight --start|--stop|--status [--stash] [path]` does the same start/stop/status as above, but *through* worktree-studio's own server (same audit logging, same UI status view) rather than by shelling out to the external `spotlight` binary directly — this is what to reach for from inside a terminal panel instead of running `spotlight start` yourself, so the mirror you start still shows up correctly in the worktree list and audit log:
+
+```bash
+worktree-studio spotlight --start              # mirrors the worktree cwd is inside of
+worktree-studio spotlight --start /path/to/worktree   # or target one by path, from anywhere
+worktree-studio spotlight --start --stash       # same as ticking "stash and start anyway" in the UI's confirm dialog
+worktree-studio spotlight --status
+worktree-studio spotlight --stop
+```
+
+`path` is optional and defaults to the current working directory (same implicit-cwd convention as `open-file`); when given, it can be the worktree root or any subdirectory of it, and doesn't require actually being inside it first. Same tolerances as `open-file`: a path outside every tracked worktree is a silent no-op (exit 1, nothing happens), and `--start` on a dirty root refuses with the same message the UI would show, unless `--stash` is also given.
+
 ## Monitoring dashboard (dirty / ahead-behind)
 
 Every worktree row has a "Status" column showing whether it's dirty (uncommitted changes/untracked files) and, if its branch has a configured upstream and actually diverges from it, an ahead/behind indicator (e.g. `↑1↓1`). This refreshes automatically every 5 seconds (plain REST polling — there's no websocket push for this) — no manual refresh needed, but also don't expect sub-5-second freshness.

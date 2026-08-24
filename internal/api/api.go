@@ -116,6 +116,11 @@ func (s *Server) Routes(r chi.Router) {
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Post("/api/open-file", s.handleOpenFile)
+	r.Route("/api/spotlight", func(r chi.Router) {
+		r.Post("/start", s.handleSpotlightCLIStart)
+		r.Post("/stop", s.handleSpotlightCLIStop)
+		r.Get("/status", s.handleSpotlightCLIStatus)
+	})
 	r.Post("/api/claude-hook-context", s.handleClaudeHookContext)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)

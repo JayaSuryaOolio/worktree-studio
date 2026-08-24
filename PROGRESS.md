@@ -4,6 +4,19 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-08-21 (latest) — New CLI subcommand: start/stop/query spotlight through the server, not the external binary
+
+Direct user request: Claude (or anything else scripting against a worktree) should be able to call something like `worktree-studio spotlight --start <path>` to start spotlight *through* worktree-studio, rather than invoking the external `spotlight` CLI directly and leaving worktree-studio's own audit log/UI status view out of sync with what actually happened.
+
+- New CLI subcommand (`cmd/worktree-studio/spotlight.go`): `worktree-studio spotlight --start|--stop|--status [--stash] [path]`. `path` defaults to the calling process's cwd (same implicit convention `open-file` already uses) but can be given explicitly, letting a caller elsewhere on disk target a worktree without cd'ing into it first.
+- Three new global endpoints resolve a worktree from a path instead of a repo/worktree id pair: `POST /api/spotlight/start`, `POST /api/spotlight/stop`, `GET /api/spotlight/status` (`internal/api/spotlight.go`), using the same `store.FindWorktreeByPath` the Claude Code hook and `open-file` already rely on — an exact match or any subdirectory of a tracked worktree resolves, and a path outside every tracked worktree is a tolerant `{"status":"no matching worktree"}` 200, not an error, the same posture `handleOpenFile` already established for "this can be run from anywhere."
+- Refactored the existing repo/worktree-id-scoped handlers (`handleSpotlightStart/Stop/Status`) to share their actual logic with the new path-resolved ones via three extracted helpers (`startSpotlightForWorktree`, `stopSpotlightForWorktree`, `spotlightStatusForWorktree`) — deliberately, so the new CLI path doesn't duplicate (and risk drifting from) Problem 4/5/6's already-hard-won tmux/spotlight error handling; only the HTTP-status mapping stays per-handler, since the CLI's stderr message for the same error reads differently than a browser-facing JSON body.
+- Documented in `.claude/skills/worktree-studio/SKILL.md`'s "Using Spotlight" section (new "Starting spotlight from a shell command" subsection) and `README.md`'s CLI subcommands list; `internal/skillasset/SKILL.md` re-synced byte-for-byte (its own test enforces this).
+
+**Verified:** `go build ./... && go vet ./... && go test ./...` — 169 tests passing (two new: `TestSpotlightCLIStartStatusStop`, mirroring the existing worktree-id-scoped test but resolved from a path inside a subdirectory of the worktree; `TestSpotlightCLIPathOutsideAnyWorktreeIsANoOp`, covering the "path isn't tracked" tolerance for both `status` and `start`).
+
+---
+
 ## 2026-08-21 (later) — Re-fixed wheel-scroll by restoring `mouse on`; root-caused why it's actually required
 
 Continuation of the same day's earlier revert (see the entry below this one): after reverting `allow-passthrough`, the user still reported the identical symptom in a plain shell — "still cycles through in shell" — even after a hard reload and a brand-new terminal tab, so the `allow-passthrough` revert alone hadn't fixed it. Root-caused properly this time, with live evidence rather than reasoning alone:
