@@ -10,6 +10,37 @@
 
 const COLLAPSED_KEY = "worktree-studio-collapsed-repos";
 const HIDDEN_KEY = "worktree-studio-sidebar-hidden";
+const WIDTH_KEY = "worktree-studio-sidebar-width";
+
+// Narrower than MIN and the branch names have nothing left to show; wider
+// than MAX and the sidebar starts competing with the terminal for the
+// screen, which is the opposite of what it's for.
+export const SIDEBAR_MIN_WIDTH = 180;
+export const SIDEBAR_MAX_WIDTH = 460;
+export const SIDEBAR_DEFAULT_WIDTH = 250;
+
+export function clampSidebarWidth(px: number): number {
+  if (!Number.isFinite(px)) return SIDEBAR_DEFAULT_WIDTH;
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(px)));
+}
+
+export function getSidebarWidth(): number {
+  try {
+    const raw = localStorage.getItem(WIDTH_KEY);
+    if (raw === null) return SIDEBAR_DEFAULT_WIDTH;
+    return clampSidebarWidth(Number(raw));
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
+export function setSidebarWidth(px: number): void {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(clampSidebarWidth(px)));
+  } catch {
+    // See the note on setCollapsedRepos.
+  }
+}
 
 export function getCollapsedRepos(): Set<string> {
   try {

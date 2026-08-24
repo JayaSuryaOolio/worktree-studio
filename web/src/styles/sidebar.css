@@ -14,7 +14,10 @@
 
 .app-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  /* Three columns: sidebar, resize handle, content. --sidebar-w is set
+     as an inline style by Layout.tsx while dragging, falling back to the
+     token's default. */
+  grid-template-columns: var(--sidebar-w) 0 1fr;
   height: 100vh;
 }
 
@@ -692,7 +695,7 @@
    sidebar keeps its scroll position, its filter text and every open
    accordion exactly where they were when it comes back. */
 .app-shell.sidebar-hidden {
-  grid-template-columns: 0 1fr;
+  grid-template-columns: 0 0 1fr;
 }
 
 .app-shell.sidebar-hidden .sidebar {
@@ -718,4 +721,49 @@
 
 .sidebar-reveal:hover {
   background: var(--accent);
+}
+
+/* Drag-to-resize. A zero-width grid column with a wider hit area
+   overhanging it, so the handle is comfortable to grab without stealing
+   layout space or drawing a second line next to the sidebar's own border.
+   Only shows a colour on hover, focus or during a drag. */
+.sidebar-resizer {
+  position: relative;
+  width: 0;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+body.resizing-sidebar .sidebar-resizer::before {
+  background: var(--accent);
+}
+
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging, the pointer is captured by the handle — but xterm and
+   the file tree still try to show their own cursors and select text
+   under it. Suppressing both app-wide for the duration is what makes the
+   drag feel like one continuous gesture rather than a fight. */
+body.resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing-sidebar * {
+  cursor: col-resize !important;
 }
