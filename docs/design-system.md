@@ -54,8 +54,17 @@ against is a mood board.
    string twice in a column — elide shared prefixes, middle-truncate
    identifiers, use relative times with the exact value on hover.*
 6. **The sidebar answers "what needs me?", ⌘K answers "take me there".**
-   *Rule: sort by attention, then recency. Navigation features go in the
-   palette, not in more sidebar.*
+   *Rule: navigation features go in the palette, not in more sidebar; the
+   sidebar gets filtering, counting and marking instead.*
+   - This originally read "sort by attention, then recency", and that was
+     wrong. Attention arrives asynchronously over `/ws/attention`, so
+     sorting on it means rows reorder themselves underneath the pointer
+     at exactly the moment you're reaching for one. Order stays stable;
+     the "N waiting" count, the per-row dot, the collapsed-group marker
+     and the attention filter carry the same information without moving
+     anything. Recorded here rather than quietly dropped, because "why
+     isn't this sorted?" is otherwise a reasonable question to ask of
+     `Sidebar.tsx` forever.
 7. **Motion is a signal, not decoration.** *Rule: one blinking thing in
    the whole app (the attention dot, for its first 10s), everything else
    ≤ `--dur-slow`, and `prefers-reduced-motion` honoured.*
@@ -103,9 +112,9 @@ colour soup.
 
 There deliberately isn't one. Headings take their hierarchy from the type
 scale and weight — one less font to load, one less voice competing with
-the terminal, and one less thing that renders differently offline.
-`--font-display` survives as an alias of `--font-ui` so nothing
-downstream broke on the way through.
+the terminal, and one less thing that renders differently offline. Space
+Grotesk is gone from `index.html` entirely, and `--font-display` (kept as
+an alias of `--font-ui` during the migration) is gone with it.
 
 ## Themes
 
