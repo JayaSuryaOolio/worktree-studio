@@ -570,3 +570,152 @@
   padding: 1px 0;
   overflow-wrap: break-word;
 }
+
+/* ---------------------------------------------------------------------
+   Status-board controls: the filter, the waiting count, group collapse,
+   and the hidden-sidebar state. See Sidebar.tsx for why attention is
+   surfaced by counting and filtering rather than by re-sorting rows.
+   --------------------------------------------------------------------- */
+
+.sidebar-filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.sidebar-filter input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  height: var(--row-h);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  background: var(--surface-sunk);
+  padding-right: 1.75rem;
+}
+
+/* The shortcut, shown where the shortcut acts. Disappears while the box
+   has focus or content — at that point it's telling you something you're
+   already doing. */
+.sidebar-filter-hint {
+  position: absolute;
+  right: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.sidebar-filter:focus-within .sidebar-filter-hint {
+  opacity: 0;
+}
+
+/* "3 waiting" — the one number in the chrome, and the only place besides
+   an attention dot where the attention colour appears. */
+.sidebar-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 1.25rem;
+  margin-left: auto;
+  padding: 0 var(--space-1);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sidebar-waiting:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+.sidebar-waiting.active {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.sidebar-repo-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-3);
+}
+
+.sidebar-repo-collapse:hover:not(:disabled) {
+  color: var(--text);
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Collapsed points right, expanded points down. The icon is a chevron
+   drawn pointing down, so "collapsed" is the rotated state here — the
+   inverse of the row-expand toggle above. */
+.sidebar-repo-collapse[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.sidebar-repo-collapse svg {
+  transition: transform var(--dur) var(--ease);
+}
+
+.sidebar-repo-collapsed-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.sidebar-repo-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Cmd/Ctrl+B. Collapsing the grid column rather than unmounting the
+   sidebar keeps its scroll position, its filter text and every open
+   accordion exactly where they were when it comes back. */
+.app-shell.sidebar-hidden {
+  grid-template-columns: 0 1fr;
+}
+
+.app-shell.sidebar-hidden .sidebar {
+  display: none;
+}
+
+/* The way back, for anyone who doesn't know the shortcut: a hairline
+   strip at the screen edge that only shows a colour on approach. */
+.sidebar-reveal {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  height: auto;
+  z-index: 900;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+
+.sidebar-reveal:hover {
+  background: var(--accent);
+}

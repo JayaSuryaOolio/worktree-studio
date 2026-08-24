@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useMatch, useNavigate } from "react-router-dom";
 import { SpotlightStatus, Worktree, WorktreeStatus } from "./api";
 import { splitBranchLabel } from "./branchLabel";
@@ -22,6 +22,8 @@ import { useAttentionBlink } from "./useAttentionBlink";
 import { useActiveWorktreeActions } from "./activeWorktreeActions";
 import { useActiveFileTreeActions } from "./activeFileTreeActions";
 import { setPendingNewTerminal } from "./pendingNewTerminal";
+import { isTextEntryTarget } from "./keyboard";
+import { getCollapsedRepos, setCollapsedRepos } from "./sidebarPreferences";
 
 interface Props {
   onAddRepo: () => void;
@@ -381,12 +383,107 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   const [logWorktree, setLogWorktree] = useState<Worktree | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // --- Status board state -------------------------------------------
+  //
+  // The sidebar's job is "what needs me?", not "list everything I own"
+  // (that's what the command palette is for). Three pieces make that
+  // work at 20+ worktrees: a filter, collapsible repo groups, and a
+  // waiting-count you can filter by.
+  //
+  // Deliberately NOT sorting attention-first, despite that being the
+  // obvious reading of the principle: rows that reorder themselves
+  // underneath the pointer cause misclicks, and attention arrives
+  // asynchronously from a websocket, so it would happen exactly while
+  // you were reaching for something. Order stays stable; attention is
+  // surfaced by the count, the dot, and the filter below instead.
+  const [filter, setFilter] = useState("");
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(getCollapsedRepos);
+  const filterRef = useRef<HTMLInputElement>(null);
+
+  function toggleCollapsed(repoId: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(repoId)) next.delete(repoId);
+      else next.add(repoId);
+      setCollapsedRepos(next);
+      return next;
+    });
+  }
+
+  // "/" focuses the filter — but only when the keystroke isn't already
+  // going somewhere that wants a literal slash. Without the guard this
+  // would steal every "/" typed into a shell, which is most of them.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTextEntryTarget(e.target)) return;
+      e.preventDefault();
+      filterRef.current?.focus();
+      filterRef.current?.select();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const attentionCount = Object.keys(attentionPending).length;
+
+  // Filtering runs across every repo at once, so a match in a collapsed
+  // group still surfaces — a filter that silently skipped collapsed
+  // groups would be worse than no filter.
+  const query = filter.trim().toLowerCase();
+  const visibleByRepo = useMemo(() => {
+    const out: Record<string, Worktree[]> = {};
+    for (const repo of repos) {
+      const all = worktreesByRepo[repo.id] ?? [];
+      const repoMatches = repo.name.toLowerCase().includes(query);
+      out[repo.id] = all.filter((wt) => {
+        if (attentionOnly && attentionPending[wt.id] === undefined) return false;
+        if (query === "" || repoMatches) return true;
+        return (
+          wt.branch.toLowerCase().includes(query) || wt.name.toLowerCase().includes(query)
+        );
+      });
+    }
+    return out;
+  }, [repos, worktreesByRepo, query, attentionOnly, attentionPending]);
+
+  // A repo drops out entirely when nothing in it matches — unless its own
+  // name is the match, in which case it stays as an (empty) heading you
+  // can still create a worktree in.
+  const narrowing = query !== "" || attentionOnly;
+  const visibleRepos = narrowing
+    ? repos.filter(
+        (r) => visibleByRepo[r.id].length > 0 || (query !== "" && r.name.toLowerCase().includes(query))
+      )
+    : repos;
+
   return (
     <nav className="sidebar" aria-label="Repos and worktrees">
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand">
           worktree-studio
         </Link>
+        {/* The one number worth putting in the chrome: how many claude
+            sessions are waiting on you, anywhere. Renders nothing at zero
+            — the normal state of this app is silence. Clicking it narrows
+            the list to exactly those worktrees. */}
+        {attentionCount > 0 && (
+          <button
+            type="button"
+            className={attentionOnly ? "sidebar-waiting active" : "sidebar-waiting"}
+            aria-pressed={attentionOnly}
+            title={
+              attentionOnly
+                ? "Showing only worktrees waiting on you — click to show all"
+                : "Show only the worktrees waiting on you"
+            }
+            onClick={() => setAttentionOnly((v) => !v)}
+          >
+            <span className="sidebar-dot sidebar-dot-attention" />
+            {attentionCount} waiting
+          </button>
+        )}
         <button
           type="button"
           className="icon-button"
@@ -396,6 +493,33 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
         >
           ⚙
         </button>
+      </div>
+
+      <div className="sidebar-filter">
+        <input
+          ref={filterRef}
+          type="text"
+          value={filter}
+          placeholder="Filter worktrees"
+          aria-label="Filter worktrees"
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            // Escape clears first and only gives up focus once there's
+            // nothing left to clear — otherwise a single Escape both
+            // wipes the query and drops you out of the box, which makes
+            // correcting a typo a two-step recovery.
+            if (filter !== "") {
+              e.stopPropagation();
+              setFilter("");
+            } else {
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        <kbd className="sidebar-filter-hint" aria-hidden="true">
+          /
+        </kbd>
       </div>
 
       <div className="sidebar-section">
@@ -416,11 +540,32 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
           <p className="sidebar-empty muted">Loading…</p>
         ) : repos.length === 0 ? (
           <p className="sidebar-empty muted">None registered yet.</p>
+        ) : visibleRepos.length === 0 ? (
+          <p className="sidebar-empty muted">
+            {attentionOnly ? "Nothing waiting on you." : "No worktree matches that."}
+          </p>
         ) : (
           <ul className="sidebar-repo-tree">
-            {repos.map((r) => (
+            {visibleRepos.map((r) => (
               <li key={r.id} className="sidebar-repo-group">
                 <div className="sidebar-repo-row">
+                  {/* Collapse toggle. A narrowed list is always expanded
+                      regardless of the stored state — a filter that
+                      silently hid its own matches inside a collapsed
+                      group would be worse than no filter — so the toggle
+                      hides while narrowing rather than lying about
+                      what it would do. */}
+                  {!narrowing && (
+                    <button
+                      type="button"
+                      className="sidebar-repo-collapse"
+                      aria-label={collapsed.has(r.id) ? `Expand ${r.name}` : `Collapse ${r.name}`}
+                      aria-expanded={!collapsed.has(r.id)}
+                      onClick={() => toggleCollapsed(r.id)}
+                    >
+                      <ChevronIcon />
+                    </button>
+                  )}
                   {/* Opens the repo's own root checkout through the same
                       worktree-detail UI as a real worktree (terminals,
                       files, layout) — see rootWorktree.ts and
@@ -454,6 +599,18 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       space-between) so the gear sits directly next to
                       "+ new worktree" instead of floating in the middle of
                       the row. */}
+                  {/* What a collapsed group still has to tell you: how
+                      much is in it, and whether anything inside is
+                      waiting. Both render only while collapsed — visible
+                      rows already say it themselves. */}
+                  {collapsed.has(r.id) && !narrowing && (
+                    <span className="sidebar-repo-collapsed-meta">
+                      {(worktreesByRepo[r.id] ?? []).some(
+                        (wt) => attentionPending[wt.id] !== undefined
+                      ) && <span className="sidebar-dot sidebar-dot-attention" />}
+                      <span className="sidebar-repo-count">{(worktreesByRepo[r.id] ?? []).length}</span>
+                    </span>
+                  )}
                   <div className="sidebar-repo-row-actions">
                     <Link
                       to={`/repo/${r.id}/settings`}
@@ -475,6 +632,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                   </div>
                 </div>
 
+                {!(collapsed.has(r.id) && !narrowing) && (
                 <ul className="sidebar-worktree-list">
                   {/* A plain row — no border, no card. Only the currently
                       selected worktree is coloured, via an accent rail
@@ -483,7 +641,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       ticks render only when non-zero. Expands,
                       accordion-style, into a panel with the full name and
                       the per-worktree actions — see SidebarWorktreeRow. */}
-                  {(worktreesByRepo[r.id] ?? []).map((wt) => (
+                  {(visibleByRepo[r.id] ?? []).map((wt) => (
                     <SidebarWorktreeRow
                       key={wt.id}
                       repoId={r.id}
@@ -511,10 +669,13 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                   {worktreesLoading && (worktreesByRepo[r.id]?.length ?? 0) === 0 && (
                     <li className="sidebar-empty muted">Loading…</li>
                   )}
-                  {!worktreesLoading && (worktreesByRepo[r.id]?.length ?? 0) === 0 && (
-                    <li className="sidebar-empty muted">No worktrees yet.</li>
+                  {!worktreesLoading && (visibleByRepo[r.id]?.length ?? 0) === 0 && (
+                    <li className="sidebar-empty muted">
+                      {narrowing ? "No match here." : "No worktrees yet."}
+                    </li>
                   )}
                 </ul>
+                )}
               </li>
             ))}
           </ul>

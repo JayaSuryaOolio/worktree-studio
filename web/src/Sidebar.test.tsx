@@ -47,6 +47,7 @@ function Harness({ initialPath = "/repo/r1/worktree/w1" }: { initialPath?: strin
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(listRepos).mockResolvedValue([{ id: "r1", name: "adelaide", path: "/tmp/adelaide" }]);
   vi.mocked(listWorktrees).mockResolvedValue([
     { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active" },
@@ -65,6 +66,56 @@ beforeEach(() => {
 });
 
 describe("Sidebar worktree row", () => {
+  it("the filter narrows the list across repos, and Escape clears it", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active" },
+      { id: "w2", repo_id: "r1", name: "hotfix-worktree", branch: "hotfix-1", path: "/tmp/adelaide-wt/hotfix", created_at: "2026-01-01T00:00:00Z", status: "active" },
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await screen.findByTitle("feature");
+    const filter = screen.getByLabelText("Filter worktrees");
+
+    await user.type(filter, "hotfix");
+    expect(screen.queryByTitle("feature")).not.toBeInTheDocument();
+    expect(screen.getByTitle("hotfix-1")).toBeInTheDocument();
+
+    // First Escape clears, and deliberately does NOT also blur — losing
+    // focus as well would make fixing a typo a two-step recovery.
+    await user.keyboard("{Escape}");
+    expect(filter).toHaveValue("");
+    expect(await screen.findByTitle("feature")).toBeInTheDocument();
+  });
+
+  it("collapsing a repo hides its worktrees and shows a count instead", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await screen.findByTitle("feature");
+
+    await user.click(screen.getByRole("button", { name: /collapse adelaide/i }));
+
+    expect(screen.queryByTitle("feature")).not.toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /expand adelaide/i }));
+    expect(await screen.findByTitle("feature")).toBeInTheDocument();
+  });
+
+  // A filter that silently skipped collapsed groups would be worse than no
+  // filter at all, so narrowing overrides the stored collapsed state.
+  it("a filter match surfaces even from inside a collapsed repo", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await screen.findByTitle("feature");
+
+    await user.click(screen.getByRole("button", { name: /collapse adelaide/i }));
+    expect(screen.queryByTitle("feature")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Filter worktrees"), "feat");
+    expect(await screen.findByTitle("feature")).toBeInTheDocument();
+  });
+
   // jsdom can't tell us where the ellipsis lands, but it can tell us the
   // row still spells the branch name exactly — which is the thing the
   // head/tail split could plausibly break (a stray JSX space between the

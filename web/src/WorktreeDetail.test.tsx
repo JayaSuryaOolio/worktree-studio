@@ -245,16 +245,30 @@ describe("WorktreeDetail", () => {
       await screen.findByTestId("terminal-t1");
       await waitFor(() => expect(getWorktreeLayout).toHaveBeenCalled());
 
+      // Let anything the initial mount scheduled flush and settle, so the
+      // count asserted below belongs to the change this test makes.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      vi.mocked(saveWorktreeLayout).mockClear();
+
       await act(async () => {
         getActiveWorktreeActions()?.newTerminal();
       });
       await screen.findByTestId("terminal-t2");
 
-      // Nothing saved yet — still inside the debounce window.
-      expect(saveWorktreeLayout).not.toHaveBeenCalled();
-
       await new Promise((resolve) => setTimeout(resolve, 600));
       await waitFor(() => expect(saveWorktreeLayout).toHaveBeenCalled());
+
+      // The debounce's actual contract: adding one panel fires several
+      // dockview layout events in the same tick (add, set-active, resize)
+      // and they coalesce into ONE save.
+      //
+      // This replaced an `expect(saveWorktreeLayout).not.toHaveBeenCalled()`
+      // taken mid-window, which was a wall-clock race — the awaits above it
+      // are real-timer polling, so under a loaded full-suite run they
+      // routinely overran the 500ms debounce and the save had legitimately
+      // already happened. Counting coalesced calls tests the same property
+      // and doesn't depend on how fast the machine is.
+      expect(saveWorktreeLayout).toHaveBeenCalledTimes(1);
 
       const lastCall = vi.mocked(saveWorktreeLayout).mock.calls.at(-1);
       expect(lastCall?.[0]).toBe("r1");
