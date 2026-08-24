@@ -165,12 +165,25 @@ Pre-redesign, the whole theme was one `worktree-studio-theme` key holding
 existing install keeps the light/dark it had chosen and picks up
 Graphite as its family. It is never written back to.
 
-## Compatibility aliases
+## No compatibility aliases
 
-`tokens.css` still defines `--bg`, `--bg-elevated`, `--bg-hover`,
-`--border`, `--text-dim`, `--amber`, `--cyan`, `--green`, `--red` and
-their `-dim` variants, re-pointed at the contract. They're a **migration
-scaffold, not part of the contract** — new rules use the contract names,
-and the aliases shrink as each stylesheet is converted. Note `--green` no
-longer means "selected" anywhere; selection is `--accent`, and `--green`
-is `--ok`, the status colour, only.
+The migration ran through the old token names (`--bg`, `--border`,
+`--text-dim`, `--amber`, `--cyan`, `--green`, `--red`, `--font-display`)
+kept as aliases pointing at the contract, so each stylesheet could be
+converted one commit at a time without anything going unstyled in
+between. Every one of them is now gone: the audit that removed them
+(`grep` for legacy token names and for raw hex across `web/src`) came
+back empty except for `tokens.css` itself.
+
+That audit is worth re-running before adding a token. Two invariants it
+checks, both of which the pre-redesign code violated:
+
+- **No stylesheet outside `tokens.css` contains a raw hex colour.** That's
+  what makes a new theme a matter of adding one palette block.
+- **No stylesheet uses a colour name that isn't in the contract.** A
+  component reaching for a colour the contract doesn't define is the
+  first step back toward the four-overloaded-accents problem.
+
+Note in particular that `--green` no longer means "selected" anywhere.
+Selection is `--accent` in every list in the app; `--ok` is the status
+colour, and it appears only on an exception.

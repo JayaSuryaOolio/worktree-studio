@@ -69,13 +69,11 @@
 
   --sidebar-w: 250px;
 
-  /* Type faces. There is deliberately no display face: headings get
-     their hierarchy from size and weight, which is one less thing that
-     can fail to load and one less voice competing with the terminal.
-     --font-display is kept as an alias so nothing downstream breaks. */
+  /* Type faces. There is deliberately no display face: headings get their
+     hierarchy from size and weight, which is one less thing that can fail
+     to load and one less voice competing with the terminal. */
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-display: var(--font-ui);
 
   /* ---------------------------------------------------------------
      Palette — Graphite dark. Also declared on the explicit selector
@@ -112,32 +110,6 @@
   --overlay: #0b0d0fcc;
   --shadow-soft: #00000059;
   --shadow-strong: #0000008c;
-
-  /* ---------------------------------------------------------------
-     Compatibility aliases. The pre-redesign token names, re-pointed at
-     the contract above so every stylesheet that hasn't been migrated
-     yet keeps working and keeps re-theming. Declared once here (not per
-     palette) — custom properties substitute using :root's own final
-     computed values, so these follow whichever palette block won.
-
-     These are a migration scaffold, not part of the contract: new rules
-     use the names above. --green in particular no longer means
-     "selected" anywhere (selection is --accent now); it's the status
-     colour only.
-     --------------------------------------------------------------- */
-  --bg: var(--surface-0);
-  --bg-elevated: var(--surface-1);
-  --bg-hover: var(--surface-2);
-  --border: var(--rule);
-  --text-dim: var(--text-2);
-  --amber: var(--accent);
-  --amber-dim: var(--accent-soft);
-  --cyan: var(--info);
-  --cyan-dim: color-mix(in srgb, var(--info) 20%, transparent);
-  --green: var(--ok);
-  --green-dim: color-mix(in srgb, var(--ok) 20%, transparent);
-  --red: var(--danger);
-  --red-dim: var(--danger-soft);
 
   font-family: var(--font-ui);
   font-size: var(--fs-3);

@@ -53,10 +53,10 @@ function GenericFileIcon({ size = 14 }: IconProps) {
       <path
         d="M3.5 1h5l3.5 3.5V14.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5Z"
         fill="none"
-        style={{ stroke: "var(--text-dim)" }}
+        style={{ stroke: "var(--text-3)" }}
         strokeWidth="1"
       />
-      <path d="M8.5 1v3.2a.3.3 0 0 0 .3.3H12" fill="none" style={{ stroke: "var(--text-dim)" }} strokeWidth="1" />
+      <path d="M8.5 1v3.2a.3.3 0 0 0 .3.3H12" fill="none" style={{ stroke: "var(--text-3)" }} strokeWidth="1" />
     </svg>
   );
 }
