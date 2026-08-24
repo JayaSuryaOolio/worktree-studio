@@ -14,7 +14,7 @@ import {
 import { TransientIndicatorPhase, useTransientIndicator } from "./useTransientIndicator";
 import { rootWorktreeId } from "./rootWorktree";
 import WorktreeHoverPopover from "./WorktreeHoverPopover";
-import { ChevronIcon, SpotlightIcon } from "./icons/StatusIcons";
+import { ChevronIcon, GearIcon, PlusIcon, SpotlightIcon } from "./icons/StatusIcons";
 import { GitBranchIcon } from "./icons/FileTreeIcons";
 import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import VSCodeIcon from "./icons/VSCodeIcon";
@@ -225,7 +225,7 @@ function SidebarWorktreeRow({
               title={forThisWorktree ? "New terminal tab" : inactiveTitle}
               onClick={() => forThisWorktree?.newTerminal()}
             >
-              +
+              <PlusIcon size={14} />
             </button>
             <button
               type="button"
@@ -497,7 +497,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
           title="Settings"
           onClick={() => setSettingsOpen(true)}
         >
-          ⚙
+          <GearIcon />
         </button>
       </div>
 
@@ -542,7 +542,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
             title="Add repo"
             onClick={onAddRepo}
           >
-            +
+            <PlusIcon />
           </button>
         </div>
       </div>
@@ -636,7 +636,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       aria-label={`${r.name} settings`}
                       title="Repo settings"
                     >
-                      ⚙
+                      <GearIcon size={15} />
                     </Link>
                     <button
                       type="button"
@@ -645,7 +645,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       title="New worktree"
                       onClick={() => onNewWorktree(r.id)}
                     >
-                      +
+                      <PlusIcon size={15} />
                     </button>
                   </div>
                 </div>

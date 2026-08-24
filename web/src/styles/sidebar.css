@@ -89,19 +89,31 @@
   color: var(--text-3);
 }
 
+/* An icon button is an icon with a hit area, not a button with an icon
+   inside it. No border, no fill at rest — the glyph itself is the
+   control, and the hover wash only exists to confirm the target.
+
+   These used to hold bare text glyphs ("⚙", "+"), which sized themselves
+   from the type scale rather than from the button, so the gear rendered
+   as a ~14px character adrift in a 26px box: too small, and never quite
+   optically centred. They're SVGs now (icons/StatusIcons.tsx), sized by
+   this rule. */
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.625rem;
-  height: 1.625rem;
+  width: 1.75rem;
+  height: 1.75rem;
   padding: 0;
   border-radius: var(--radius);
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-size: var(--fs-3);
   transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.icon-button svg {
+  display: block;
 }
 
 .icon-button:hover {
@@ -599,21 +611,28 @@
    surfaced by counting and filtering rather than by re-sorting rows.
    --------------------------------------------------------------------- */
 
+/* Margin, not padding. The hint below is positioned against this box, so
+   any padding here offsets it from the input it's supposed to sit inside
+   — which is exactly what was wrong: the hint was measured from the
+   wrapper's edge (4px inside the input's right border, nearly touching
+   it) and vertically centred in a box 12px taller than the field. With
+   margin instead, this element IS the input's box, so "centre it" means
+   what it says. */
 .sidebar-filter {
   position: relative;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-3) var(--space-3);
+  display: block;
+  margin: 0 var(--space-3) var(--space-3);
 }
 
 .sidebar-filter input[type="text"] {
+  display: block;
   width: 100%;
   min-width: 0;
   height: var(--row-h-lg);
   font-family: var(--font-mono);
   font-size: var(--fs-3);
   background: var(--surface-sunk);
-  padding-right: 1.75rem;
+  padding-right: 1.5rem;
 }
 
 /* The shortcut, shown where the shortcut acts. Disappears while the box
@@ -625,11 +644,14 @@
    as soon as the field is focused or has anything typed in it. */
 .sidebar-filter-hint {
   position: absolute;
-  right: var(--space-4);
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  line-height: 1;
   font-family: var(--font-mono);
   font-size: var(--fs-2);
   color: var(--text-3);
-  opacity: 0.65;
+  opacity: 0.6;
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
 }
