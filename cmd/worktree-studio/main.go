@@ -65,6 +65,9 @@ func main() {
 	if runOpenFileCommand(os.Args[1:]) {
 		return
 	}
+	if runSpotlightCommand(os.Args[1:]) {
+		return
+	}
 
 	logPath, err := logFilePath()
 	if err != nil {
@@ -120,6 +123,12 @@ func main() {
 	} else if dropped > 0 {
 		logger.Info("pruned stale terminal session rows (tmux session no longer live)", "count", dropped)
 	}
+
+	// One-time correction for an installation that already ran an earlier,
+	// regressed version of the terminal-clipboard feature — see
+	// term.CorrectGlobalMouseAndPassthroughSettings's own comment and
+	// docs/terminal-clipboard.md's "Problem 4"/"Problem 5"/"Problem 6".
+	term.CorrectGlobalMouseAndPassthroughSettings()
 
 	addr := defaultAddr
 	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {

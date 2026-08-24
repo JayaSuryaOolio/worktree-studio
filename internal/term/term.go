@@ -44,26 +44,61 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		return store.TerminalSession{}, fmt.Errorf("tmux new-session: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 
-	// set-clipboard and mouse are both tmux SERVER options (no per-session
-	// scope exists), so both affect every tmux session on the machine,
-	// including ones the user created themselves outside worktree-studio
-	// — deliberate, not an oversight. Together they make tmux itself
-	// intercept mouse drag-select and emit an OSC 52 clipboard-set escape
-	// sequence on release, BEFORE the event ever reaches whatever program
-	// is running in the pane — this is what makes copy-by-dragging work
-	// even inside a program (e.g. `claude`) that's enabled its own mouse
-	// tracking, which otherwise disables the browser terminal's native
-	// selection entirely. Verified for real (not just reasoned through):
-	// simulated an actual SGR mouse press/drag/release sequence into a
-	// throwaway tmux session with both options set, and confirmed tmux
-	// emitted a real `\x1b]52;` sequence containing the dragged text on
-	// release. See docs/terminal-clipboard.md for the full story,
-	// including the one real tradeoff (`mouse on` also means tmux, not
-	// the browser terminal, now owns mouse-wheel scrolling for sessions
-	// that haven't requested their own mouse tracking). Best-effort — a
-	// failure here doesn't affect the session's usability as a shell,
-	// only whether copy-by-dragging works.
+	// set-clipboard is a tmux SERVER option (no per-session scope exists),
+	// so it affects every tmux session on the machine, including ones the
+	// user created themselves outside worktree-studio — deliberate, not an
+	// oversight. It makes tmux's own copy-mode (Ctrl+b [ , select, Enter)
+	// emit an OSC 52 clipboard-set escape sequence, which
+	// @xterm/addon-clipboard in Terminal.tsx catches and writes to the real
+	// browser clipboard. Best-effort — a failure here doesn't affect the
+	// session's usability as a shell, only whether tmux's own copy-mode
+	// relays to the browser clipboard.
 	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
+	// Deliberately NOT "allow-passthrough on" here, despite trying it (see
+	// docs/terminal-clipboard.md's "Problem 5"): it would have let
+	// `claude`'s own DCS-passthrough-wrapped OSC 52 clipboard write reach
+	// the browser, but allow-passthrough is all-or-nothing in tmux — it
+	// also lets through any OTHER program's DCS-wrapped sequences, in any
+	// pane, not just `claude`'s. Per direct user report this revived a
+	// mouse-reporting feature in an unrelated plain shell (very likely
+	// from a shell prompt/plugin that also uses passthrough-wrapped
+	// DECSET sequences for tmux compatibility), turning ordinary
+	// mouse-wheel scroll into cursor-key bytes that bash/zsh's readline
+	// interpreted as history navigation instead. Reverted before this was
+	// even confirmed fully fixing the `claude` case it targeted — breaking
+	// basic scrolling for every shell is a materially worse regression
+	// than the clipboard gap it was meant to close. `claude`'s own OSC 52
+	// copy remains a known, open, deliberately unfixed problem; DON'T
+	// re-enable allow-passthrough globally to chase it — any real fix
+	// would need to be scoped to a single pane/program, which plain tmux
+	// options can't do.
+	//
+	// "mouse on" IS deliberately set here (see
+	// docs/terminal-clipboard.md's "Problem 4" and "Problem 6"), even
+	// though an earlier revert briefly turned it off. Turning it off traded
+	// one regression for a worse one: tmux's own client-attach protocol
+	// always sends the outer terminal an enter-alternate-screen sequence
+	// on every fresh attach (its own full-repaint mechanism, unconditional,
+	// unrelated to whatever's actually running in the pane), so from
+	// xterm.js's point of view a tmux-attached session is *always*
+	// "showing the alternate buffer, no scrollback" — permanently, for
+	// every plain shell too. xterm.js's wheel handler treats that as "this
+	// must be a fullscreen app like vim that wants arrow keys, not a
+	// scrollback view" and converts wheel scroll into literal cursor-key
+	// bytes, UNLESS tmux's own mouse-tracking protocol is active, in which
+	// case xterm.js instead sends the wheel event as an SGR mouse report
+	// for the pane to handle itself — which is exactly what tmux's default
+	// root-table binding needs to route wheel-up into copy-mode and scroll
+	// tmux's own (real) scrollback. So "mouse on" isn't optional here: it's
+	// the only way wheel-scroll works at all in a tmux-attached xterm.js
+	// session, plain shell or not. The cost — xterm.js's own native
+	// click-drag text selection normally being suppressed whenever mouse
+	// tracking is active — is the known, accepted tradeoff from Problem 4,
+	// worked around by relying on xterm.js's own built-in Shift/Option
+	// force-selection convention rather than disabling mouse tracking.
+	// CorrectGlobalMouseAndPassthroughSettings (below) brings mouse back to
+	// on and allow-passthrough back to off for an installation that
+	// already ran the briefly-reverted, mouse-off version of this feature.
 	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
 
 	// tmux does NOT forward a pane's OSC 0/2 title-set escape sequence to
@@ -208,4 +243,36 @@ func Reconcile(st *store.Store) (dropped int, err error) {
 		}
 	}
 	return dropped, nil
+}
+
+// CorrectGlobalMouseAndPassthroughSettings brings tmux's global "mouse" and
+// "allow-passthrough" server options back to the settings CreateSession
+// itself now sets ("mouse on", "allow-passthrough off"), undoing whichever
+// of two earlier, regressed states an existing installation might still be
+// in (see CreateSession's own comment and docs/terminal-clipboard.md's
+// "Problem 4"/"Problem 5"/"Problem 6"):
+//   - a stale "mouse off" breaks wheel-scroll in every tmux session, plain
+//     shells included — see Problem 6 — because tmux's own client-attach
+//     protocol makes xterm.js permanently believe it has no scrollback,
+//     and only an active mouse-tracking protocol stops xterm.js converting
+//     wheel scroll into literal cursor-key bytes.
+//   - a stale "allow-passthrough on" revives mouse-reporting features in
+//     unrelated shells (anything else using tmux's DCS-passthrough
+//     mechanism, not just the one program — `claude` — it was meant to
+//     help), which surfaced as ordinary mouse-wheel scroll turning into
+//     shell history navigation in a plain shell that never ran that
+//     program at all.
+//
+// Both are tmux server-wide options, so they take effect for every existing
+// session immediately, not just new ones — but the fix would otherwise only
+// actually land the next time CreateSession happened to run, and an
+// installation that already hit either regression shouldn't have to open a
+// brand new terminal just to get a working one. Call this once at server
+// startup (see cmd/worktree-studio/main.go), same idiom as Reconcile.
+// Best-effort, same as every other tmux set-option call in this package:
+// failure (e.g. no tmux server running yet, so there's nothing to correct
+// anyway) doesn't block startup.
+func CorrectGlobalMouseAndPassthroughSettings() {
+	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
+	_ = exec.Command("tmux", "set-option", "-g", "allow-passthrough", "off").Run()
 }
