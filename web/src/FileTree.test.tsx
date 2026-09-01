@@ -44,13 +44,29 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+// Folders start collapsed (openByDefault={false} — see FileTree.tsx), so
+// anything nested has to be opened first, exactly as a real user would.
+async function expandSrc(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByText("src"));
+  return screen.findByText("main.go");
+}
+
 describe("FileTree", () => {
+  it("opens with every folder collapsed", async () => {
+    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
+
+    // Top-level entries are there; nothing inside them is.
+    expect(await screen.findByText("src")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(screen.queryByText("main.go")).not.toBeInTheDocument();
+  });
+
   it("clicking a file calls onOpenFile with its path", async () => {
     const onOpenFile = vi.fn();
     const user = userEvent.setup();
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={onOpenFile} />);
 
-    await user.click(await screen.findByText("main.go"));
+    await user.click(await expandSrc(user));
     expect(onOpenFile).toHaveBeenCalledWith("src/main.go");
   });
 
@@ -94,12 +110,90 @@ describe("FileTree", () => {
     expect(writeText).toHaveBeenCalledWith("/tmp/adelaide-wt/my-worktree");
   });
 
+  it("right-clicking a file shows a context menu that copies its path", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    const row = await expandSrc(user);
+    await user.pointer({ keys: "[MouseRight]", target: row });
+
+    const item = await screen.findByText("Copy path");
+    await user.click(item);
+
+    expect(writeText).toHaveBeenCalledWith("src/main.go");
+    expect(screen.queryByText("Copy path")).not.toBeInTheDocument();
+  });
+
+  it("offers and copies the absolute path when a folderPath is known", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} folderPath="/tmp/adelaide-wt/my-worktree" />
+    );
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    const row = await expandSrc(user);
+    await user.pointer({ keys: "[MouseRight]", target: row });
+
+    await user.click(await screen.findByText("Copy absolute path"));
+
+    expect(writeText).toHaveBeenCalledWith("/tmp/adelaide-wt/my-worktree/src/main.go");
+  });
+
+  it("does not offer 'Copy absolute path' without a known folderPath", async () => {
+    const user = userEvent.setup();
+    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
+
+    const row = await expandSrc(user);
+    await user.pointer({ keys: "[MouseRight]", target: row });
+
+    await screen.findByText("Copy path");
+    expect(screen.queryByText("Copy absolute path")).not.toBeInTheDocument();
+  });
+
+  it("keeps the right-clicked row visually active while its menu is open", async () => {
+    const user = userEvent.setup();
+    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
+
+    const row = await expandSrc(user);
+    expect(row.closest(".file-tree-row")?.className).not.toContain("file-tree-row-context-active");
+
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    await screen.findByText("Copy path");
+    expect(screen.getByText("main.go").closest(".file-tree-row")?.className).toContain(
+      "file-tree-row-context-active"
+    );
+
+    await user.click(document.body);
+    await waitFor(() => expect(screen.queryByText("Copy path")).not.toBeInTheDocument());
+    expect(screen.getByText("main.go").closest(".file-tree-row")?.className).not.toContain(
+      "file-tree-row-context-active"
+    );
+  });
+
+  it("closes the context menu on an outside click without copying", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    const row = await expandSrc(user);
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    await screen.findByText("Copy path");
+
+    await user.click(document.body);
+
+    expect(screen.queryByText("Copy path")).not.toBeInTheDocument();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("collapse-all closes a folder that was opened", async () => {
     const user = userEvent.setup();
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
 
-    // openByDefault is true, so src/main.go starts visible.
-    await screen.findByText("main.go");
+    await expandSrc(user);
 
     await user.click(screen.getByTitle("Collapse all folders"));
     await waitFor(() => expect(screen.queryByText("main.go")).not.toBeInTheDocument());
@@ -109,7 +203,7 @@ describe("FileTree", () => {
 
   it("registers changedFilesAvailable as false when there are no changed files", async () => {
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
-    await screen.findByText("main.go");
+    await screen.findByText("src");
     await waitFor(() => expect(getActiveFileTreeActions()?.changedFilesAvailable).toBe(false));
   });
 
@@ -119,8 +213,10 @@ describe("FileTree", () => {
       dirty: true,
       changed_files: ["src/main.go", "README.md"],
     });
+    const user = userEvent.setup();
     render(<FileTree repoId="r1" worktreeId="w1" onOpenFile={vi.fn()} />);
-    await screen.findByText("helper.go");
+    await expandSrc(user);
+    expect(screen.getByText("helper.go")).toBeInTheDocument();
 
     await waitFor(() => expect(getActiveFileTreeActions()?.changedFilesAvailable).toBe(true));
     act(() => {

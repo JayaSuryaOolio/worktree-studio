@@ -198,15 +198,6 @@ function SidebarWorktreeRow({
             </button>
             <button
               type="button"
-              className={forThisWorktree?.filesOpen ? "active" : undefined}
-              disabled={!forThisWorktree}
-              title={forThisWorktree ? "Toggle the file tree sidebar" : inactiveTitle}
-              onClick={() => forThisWorktree?.toggleFiles()}
-            >
-              📁
-            </button>
-            <button
-              type="button"
               disabled={!forThisWorktree || !forThisWorktree.vscodeAvailable}
               title={
                 !forThisWorktree

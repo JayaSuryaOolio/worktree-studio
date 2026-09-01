@@ -25,6 +25,7 @@ import {
 } from "./theme";
 import { notificationPermission, requestNotificationPermission } from "./attentionNotify";
 import { getNotificationsEnabled, setNotificationsEnabled } from "./notificationPreference";
+import { FilesPanelSide, setStoredFilesSide, useFilesPanelSide } from "./filesPanelPreference";
 
 interface Props {
   onClose: () => void;
@@ -323,8 +324,50 @@ function AppearanceTab() {
           : `Always ${choice.mode}, regardless of the operating system.`}
       </p>
 
+      <FileTreeSideSection />
+
       <NotificationsSection />
     </section>
+  );
+}
+
+// Which edge the worktree file tree opens from. Right by default — its
+// toggle lives at the right end of the worktree header, and a panel that
+// appears where you just clicked needs no explaining — but left is what
+// VS Code and every editor before it trained people to expect, so it's a
+// setting rather than a decision made for everyone. Reads through
+// useFilesPanelSide so an already-open worktree page moves the panel the
+// moment this changes, without a reload.
+function FileTreeSideSection() {
+  const side = useFilesPanelSide();
+  const sides: { value: FilesPanelSide; label: string }[] = [
+    { value: "left", label: "Left" },
+    { value: "right", label: "Right" },
+  ];
+
+  return (
+    <>
+      <h3>File tree</h3>
+      <div className="segmented" role="radiogroup" aria-label="File tree side">
+        {sides.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={side === opt.value}
+            className={side === opt.value ? "selected" : ""}
+            onClick={() => setStoredFilesSide(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-hint">
+        {side === "right"
+          ? "The file tree opens on the right, beside its toggle in the worktree header."
+          : "The file tree opens on the left, where editors conventionally put it."}
+      </p>
+    </>
   );
 }
 

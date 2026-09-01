@@ -5,8 +5,6 @@ import { registerActiveWorktreeActions, useActiveWorktreeActions } from "./activ
 function makeActions(worktreeId: string, overrides: Partial<Parameters<typeof registerActiveWorktreeActions>[0]> = {}) {
   return {
     worktreeId,
-    filesOpen: true,
-    toggleFiles: vi.fn(),
     vscodeAvailable: true,
     openVSCode: vi.fn(),
     openLog: vi.fn(),
@@ -36,17 +34,17 @@ describe("activeWorktreeActions", () => {
     expect(result.current).toBe(actions);
   });
 
-  it("picks up a re-registration (e.g. filesOpen flipping) without remounting", () => {
+  it("picks up a re-registration (e.g. vscodeAvailable flipping) without remounting", () => {
     const { result } = renderHook(() => useActiveWorktreeActions());
     act(() => {
-      registerActiveWorktreeActions(makeActions("w1", { filesOpen: false }));
+      registerActiveWorktreeActions(makeActions("w1", { vscodeAvailable: false }));
     });
-    expect(result.current?.filesOpen).toBe(false);
+    expect(result.current?.vscodeAvailable).toBe(false);
 
     act(() => {
-      registerActiveWorktreeActions(makeActions("w1", { filesOpen: true }));
+      registerActiveWorktreeActions(makeActions("w1", { vscodeAvailable: true }));
     });
-    expect(result.current?.filesOpen).toBe(true);
+    expect(result.current?.vscodeAvailable).toBe(true);
   });
 
   it("goes back to null once unregistered", () => {

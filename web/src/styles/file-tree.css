@@ -117,6 +117,15 @@
   background: var(--surface-2);
 }
 
+/* Right-clicking opens the menu directly under the cursor, which covers
+   the row and knocks out its own CSS :hover — this keeps it looking
+   "active" for as long as its context menu is open, the same way a
+   native menu's target row would. Comes before file-tree-row-selected
+   below so an already-selected row keeps its accent styling instead. */
+.file-tree-row-context-active {
+  background: var(--surface-2);
+}
+
 /* Same selection language as a sidebar row and a palette item: a wash
    plus an accent rail, not recoloured text. */
 .file-tree-row-selected {
@@ -155,4 +164,37 @@
   margin-left: var(--space-1);
   font-size: var(--fs-1);
   color: var(--text-3);
+}
+
+/* Right-click "Copy path" menu — a hand-rolled replacement for the native
+   context menu, which main.tsx suppresses everywhere outside real
+   text-editing surfaces (see contextMenuPolicy.ts). */
+.file-tree-context-menu {
+  position: fixed;
+  z-index: 900;
+  min-width: 9rem;
+  padding: var(--space-1);
+  background: var(--surface-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px var(--shadow-strong);
+}
+
+.file-tree-context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-2);
+  font: inherit;
+  font-size: var(--fs-3);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.file-tree-context-menu-item:hover,
+.file-tree-context-menu-item:focus-visible {
+  background: var(--surface-2);
 }

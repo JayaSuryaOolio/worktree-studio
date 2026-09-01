@@ -83,9 +83,42 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, f
   const [error, setError] = useState<string | null>(null);
   const [filterToChanged, setFilterToChanged] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const treeApiRef = useRef<TreeApi<FileNode> | undefined>(undefined);
   const [containerRef, size] = useElementSize<HTMLDivElement>();
   const folderName = folderPath?.split("/").pop();
+
+  // Closes on an outside click, Escape, or the tree scrolling underneath
+  // it — the same dismissal set a native context menu gets for free, which
+  // this one needs to replicate since main.tsx suppresses the native one
+  // everywhere except real text-editing surfaces (see contextMenuPolicy.ts).
+  useEffect(() => {
+    if (!contextMenu) return;
+    function close() {
+      setContextMenu(null);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  function copyPathToClipboard(path: string) {
+    navigator.clipboard.writeText(path);
+    setContextMenu(null);
+  }
+
+  function copyAbsolutePathToClipboard(path: string) {
+    if (folderPath) navigator.clipboard.writeText(`${folderPath}/${path}`);
+    setContextMenu(null);
+  }
 
   function copyFolderPath() {
     if (!folderPath) return;
@@ -181,7 +214,14 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, f
             data={displayedTree}
             idAccessor="path"
             childrenAccessor="children"
-            openByDefault
+            // Collapsed, not react-arborist's expanded-everything default:
+            // a real repo opens as hundreds of rows of directories you
+            // didn't ask for, and the top-level folders — the thing you
+            // actually navigate by — are pushed off the bottom of the
+            // panel. The active file's ancestors are still opened for you
+            // (see the activePath effect above), and collapse-all in the
+            // heading gets you back here.
+            openByDefault={false}
             disableDrag
             disableDrop
             disableEdit
@@ -191,8 +231,41 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, f
             rowHeight={22}
             selection={activePath ?? undefined}
           >
-            {(props) => <FileTreeNode {...props} onOpenFile={onOpenFile} />}
+            {(props) => (
+              <FileTreeNode
+                {...props}
+                onOpenFile={onOpenFile}
+                onContextMenu={(path, x, y) => setContextMenu({ path, x, y })}
+                contextMenuActive={contextMenu?.path === props.node.data.path}
+              />
+            )}
           </Tree>
+        )}
+        {contextMenu && (
+          <div
+            className="file-tree-context-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            // The outside-mousedown listener above would otherwise close
+            // this before the click on its own item ever registers.
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="file-tree-context-menu-item"
+              onClick={() => copyPathToClipboard(contextMenu.path)}
+            >
+              Copy path
+            </button>
+            {folderPath && (
+              <button
+                type="button"
+                className="file-tree-context-menu-item"
+                onClick={() => copyAbsolutePathToClipboard(contextMenu.path)}
+              >
+                Copy absolute path
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -203,7 +276,18 @@ function FileTreeNode({
   node,
   style,
   onOpenFile,
-}: NodeRendererProps<FileNode> & { onOpenFile: (path: string) => void }) {
+  onContextMenu,
+  contextMenuActive,
+}: NodeRendererProps<FileNode> & {
+  onOpenFile: (path: string) => void;
+  onContextMenu: (path: string, x: number, y: number) => void;
+  /** True while this row's own right-click menu is open. Right-clicking
+   * puts the context menu right on top of the cursor, which knocks out the
+   * row's own CSS :hover the instant the menu appears — without this, the
+   * row the menu belongs to would look no different from any other,
+   * unlike a native menu's usual "this is what I'm acting on" affordance. */
+  contextMenuActive: boolean;
+}) {
   const isDir = node.data.type === "dir";
   // A "dir" with no children data is an opaque directory (node_modules —
   // see internal/files.collapseOpaqueDirs): shown so its presence isn't a
@@ -224,8 +308,12 @@ function FileTreeNode({
       style={style}
       className={`file-tree-row${node.isSelected ? " file-tree-row-selected" : ""}${
         isOpaque ? " file-tree-row-opaque" : ""
-      }`}
+      }${contextMenuActive ? " file-tree-row-context-active" : ""}`}
       onClick={handleClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu(node.data.path, e.clientX, e.clientY);
+      }}
       title={isOpaque ? `${node.data.name} — files hidden, not browsable here` : node.data.name}
     >
       {isDir ? (

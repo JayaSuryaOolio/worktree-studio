@@ -59,6 +59,13 @@ import {
 } from "./api";
 import { useRepoContext } from "./RepoContext";
 import { getActiveWorktreeActions } from "./activeWorktreeActions";
+import {
+  FILES_PANEL_DEFAULT_WIDTH,
+  FILES_PANEL_MAX_WIDTH,
+  getStoredFilesWidth,
+  setStoredFilesSide,
+  setStoredFilesWidth,
+} from "./filesPanelPreference";
 
 function renderPage() {
   return render(
@@ -454,5 +461,218 @@ describe("WorktreeDetail", () => {
     await waitFor(() => expect(screen.queryByTestId("editor-main.go")).not.toBeInTheDocument());
     expect(deleteTerminal).not.toHaveBeenCalled();
     expect(screen.queryByText(/terminal session not found/i)).not.toBeInTheDocument();
+  });
+});
+
+// The tree lives on the right by default, and its toggle sits at the same
+// end of the header — the whole point being that you click an edge and the
+// panel comes out of that edge. Placement is a real DOM position, not a
+// CSS flip, so it's assertable here.
+describe("WorktreeDetail file tree placement", () => {
+  it("puts the tree after the terminal area by default (right side)", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    const body = container.querySelector(".worktree-body")!;
+    const kids = [...body.children].map((el) => el.className.split(" ")[0]);
+    expect(kids).toEqual(["terminal-area", "file-tree-resizer", "worktree-sidebar"]);
+    expect(container.querySelector(".worktree-sidebar")).toHaveClass("right");
+  });
+
+  it("puts the tree before the terminal area when the side preference is left", async () => {
+    setStoredFilesSide("left");
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    const body = container.querySelector(".worktree-body")!;
+    const kids = [...body.children].map((el) => el.className.split(" ")[0]);
+    expect(kids).toEqual(["worktree-sidebar", "file-tree-resizer", "terminal-area"]);
+    expect(container.querySelector(".worktree-sidebar")).not.toHaveClass("right");
+  });
+
+  it("moves an already-open panel when the side preference changes", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+    expect(container.querySelector(".worktree-body")!.firstElementChild).toHaveClass("terminal-area");
+
+    act(() => setStoredFilesSide("left"));
+    expect(container.querySelector(".worktree-body")!.firstElementChild).toHaveClass("worktree-sidebar");
+  });
+
+  it("the header's toggle button hides and shows the tree", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    await user.click(screen.getByRole("button", { name: "Hide the file tree" }));
+    expect(container.querySelector(".worktree-sidebar")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show the file tree" }));
+    expect(container.querySelector(".worktree-sidebar")).toBeInTheDocument();
+  });
+
+  it("keeps the toggle at the header's trailing edge, after the PR link", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    const header = container.querySelector(".worktree-header")!;
+    expect(header.lastElementChild).toHaveClass("worktree-header-files-toggle");
+  });
+});
+
+// The header used to name the branch the registry recorded at creation
+// time and fetch its PR exactly once. Both go stale from inside this very
+// worktree's shells — a checkout, a `gh pr create` — and the synthetic
+// root worktree has no registry row at all, so it had no branch name to
+// show in the first place.
+describe("WorktreeDetail header branch and PR", () => {
+  it("names the branch git reports, not the one the registry recorded", async () => {
+    vi.mocked(getWorktreeSummary).mockResolvedValue({
+      branch: "switched-to-this-one",
+      ahead: 0,
+      behind: 0,
+      has_upstream: true,
+      dirty: false,
+      changed_files: [],
+      pr: null,
+    });
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(container.querySelector(".worktree-header-branch-name")).toHaveTextContent(
+        "switched-to-this-one"
+      )
+    );
+  });
+
+  it("links the PR once one exists for the branch", async () => {
+    vi.mocked(getWorktreeSummary).mockResolvedValue({
+      branch: "feature",
+      ahead: 0,
+      behind: 0,
+      has_upstream: true,
+      dirty: false,
+      changed_files: [],
+      pr: {
+        number: 42,
+        title: "Add the thing",
+        state: "OPEN",
+        url: "https://github.com/o/r/pull/42",
+        is_draft: false,
+      },
+    });
+    renderPage();
+    const link = await screen.findByTitle("Add the thing");
+    expect(link).toHaveAttribute("href", "https://github.com/o/r/pull/42");
+    expect(link).toHaveTextContent("#42");
+  });
+
+  it("re-checks the branch and PR when a new shell is opened", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("terminal-t1");
+    await waitFor(() => expect(getWorktreeSummary).toHaveBeenCalled());
+    // A count, not an exact number: the file tree's own header shares this
+    // hook (and its cache), so how many calls the initial render makes is
+    // a race between the two, and not what this test is about.
+    const before = vi.mocked(getWorktreeSummary).mock.calls.length;
+
+    await user.click(screen.getByTitle("New terminal tab"));
+    await waitFor(() =>
+      expect(vi.mocked(getWorktreeSummary).mock.calls.length).toBeGreaterThan(before)
+    );
+  });
+});
+
+// The tree is a global panel whose contents change per worktree, so its
+// width is one remembered number, not one per worktree. Drag is delta-
+// based so the same handler serves both sides: a right-docked panel grows
+// as the pointer moves left.
+describe("WorktreeDetail file tree resizing", () => {
+  function drag(handle: Element, fromX: number, toX: number) {
+    // jsdom implements neither PointerEvent nor pointer capture, so
+    // MouseEvent stands in (React reads clientX/pointerId off whatever the
+    // event object carries) and the capture calls are left to fail — which
+    // is itself the assertion that withPointerCapture's guard holds, since
+    // an unguarded call would take the whole drag down.
+    act(() => {
+      handle.dispatchEvent(
+        Object.assign(new MouseEvent("pointerdown", { bubbles: true, clientX: fromX }), { pointerId: 1 })
+      );
+      handle.dispatchEvent(
+        Object.assign(new MouseEvent("pointermove", { bubbles: true, clientX: toX }), { pointerId: 1 })
+      );
+      handle.dispatchEvent(
+        Object.assign(new MouseEvent("pointerup", { bubbles: true, clientX: toX }), { pointerId: 1 })
+      );
+    });
+  }
+
+  it("starts at the persisted width", async () => {
+    setStoredFilesWidth(320);
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+    expect(container.querySelector<HTMLElement>(".worktree-sidebar")!.style.width).toBe("320px");
+  });
+
+  it("dragging the handle leftwards widens a right-docked panel, and persists on release", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    drag(container.querySelector(".file-tree-resizer")!, 900, 800);
+
+    const expected = FILES_PANEL_DEFAULT_WIDTH + 100;
+    expect(container.querySelector<HTMLElement>(".worktree-sidebar")!.style.width).toBe(`${expected}px`);
+    expect(getStoredFilesWidth()).toBe(expected);
+  });
+
+  it("dragging the same direction narrows a left-docked panel", async () => {
+    setStoredFilesSide("left");
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    drag(container.querySelector(".file-tree-resizer")!, 300, 380);
+
+    const expected = FILES_PANEL_DEFAULT_WIDTH + 80;
+    expect(container.querySelector<HTMLElement>(".worktree-sidebar")!.style.width).toBe(`${expected}px`);
+  });
+
+  it("clamps to the allowed range rather than letting the panel swallow the terminal", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    drag(container.querySelector(".file-tree-resizer")!, 900, -4000);
+    expect(getStoredFilesWidth()).toBe(FILES_PANEL_MAX_WIDTH);
+  });
+
+  it("double-clicking the handle resets to the default width", async () => {
+    const user = userEvent.setup();
+    setStoredFilesWidth(400);
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+
+    await user.dblClick(container.querySelector(".file-tree-resizer")!);
+    expect(container.querySelector<HTMLElement>(".worktree-sidebar")!.style.width).toBe(
+      `${FILES_PANEL_DEFAULT_WIDTH}px`
+    );
+    expect(getStoredFilesWidth()).toBe(FILES_PANEL_DEFAULT_WIDTH);
+  });
+
+  // Keyboard-reachable, like the app sidebar's handle: arrow direction
+  // means "which way the pointer would go", so it matches the drag on
+  // whichever side the panel is docked.
+  it("arrow keys resize it, in the direction the drag would", async () => {
+    const { container } = renderPage();
+    await screen.findByTestId("terminal-t1");
+    const handle = container.querySelector(".file-tree-resizer")!;
+
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(getStoredFilesWidth()).toBe(FILES_PANEL_DEFAULT_WIDTH + 16);
+
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    });
+    expect(getStoredFilesWidth()).toBe(FILES_PANEL_DEFAULT_WIDTH);
   });
 });

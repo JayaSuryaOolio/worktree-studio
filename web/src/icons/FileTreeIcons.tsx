@@ -48,3 +48,33 @@ export function CollapseAllIcon({ size = 14 }: { size?: number }) {
     </svg>
   );
 }
+
+// The worktree header's file-tree toggle: a panel outline with one side
+// filled in, mirrored to match whichever edge the tree actually opens on
+// (see filesPanelPreference.ts). The filled bar is the point — it says
+// which edge is about to move, so the button reads as "the tree comes out
+// over there" rather than a generic "files" glyph that could mean
+// anything.
+export function PanelSideIcon({ side, size = 14 }: { side: "left" | "right"; size?: number }) {
+  // x of the divider, and of the filled bar's left edge.
+  const dividerX = side === "right" ? 10 : 6;
+  const barX = side === "right" ? 10 : 2;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <line x1={dividerX} y1="3" x2={dividerX} y2="13" />
+      <rect x={barX} y="3" width="4" height="10" fill="currentColor" stroke="none" opacity="0.35" />
+    </svg>
+  );
+}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
   DockviewApi,
@@ -26,13 +26,24 @@ import FileTree from "./FileTree";
 import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
 import ClaudeIcon from "./icons/ClaudeIcon";
+import { PanelSideIcon } from "./icons/FileTreeIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { takePendingFileOpen } from "./pendingFileOpen";
 import { takePendingNewTerminal } from "./pendingNewTerminal";
 import { registerActiveWorktreeActions } from "./activeWorktreeActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
-import { getStoredFilesOpen, setStoredFilesOpen } from "./filesPanelPreference";
+import {
+  clampFilesPanelWidth,
+  FILES_PANEL_DEFAULT_WIDTH,
+  FILES_PANEL_MAX_WIDTH,
+  FILES_PANEL_MIN_WIDTH,
+  getStoredFilesOpen,
+  getStoredFilesWidth,
+  setStoredFilesOpen,
+  setStoredFilesWidth,
+  useFilesPanelSide,
+} from "./filesPanelPreference";
 import { useWorktreeSummary } from "./useWorktreeSummary";
 
 interface TerminalPanelParams {
@@ -222,6 +233,12 @@ type PlacementDirection = "within" | "right" | "below";
 // second while someone drags a sash).
 const LAYOUT_SAVE_DEBOUNCE_MS = 500;
 
+// How often the worktree header re-checks its branch/PR. One `gh pr view`
+// a minute for the single worktree you're looking at is nothing against
+// GitHub's rate limit, and it's the interval at which "I just pushed a PR"
+// shows up without you having to reload the page.
+const SUMMARY_POLL_MS = 60_000;
+
 // react-router reuses the same WorktreeDetail component instance across
 // navigations between /repo/:repoId/worktree/:w1 and .../w2 (same route
 // element — it re-renders with new params rather than unmounting), but
@@ -265,11 +282,25 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   const deepLinkAppliedRef = useRef(false);
   const [logOpen, setLogOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(getStoredFilesOpen);
+  const [filesWidth, setFilesWidth] = useState(getStoredFilesWidth);
   const [vscodeAvailable, setVscodeAvailable] = useState(false);
   const [vscodeError, setVscodeError] = useState<string | null>(null);
   const [branchCopied, setBranchCopied] = useState(false);
   const branchCopiedTimeoutRef = useRef<number | undefined>(undefined);
-  const { summary } = useWorktreeSummary(repoId, worktreeId, true);
+  // The header is the one place that polls (see useWorktreeSummary's
+  // pollMs doc): it names the branch you're on and links its PR, and both
+  // of those change from inside a shell in this very worktree — a checkout,
+  // a `gh pr create` — with nothing to tell the page about it.
+  const { summary, refresh: refreshSummary } = useWorktreeSummary(repoId, worktreeId, true, {
+    pollMs: SUMMARY_POLL_MS,
+  });
+  const filesSide = useFilesPanelSide();
+  // The live branch, not the one the registry recorded when the worktree
+  // was created: a checkout inside one of these shells moves it, and the
+  // synthetic root worktree (a repo's own checkout) has no registry row
+  // here at all — `worktree?.branch` was simply blank for it. Falls back
+  // to the recorded name only until the first summary lands.
+  const branch = summary?.branch || worktree?.branch || "";
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   // State (not a ref) deliberately: the effect that applies the initial
   // saved layout needs to re-run once this becomes available, and refs
@@ -337,7 +368,6 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   }
 
   function copyBranch() {
-    const branch = worktree?.branch;
     if (!branch) return;
     navigator.clipboard.writeText(branch).then(() => {
       setBranchCopied(true);
@@ -350,6 +380,77 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     setFilesOpen((o) => {
       const next = !o;
       setStoredFilesOpen(next);
+      return next;
+    });
+  }
+
+  // Drag-to-resize the file tree, mirroring the app sidebar's handle in
+  // Layout.tsx (its own flag stays `resizing-sidebar`; sharing one class
+  // would light up the other pane's handle during this drag). Pointer
+  // events (one path for trackpad/touch/pen) and
+  // setPointerCapture, so the drag keeps tracking once the pointer crosses
+  // into a terminal pane — without capture, releasing over xterm leaves
+  // the panel stuck mid-drag. Width is committed to storage on release,
+  // not per move: this fires at pointer frequency and localStorage writes
+  // are synchronous.
+  //
+  // Tracked as a delta from where the drag started rather than an absolute
+  // clientX, which is what makes one handler work on both sides: the panel
+  // grows as the pointer moves left when it's docked right, and right when
+  // it's docked left. An absolute reading would need to know the panel's
+  // own page offset, which changes with the app sidebar's width.
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Pointer capture is best-effort: the spec has setPointerCapture throw
+  // NotFoundError if the pointerId is no longer active by the time it's
+  // called, which a real browser can hit on a fast click, and jsdom
+  // doesn't implement either method at all. Losing capture degrades the
+  // drag (it stops tracking once the pointer leaves the handle) rather
+  // than breaking it, so it must not take the resize down with it.
+  function withPointerCapture(el: Element, pointerId: number, capture: boolean) {
+    try {
+      if (capture) el.setPointerCapture?.(pointerId);
+      else el.releasePointerCapture?.(pointerId);
+    } catch {
+      // See above.
+    }
+  }
+
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      dragRef.current = { startX: e.clientX, startWidth: filesWidth };
+      withPointerCapture(e.currentTarget, e.pointerId, true);
+      document.body.classList.add("resizing-files");
+    },
+    [filesWidth]
+  );
+
+  const handleResizeMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const delta = e.clientX - drag.startX;
+      setFilesWidth(clampFilesPanelWidth(drag.startWidth + (filesSide === "right" ? -delta : delta)));
+    },
+    [filesSide]
+  );
+
+  const handleResizeEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    withPointerCapture(e.currentTarget, e.pointerId, false);
+    document.body.classList.remove("resizing-files");
+    setFilesWidth((w) => {
+      setStoredFilesWidth(w);
+      return w;
+    });
+  }, []);
+
+  function nudgeFilesWidth(delta: number) {
+    setFilesWidth((prev) => {
+      const next = clampFilesPanelWidth(prev + delta);
+      setStoredFilesWidth(next);
       return next;
     });
   }
@@ -493,6 +594,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     try {
       const ts = await createTerminal(repoId, worktreeId, tabLabel, initialCommand);
       setTerminals((prev) => [...prev, ts]);
+      // A new shell is the moment the branch/PR is most likely to have
+      // moved since the header last looked (you open one to check out a
+      // branch, to push, to open a PR), so don't wait out the poll.
+      refreshSummary();
 
       if (!dockviewApi) return; // the seed effect will pick it up once ready
       const reference = dockviewApi.activePanel;
@@ -564,13 +669,11 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   // Same "no deps, re-register every render" idiom as the file-opener
   // registration above — the sidebar's action icons for the currently-open
   // worktree call straight through into this instance's own handlers, and
-  // need to see fresh values (e.g. filesOpen/vscodeAvailable flipping)
-  // immediately, not just at mount. See activeWorktreeActions.ts.
+  // need to see fresh values (e.g. vscodeAvailable flipping) immediately,
+  // not just at mount. See activeWorktreeActions.ts.
   useEffect(() => {
     registerActiveWorktreeActions({
       worktreeId,
-      filesOpen,
-      toggleFiles,
       vscodeAvailable,
       openVSCode: handleOpenInVSCode,
       openLog: () => setLogOpen(true),
@@ -581,22 +684,88 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     return () => registerActiveWorktreeActions(null);
   });
 
+  // Rendered on whichever side the preference names — as a real DOM
+  // position rather than a `row-reverse` flip, so tab order and screen
+  // readers follow what's actually on screen.
+  const filePanel = (
+    <div
+      className={filesSide === "right" ? "worktree-sidebar right" : "worktree-sidebar"}
+      style={{ width: `${filesWidth}px` }}
+    >
+      <FileTree
+        repoId={repoId}
+        worktreeId={worktreeId}
+        onOpenFile={handleOpenFile}
+        activePath={activeFilePath}
+        folderPath={worktreePath}
+      />
+    </div>
+  );
+
+  // A real separator, not decoration — same contract as the app sidebar's:
+  // arrow keys resize, Home and double-click reset. Arrow direction is
+  // read as "which way is the pointer going", so it stays consistent with
+  // the drag on both sides rather than always meaning "wider".
+  const filesResizer = (
+    <div
+      className="file-tree-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the file tree"
+      aria-valuenow={filesWidth}
+      aria-valuemin={FILES_PANEL_MIN_WIDTH}
+      aria-valuemax={FILES_PANEL_MAX_WIDTH}
+      tabIndex={0}
+      onPointerDown={handleResizeStart}
+      onPointerMove={handleResizeMove}
+      onPointerUp={handleResizeEnd}
+      onPointerCancel={handleResizeEnd}
+      onDoubleClick={() => {
+        setFilesWidth(FILES_PANEL_DEFAULT_WIDTH);
+        setStoredFilesWidth(FILES_PANEL_DEFAULT_WIDTH);
+      }}
+      onKeyDown={(e) => {
+        // What ArrowLeft does to the width, matching what dragging the
+        // handle left does: a right-docked panel grows, a left-docked one
+        // shrinks.
+        const leftStep = filesSide === "right" ? 16 : -16;
+        if (e.key === "ArrowLeft") nudgeFilesWidth(leftStep);
+        else if (e.key === "ArrowRight") nudgeFilesWidth(-leftStep);
+        else if (e.key === "Home") nudgeFilesWidth(FILES_PANEL_DEFAULT_WIDTH - filesWidth);
+        else return;
+        e.preventDefault();
+      }}
+    />
+  );
+
+  // The tree's own toggle, sitting on the edge the tree opens from — the
+  // far right by default, immediately after the branch name when the tree
+  // is on the left. Pointing at a control on one edge and having a panel
+  // appear on the other is the thing this is avoiding.
+  const filesToggle = (
+    <button
+      type="button"
+      className={filesOpen ? "worktree-header-files-toggle active" : "worktree-header-files-toggle"}
+      aria-pressed={filesOpen}
+      title={filesOpen ? "Hide the file tree (\u2318B)" : "Show the file tree (\u2318B)"}
+      aria-label={filesOpen ? "Hide the file tree" : "Show the file tree"}
+      onClick={toggleFiles}
+    >
+      <PanelSideIcon side={filesSide} />
+    </button>
+  );
+
   return (
     <div className="container worktree-detail">
       {error && <p className="error">{error}</p>}
       {vscodeError && <p className="error">Failed to open VS Code: {vscodeError}</p>}
 
       <div className="worktree-body">
-        {filesOpen && (
-          <div className="worktree-sidebar">
-            <FileTree
-              repoId={repoId}
-              worktreeId={worktreeId}
-              onOpenFile={handleOpenFile}
-              activePath={activeFilePath}
-              folderPath={worktreePath}
-            />
-          </div>
+        {filesOpen && filesSide === "left" && (
+          <>
+            {filePanel}
+            {filesResizer}
+          </>
         )}
         <div className="terminal-area">
           {/* Sits directly above the shell tabs, not spanning the file
@@ -617,7 +786,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               to find out, and each part renders only when there's
               something to say. */}
           <div className="worktree-header">
-            <span className="worktree-header-branch-name">{worktree?.branch}</span>
+            <span className="worktree-header-branch-name">{branch}</span>
             <button
               type="button"
               className={branchCopied ? "worktree-header-copy copied" : "worktree-header-copy"}
@@ -626,6 +795,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
             >
               {branchCopied ? "Copied" : "⧉"}
             </button>
+            {filesSide === "left" && filesToggle}
 
             {summary?.has_upstream && (summary.ahead > 0 || summary.behind > 0) && (
               <span
@@ -661,6 +831,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
                 <span className="worktree-header-pr-title">{summary.pr.title}</span>
               </a>
             ) : null}
+
+            {filesSide === "right" && filesToggle}
           </div>
           <DockviewActionsContext.Provider
             value={{
@@ -678,6 +850,12 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
             />
           </DockviewActionsContext.Provider>
         </div>
+        {filesOpen && filesSide === "right" && (
+          <>
+            {filesResizer}
+            {filePanel}
+          </>
+        )}
       </div>
 
       {logOpen && (

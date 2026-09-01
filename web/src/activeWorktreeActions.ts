@@ -5,13 +5,12 @@ import { useSyncExternalStore } from "react";
 // rendered outside WorktreeDetail's tree entirely, so there's no React
 // context path from a sidebar row down into whichever WorktreeDetail
 // instance is actually mounted. Unlike the file-opener bridge, the sidebar
-// also needs to reactively mirror a bit of that instance's state (e.g. is
-// the files panel currently open) rather than just fire-and-forget an
-// action, hence useSyncExternalStore instead of a bare function call.
+// also needs to reactively mirror a bit of that instance's state (e.g.
+// whether `code` was found on PATH, which decides if the VS Code icon is
+// live) rather than just fire-and-forget an action, hence
+// useSyncExternalStore instead of a bare function call.
 export interface ActiveWorktreeActions {
   worktreeId: string;
-  filesOpen: boolean;
-  toggleFiles: () => void;
   vscodeAvailable: boolean;
   openVSCode: () => void;
   openLog: () => void;

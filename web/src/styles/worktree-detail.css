@@ -131,6 +131,34 @@
   min-width: 0;
 }
 
+/* The file tree's toggle, sitting at whichever end of the header the tree
+   itself opens from. Quiet until it has something to say: dim while the
+   tree is closed, full-strength while it's open, so the header carries the
+   panel's state without a label. */
+.worktree-header-files-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  width: 1.5rem;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-3);
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.worktree-header-files-toggle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.worktree-header-files-toggle.active {
+  color: var(--text-2);
+}
+
 .button-with-icon {
   display: inline-flex;
   align-items: center;
@@ -315,6 +343,8 @@
    hairline, where it used to be a bordered rounded panel floating beside
    another bordered rounded panel. */
 .worktree-sidebar {
+  /* Overridden inline by the persisted, drag-set width (see
+     filesPanelPreference.ts) — this is only what it falls back to. */
   width: 15rem;
   flex-shrink: 0;
   background: var(--surface-1);
@@ -322,4 +352,59 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* The default side (see filesPanelPreference.ts): the seam moves to the
+   other edge, nothing else about the panel changes. */
+.worktree-sidebar.right {
+  border-right: none;
+  border-left: 1px solid var(--rule);
+}
+
+/* The file tree's drag handle — the same zero-width element with a wider
+   invisible hit area as the app sidebar's (.sidebar-resizer), with its own
+   body flag rather than that one's: a shared class would light up the
+   other pane's handle whenever either was dragged. Placed on whichever
+   side the panel is docked; being zero-width and centering its own hit
+   area, it needs no per-side variant. */
+.file-tree-resizer {
+  position: relative;
+  width: 0;
+  flex-shrink: 0;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.file-tree-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+
+.file-tree-resizer:hover::before,
+.file-tree-resizer:focus-visible::before,
+body.resizing-files .file-tree-resizer::before {
+  background: var(--accent);
+}
+
+.file-tree-resizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging, the pointer is captured by the handle, but xterm and the
+   tree still try to show their own cursors and select text under it —
+   suppressing both app-wide for the duration is what makes it feel like
+   one continuous gesture. Same pair of rules the app sidebar's drag uses. */
+body.resizing-files {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing-files * {
+  cursor: col-resize !important;
 }
