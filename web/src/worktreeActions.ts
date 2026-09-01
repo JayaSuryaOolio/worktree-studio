@@ -2,7 +2,17 @@
 // spotlight start/stop with a friendly conflict message) — used by
 // Workspace.tsx's table and Sidebar.tsx's per-worktree kebab menu, so
 // none of this is duplicated across those surfaces.
-import { archiveWorktree, ConflictError, deleteWorktree, startSpotlight, stopSpotlight, unarchiveWorktree, Worktree } from "./api";
+import {
+  archiveWorktree,
+  ConflictError,
+  deleteWorktree,
+  pinWorktree,
+  startSpotlight,
+  stopSpotlight,
+  unarchiveWorktree,
+  unpinWorktree,
+  Worktree,
+} from "./api";
 
 interface ActionCallbacks {
   onDone: () => void;
@@ -33,6 +43,25 @@ export async function archiveWorktreeWithConfirm(wt: Worktree, { onDone, onError
 export async function unarchiveWorktreeSafe(wt: Worktree, { onDone, onError }: ActionCallbacks) {
   try {
     await unarchiveWorktree(wt.repo_id, wt.id);
+    onDone();
+  } catch (err) {
+    onError((err as Error).message);
+  }
+}
+
+/** Toggles a worktree's pinned flag — no confirm dialog, unlike archive:
+ * pinning/unpinning is instantly reversible and destroys nothing, so it
+ * doesn't warrant one. `nextPinned` is the value the caller wants (the
+ * button's own onClick already knows which direction it's toggling), not
+ * derived from `wt` here, so a rapid double-click can't fire the same
+ * request twice in the wrong direction from stale props. */
+export async function toggleWorktreePinSafe(
+  wt: Worktree,
+  nextPinned: boolean,
+  { onDone, onError }: ActionCallbacks
+) {
+  try {
+    await (nextPinned ? pinWorktree : unpinWorktree)(wt.repo_id, wt.id);
     onDone();
   } catch (err) {
     onError((err as Error).message);

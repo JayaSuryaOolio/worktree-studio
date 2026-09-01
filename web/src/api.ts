@@ -37,6 +37,12 @@ export interface Worktree {
   // "main" or "origin/main"), or "" for worktrees where that's not
   // recorded (imported, or the synthetic root worktree).
   source_branch: string;
+  // Exempt from ever being archived (see worktreeRules.ts's
+  // canArchiveWorktree, mirroring internal/api's CanArchiveWorktree) and
+  // sorted ahead of every unpinned worktree in its repo — the backend's
+  // own ORDER BY already returns worktrees in that order, so nothing on
+  // this side needs to re-sort for display.
+  pinned: boolean;
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
@@ -282,6 +288,18 @@ export function archiveWorktree(repoId: string, worktreeId: string): Promise<voi
 
 export function unarchiveWorktree(repoId: string, worktreeId: string): Promise<void> {
   return request<void>(`/api/repos/${repoId}/worktrees/${worktreeId}/unarchive`, {
+    method: "POST",
+  });
+}
+
+export function pinWorktree(repoId: string, worktreeId: string): Promise<{ pinned: boolean }> {
+  return request<{ pinned: boolean }>(`/api/repos/${repoId}/worktrees/${worktreeId}/pin`, {
+    method: "POST",
+  });
+}
+
+export function unpinWorktree(repoId: string, worktreeId: string): Promise<{ pinned: boolean }> {
+  return request<{ pinned: boolean }>(`/api/repos/${repoId}/worktrees/${worktreeId}/unpin`, {
     method: "POST",
   });
 }

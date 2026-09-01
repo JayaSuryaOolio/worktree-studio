@@ -315,6 +315,17 @@
   flex-shrink: 0;
 }
 
+/* This worktree is pinned — same accent as the expanded card's own
+   .active pin-toggle button (sidebar-worktree-card-icons button.active
+   below), so the collapsed-row glimpse and the actual toggle agree on
+   what "pinned" looks like. */
+.sidebar-pin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
 /* Spotlight is active on this worktree. No glow: it's an ambient state,
    not a summons. */
 .sidebar-spotlight-icon {

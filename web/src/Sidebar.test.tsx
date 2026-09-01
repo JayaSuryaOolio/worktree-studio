@@ -13,6 +13,9 @@ vi.mock("./api", () => ({
   getWorktreeSummary: vi.fn(),
   startSpotlight: vi.fn(),
   deleteWorktree: vi.fn(),
+  archiveWorktree: vi.fn(),
+  pinWorktree: vi.fn(),
+  unpinWorktree: vi.fn(),
   attentionWsUrl: vi.fn(() => "ws://localhost/ws/attention"),
   openFileWsUrl: vi.fn(() => "ws://localhost/ws/open-file"),
   clearAttention: vi.fn(),
@@ -25,7 +28,9 @@ import {
   getWorktreeSummary,
   listRepos,
   listWorktrees,
+  pinWorktree,
   startSpotlight,
+  unpinWorktree,
 } from "./api";
 
 // Renders the current route so tests can assert a navigate() call actually
@@ -215,6 +220,75 @@ describe("Sidebar spotlight start", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location")).toHaveTextContent("/repo/r1/worktree/root-r1");
     });
+  });
+});
+
+describe("Sidebar worktree pin", () => {
+  it("shows the pin indicator on the collapsed row for a pinned worktree, not an unpinned one", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active", pinned: true },
+    ]);
+    render(<Harness />);
+
+    expect(await screen.findByTitle("Pinned — never archived")).toBeInTheDocument();
+  });
+
+  it("has no pin indicator for an unpinned worktree", async () => {
+    render(<Harness />);
+    await screen.findByTitle("feature");
+
+    expect(screen.queryByTitle("Pinned — never archived")).not.toBeInTheDocument();
+  });
+
+  it("clicking the pin toggle pins an unpinned worktree", async () => {
+    vi.mocked(pinWorktree).mockResolvedValue({ pinned: true });
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByText("feature"));
+    await user.click(screen.getByTitle(/^Pin worktree/));
+
+    expect(pinWorktree).toHaveBeenCalledWith("r1", "w1");
+  });
+
+  it("clicking the pin toggle unpins an already-pinned worktree", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active", pinned: true },
+    ]);
+    vi.mocked(unpinWorktree).mockResolvedValue({ pinned: false });
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByText("feature"));
+    await user.click(screen.getByTitle("Unpin worktree"));
+
+    expect(unpinWorktree).toHaveBeenCalledWith("r1", "w1");
+  });
+
+  // The actual lifecycle rule ("will never be archived") is enforced
+  // server-side (see internal/api's CanArchiveWorktree) — this only
+  // covers the frontend half: the button is disabled and explains why,
+  // rather than letting a click reach the server just to be refused.
+  it("disables Archive with an explanatory tooltip for a pinned worktree", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active", pinned: true },
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByText("feature"));
+    const archiveButton = screen.getByTitle("Pinned worktrees can't be archived — unpin it first");
+
+    expect(archiveButton).toBeDisabled();
+  });
+
+  it("leaves Archive enabled for an unpinned worktree", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByText("feature"));
+
+    expect(screen.getByTitle("Archive")).toBeEnabled();
   });
 });
 

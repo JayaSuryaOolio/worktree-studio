@@ -10,7 +10,9 @@ import {
   deleteWorktreeWithConfirm,
   startSpotlightWithFriendlyError,
   stopSpotlightSafe,
+  toggleWorktreePinSafe,
 } from "./worktreeActions";
+import { canArchiveWorktree } from "./worktreeRules";
 import { TransientIndicatorPhase, useTransientIndicator } from "./useTransientIndicator";
 import { rootWorktreeId } from "./rootWorktree";
 import WorktreeHoverPopover from "./WorktreeHoverPopover";
@@ -18,6 +20,7 @@ import { ChevronIcon, GearIcon, PlusIcon, SpotlightIcon } from "./icons/StatusIc
 import { GitBranchIcon } from "./icons/FileTreeIcons";
 import { SplitHorizontalIcon, SplitVerticalIcon } from "./icons/SplitIcons";
 import VSCodeIcon from "./icons/VSCodeIcon";
+import PinIcon from "./icons/PinIcon";
 import { useAttentionBlink } from "./useAttentionBlink";
 import { useActiveWorktreeActions } from "./activeWorktreeActions";
 import { useActiveFileTreeActions } from "./activeFileTreeActions";
@@ -44,6 +47,7 @@ interface RowProps {
   onSpotlightStop: () => void;
   onViewLog: () => void;
   onArchive: () => void;
+  onTogglePin: (nextPinned: boolean) => void;
   onDelete: () => Promise<void>;
   activeWorktreeActions: ReturnType<typeof useActiveWorktreeActions>;
   activeFileTreeActions: ReturnType<typeof useActiveFileTreeActions>;
@@ -72,6 +76,7 @@ function SidebarWorktreeRow({
   onSpotlightStop,
   onViewLog,
   onArchive,
+  onTogglePin,
   onDelete,
   activeWorktreeActions,
   activeFileTreeActions,
@@ -131,6 +136,11 @@ function SidebarWorktreeRow({
             {branchTail !== "" && <span className="sidebar-worktree-branch-tail">{branchTail}</span>}
           </span>
           <span className="sidebar-worktree-meta">
+            {wt.pinned && (
+              <span className="sidebar-pin-icon" title="Pinned — never archived">
+                <PinIcon size={12} filled />
+              </span>
+            )}
             {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
               <span
                 className="sidebar-ticks"
@@ -254,7 +264,20 @@ function SidebarWorktreeRow({
             <button type="button" title="View worktree log" onClick={onViewLog}>
               🕐
             </button>
-            <button type="button" title="Archive" onClick={onArchive}>
+            <button
+              type="button"
+              className={wt.pinned ? "active" : undefined}
+              title={wt.pinned ? "Unpin worktree" : "Pin worktree (never archived, kept at the top)"}
+              onClick={() => onTogglePin(!wt.pinned)}
+            >
+              <PinIcon size={14} filled={wt.pinned} />
+            </button>
+            <button
+              type="button"
+              title={canArchiveWorktree(wt) ? "Archive" : "Pinned worktrees can't be archived — unpin it first"}
+              disabled={!canArchiveWorktree(wt)}
+              onClick={onArchive}
+            >
               🗄
             </button>
             <button type="button" className="danger" title="Delete" disabled={deleting} onClick={handleDelete}>
@@ -667,6 +690,9 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       onViewLog={() => setLogWorktree(wt)}
                       onArchive={() =>
                         archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+                      }
+                      onTogglePin={(nextPinned) =>
+                        toggleWorktreePinSafe(wt, nextPinned, { onDone: refreshWorktrees, onError: setError })
                       }
                       onDelete={() =>
                         deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })

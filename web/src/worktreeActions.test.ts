@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./api", () => ({
   ConflictError: class ConflictError extends Error {},
   deleteWorktree: vi.fn(),
+  pinWorktree: vi.fn(),
   startSpotlight: vi.fn(),
   stopSpotlight: vi.fn(),
+  unpinWorktree: vi.fn(),
 }));
 
-import { ConflictError, startSpotlight } from "./api";
-import { startSpotlightWithFriendlyError } from "./worktreeActions";
+import { ConflictError, pinWorktree, startSpotlight, unpinWorktree } from "./api";
+import { startSpotlightWithFriendlyError, toggleWorktreePinSafe } from "./worktreeActions";
 
 const worktree = {
   id: "wt1",
@@ -77,5 +79,43 @@ describe("startSpotlightWithFriendlyError", () => {
     expect(onDone).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith("stash failed");
     confirmSpy.mockRestore();
+  });
+});
+
+describe("toggleWorktreePinSafe", () => {
+  it("calls pinWorktree when nextPinned is true, and onDone on success", async () => {
+    vi.mocked(pinWorktree).mockResolvedValue({ pinned: true });
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await toggleWorktreePinSafe(worktree, true, { onDone, onError });
+
+    expect(pinWorktree).toHaveBeenCalledWith("r1", "wt1");
+    expect(unpinWorktree).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("calls unpinWorktree when nextPinned is false", async () => {
+    vi.mocked(unpinWorktree).mockResolvedValue({ pinned: false });
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await toggleWorktreePinSafe(worktree, false, { onDone, onError });
+
+    expect(unpinWorktree).toHaveBeenCalledWith("r1", "wt1");
+    expect(pinWorktree).not.toHaveBeenCalled();
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  it("surfaces an error via onError without throwing, e.g. a pinned worktree already blocked from archive elsewhere", async () => {
+    vi.mocked(pinWorktree).mockRejectedValueOnce(new Error("failed to update worktree pin state"));
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    await toggleWorktreePinSafe(worktree, true, { onDone, onError });
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("failed to update worktree pin state");
   });
 });
