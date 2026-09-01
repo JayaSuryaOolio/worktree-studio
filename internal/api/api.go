@@ -124,6 +124,8 @@ func (s *Server) Routes(r chi.Router) {
 	r.Post("/api/claude-hook-context", s.handleClaudeHookContext)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)
+	r.Get("/api/orphan-tmux-sessions", s.handleListOrphanTmuxSessions)
+	r.Post("/api/orphan-tmux-sessions/prune", s.handlePruneOrphanTmuxSessions)
 
 	r.Route("/api/settings", func(r chi.Router) {
 		r.Get("/dependencies", s.handleGetDependencyStatus)

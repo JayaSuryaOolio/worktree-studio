@@ -32,6 +32,10 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
   "claude.session.create": { icon: "🤖", label: "Claude session started" },
   "claude.session.context": { icon: "🗿", label: "Context injected into Claude" },
   "file.write": { icon: "📝", label: "File saved" },
+  // Never actually shown here either — same reason as repo.add above: an
+  // orphan tmux session by definition has no terminal_sessions row, so
+  // there's no worktree_id to filter this view by.
+  "orphan_tmux.kill": { icon: "🧹", label: "Orphan tmux session killed" },
 };
 
 // A per-worktree checkpoint summary that's worth a glance at without

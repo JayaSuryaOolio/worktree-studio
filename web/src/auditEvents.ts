@@ -23,6 +23,7 @@ export const AUDIT_EVENTS = [
   "claude.session.create",
   "claude.session.context",
   "file.write",
+  "orphan_tmux.kill",
 ] as const;
 
 export type AuditEventType = (typeof AUDIT_EVENTS)[number];

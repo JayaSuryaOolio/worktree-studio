@@ -68,6 +68,9 @@ func main() {
 	if runSpotlightCommand(os.Args[1:]) {
 		return
 	}
+	if runOrphansCommand(os.Args[1:]) {
+		return
+	}
 
 	logPath, err := logFilePath()
 	if err != nil {

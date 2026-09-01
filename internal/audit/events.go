@@ -35,4 +35,11 @@ const (
 	EventClaudeSessionContext Event = "claude.session.context"
 
 	EventFileWrite Event = "file.write"
+
+	// EventOrphanTmuxKill records a kill made by the `worktree-studio
+	// orphans --kill` sweep (see internal/term.KillOrphanTmuxSessions).
+	// Carries no worktree_id — an orphan session by definition has no
+	// terminal_sessions row to derive one from — so it never appears in
+	// the per-worktree audit-log view, only in the raw log file.
+	EventOrphanTmuxKill Event = "orphan_tmux.kill"
 )
