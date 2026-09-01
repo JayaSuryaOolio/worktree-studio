@@ -160,6 +160,15 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/arc
 curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/unarchive   # reverse it
 ```
 
+**Pinning a worktree** exempts it from ever being archived — `POST .../archive` returns `409` for a pinned one — and sorts it ahead of every unpinned worktree in its repo, both in the sidebar and in `GET .../worktrees/`. In the UI: the pin icon in a worktree's expanded card (fills solid when on); a pinned row also shows a small pin glyph next to its branch name even collapsed.
+
+```bash
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/pin
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/unpin   # reverse it
+```
+
+Unlike archive, neither direction has a confirm dialog — pinning destroys nothing and is instantly reversible. This is one of a small, deliberately centralized set of "worktree lifecycle rules" (`internal/api/worktree_rules.go` on the backend, `web/src/worktreeRules.ts` on the frontend — see `docs/architecture.md`'s note on the same subject) — a future rule of this shape (another action a worktree can be exempted from, another sort key) belongs in those same two files, not as a new scattered conditional.
+
 There's currently no UI to browse archived worktrees — that's planned as part of a future settings-modal datagrid (bulk-manage worktrees across repos, filtered by repo/status), not built yet. To find one again in the meantime, query the API directly:
 
 ```bash
