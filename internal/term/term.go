@@ -212,6 +212,14 @@ func ListLiveTmuxSessionNames() (map[string]bool, error) {
 	return live, nil
 }
 
+// HasSession reports whether a tmux session by this exact name currently
+// exists. Cheaper than ListLiveTmuxSessionNames for a caller (like
+// handleTerminalWS) that only cares about one specific name rather than the
+// whole live set.
+func HasSession(tmuxSessionName string) bool {
+	return TmuxCmd("has-session", "-t", tmuxSessionName).Run() == nil
+}
+
 func isNoServerRunning(err error) bool {
 	var exitErr *exec.ExitError
 	if ee, ok := err.(*exec.ExitError); ok {

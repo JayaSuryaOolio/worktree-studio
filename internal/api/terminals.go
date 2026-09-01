@@ -251,10 +251,36 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	if !term.HasSession(ts.TmuxSessionName) {
+		// The tmux session backing this tab is already gone — it died on
+		// its own (e.g. the pane's only process exited, which kills the
+		// whole session by tmux's own default) or was killed outside the
+		// app, and Reconcile only prunes rows like this at server startup,
+		// not while the server keeps running. Without this check,
+		// term.Attach below would still "succeed" (the pty process starts
+		// fine) while tmux itself exits immediately and writes its own
+		// "can't find session: ..." to stderr — which then gets relayed
+		// through the pty exactly like real pane output, so the tab looked
+		// permanently, cryptically broken with no path forward short of a
+		// server restart or closing the tab by hand.
+		//
+		// This writes one clear, human-written line instead, and
+		// deliberately does NOT delete the row itself — that stays the job
+		// of the existing paths (closing the tab via handleDeleteTerminal,
+		// or the next server restart's Reconcile), so there's still
+		// exactly one way a terminal_sessions row goes away, not two.
+		s.Log.Info("terminal's tmux session no longer exists, refusing to attach", "terminal_id", ts.ID, "tmux_session_name", ts.TmuxSessionName)
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(
+			"\r\nThis terminal's session no longer exists (it exited, or was closed outside the app).\r\n"+
+				"Close this tab (×) to remove it — a server restart would also clean it up automatically.\r\n",
+		))
+		return
+	}
+
 	pf, cmd, err := term.Attach(ts.TmuxSessionName)
 	if err != nil {
 		s.Log.Error("attach pty", "err", err)
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"failed to attach terminal"}`))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\nFailed to attach to this terminal: "+err.Error()+"\r\n"))
 		return
 	}
 	defer func() {

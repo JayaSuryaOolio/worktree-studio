@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 )
@@ -219,5 +221,71 @@ func TestCreateTerminalWithoutClaudeSessionIDLogsNoClaudeEvent(t *testing.T) {
 		if e["event"] == "claude.session.create" {
 			t.Fatalf("did not expect a claude.session.create event for a plain terminal, got %+v", entries)
 		}
+	}
+}
+
+// TestTerminalWSRefusesAttachToDeadSession is the end-to-end regression
+// test for the exact bug reported live: a terminal whose backing tmux
+// session died (simulated here by killing it directly, the same as it
+// dying on its own or being killed outside the app) must NOT have tmux's
+// own "can't find session" stderr relayed through the websocket as if it
+// were real pane output. It should get one clear, human-readable message
+// instead, the terminal_sessions row must survive untouched (row removal
+// stays the job of handleDeleteTerminal/Reconcile, not this handler), and
+// the tab must still be closable normally afterward.
+func TestTerminalWSRefusesAttachToDeadSession(t *testing.T) {
+	requireGit(t)
+	requireTmuxAPI(t)
+	ts, _ := newTestServer(t)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/", map[string]string{"tab_label": "shell"})
+	var termSession store.TerminalSession
+	decodeInto(t, resp, &termSession)
+
+	// Kill the tmux session out from under the row, simulating it dying on
+	// its own (e.g. the pane's only process exiting) or being killed
+	// outside the app — the row itself is untouched, exactly the state
+	// that produced the "can't find session" tabs.
+	if err := term.TmuxCmd("kill-session", "-t", termSession.TmuxSessionName).Run(); err != nil {
+		t.Fatalf("kill-session: %v", err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/terminals/" + termSession.ID
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	if strings.Contains(string(msg), "can't find session") {
+		t.Fatalf("expected tmux's raw stderr NOT to be relayed, got: %q", msg)
+	}
+	if !strings.Contains(string(msg), "no longer exists") {
+		t.Fatalf("expected a clear message about the session being gone, got: %q", msg)
+	}
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/", nil)
+	var sessions []store.TerminalSession
+	decodeInto(t, resp, &sessions)
+	if len(sessions) != 1 || sessions[0].ID != termSession.ID {
+		t.Fatalf("expected the dead session's row to survive (row removal isn't this handler's job), got %+v", sessions)
+	}
+
+	resp = doJSON(t, http.MethodDelete, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/terminals/"+termSession.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("close the tab after a failed attach: status = %d, want 200", resp.StatusCode)
 	}
 }
