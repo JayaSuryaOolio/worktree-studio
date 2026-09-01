@@ -112,6 +112,43 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/import \
 
 The path must already appear in `git worktree list --porcelain` run from the registered repo's root — anything else is a `400`. A detached-HEAD worktree is also rejected (`400`): most of this app assumes a real branch. Re-importing an already-registered path is a `409`, not a silent no-op. `name` is optional in the request body; when omitted it defaults to `ext_<directory name>` — the `ext_` prefix is deliberate, so an attached worktree is visually distinguishable in the list from one this tool created itself (which is always a bare adjective-noun slug).
 
+## Repairing a worktree whose registered path went stale
+
+A worktree's `path` in the registry can end up pointing at somewhere that no longer exists — the concrete case found live: a worktree's `path` was `/private/tmp/claude-<id>/.../scratchpad/<name>`, a Claude Code session's own scratchpad directory. Scratchpad dirs are explicitly ephemeral (session-scoped cleanup targets, not persistent storage), so once that session ended, the directory — and everything in it — was gone, even though the worktree's DB row and its branch lived on. Symptom: the worktree shows up fine in the list with a plausible-looking path, but nothing in it works (file tree empty/erroring, terminals opening into a directory that doesn't exist). **Never point a worktree at a scratchpad path** — always create it under `~/.worktree-studio/worktrees/<repoId>/<name>` (what `handleCreateWorktree` itself always uses) or import an existing checkout that already lives somewhere real.
+
+Diagnose it directly against the store and git, not by guessing from the UI:
+
+```bash
+sqlite3 -separator '|' ~/.worktree-studio/studio.db \
+  "SELECT id, repo_id, name, branch, path FROM worktrees WHERE name LIKE '%<hint>%' OR branch LIKE '%<hint>%';"
+ls -d "<that path>"                        # confirms it's actually gone
+git -C <repo's root path> worktree list    # confirms git itself never tracked that path —
+                                            # if the path doesn't appear here at all, it was
+                                            # never a real `git worktree add` checkout to begin
+                                            # with (e.g. built by hand-placing files in a
+                                            # scratchpad rather than through git or this app)
+```
+
+If the branch still exists (`git branch -a` in the repo) and isn't checked out elsewhere, the repair is: create a real worktree for that **existing** branch (no `-b`, so it attaches rather than creates a new one — `handleCreateWorktree` can't do this itself, since it always creates a fresh branch and errors if the name already exists), then point the registry row at it:
+
+```bash
+git -C <repo path> worktree add ~/.worktree-studio/worktrees/<repoId>/<name> <existing-branch>
+sqlite3 ~/.worktree-studio/studio.db \
+  "UPDATE worktrees SET path='<new path above>' WHERE id='<worktree id>';"
+```
+
+There's deliberately no API endpoint for "just fix this worktree's path" — the direct SQL `UPDATE` above is the actual repair, done in place so the worktree keeps its existing id (audit-log and terminal-session history for it stay attached, unlike a delete-then-reimport, which would hand it a new one). **Don't** reach for the UI's "delete" / `DELETE .../worktrees/<id>` on the broken row to start over instead: `hardRemoveWorktree` runs `git worktree remove --force <path>` on that stale path *first*, and since git never tracked it as a worktree, that command errors outright rather than treating "already gone" as a no-op — the delete never gets far enough to reach the DB row at all.
+
+Check for terminal sessions recorded against the broken worktree too — the tmux session itself doesn't necessarily know its cwd disappeared (tmux keeps a dead-end shell alive; only a fresh `cd`/`ls` inside it would show it's broken), so it can still show as "live" while being just as unusable as the worktree was:
+
+```bash
+sqlite3 -separator '|' ~/.worktree-studio/studio.db \
+  "SELECT id, tmux_session_name, tab_label FROM terminal_sessions WHERE worktree_id='<worktree id>';"
+curl -X DELETE http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/terminals/<terminalId>
+```
+
+That goes through `handleDeleteTerminal` (kills the tmux session, removes the row, audit-logged) rather than killing tmux directly — same reasoning as "Cleaning up orphaned tmux sessions" above: prefer the app's own paths over hand-run commands wherever one already exists. Open a fresh terminal tab in the repaired worktree afterward rather than trying to resuscitate the old one.
+
 ## Archiving a worktree (not "delete" anymore)
 
 Via the UI: each worktree row's kebab menu ("⋮") has **"Archive"** — this replaced "Delete" as the everyday action. Archiving is a pure visibility flag: it hides the worktree from the normal list, but does **not** touch git at all — the worktree checkout, its branch, and anything recorded against it (a claude session, see below) all stay exactly as they were on disk. There's a confirm prompt explaining this before it happens.
