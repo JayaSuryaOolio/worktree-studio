@@ -4,6 +4,14 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-09-02 — Removed the pin feature's always-visible collapsed-row glyph
+
+Direct follow-up to yesterday's pin feature, real user feedback: the small pin glyph shown next to the branch name on every collapsed row (`.sidebar-pin-icon`) took up space and was distracting. Removed the glyph and its CSS rule entirely from `Sidebar.tsx` — pinned state now shows only where the toggle itself lives, in the expanded card (`.sidebar-worktree-card-icons button.active` + a filled `PinIcon`), same as every other per-worktree action already worked. `PinIcon` itself is unaffected (still used by the toggle); only the collapsed-row usage is gone.
+
+Updated `Sidebar.test.tsx` accordingly: replaced the two tests that asserted the old collapsed-row indicator's presence/absence with one confirming `.sidebar-pin-icon` never renders (pinned or not) and one confirming the expanded card's toggle itself correctly reflects pinned state (`.active` class, "Unpin worktree" title). Corrected the same claim in `docs/architecture.md` and the skill file, both of which had described the now-removed indicator. `bunx tsc --noEmit`/`bun run build`/`bun run test` clean (275 tests, same count — a swap, not new coverage). `go build`/`go vet`/`gofmt` clean (no Go changes this pass).
+
+---
+
 ## 2026-09-01 (later) — Pin a worktree (exempt from archive, sorts to top); a maintainability note on lifecycle rules
 
 Direct ask: pin certain worktrees so they're never archived, show a pin in the sidebar icons, pinned worktrees sort to the top. Paired with an explicit concern: this kind of rule (managing/ordering worktree lifecycle) is exactly the sort of thing that makes a codebase unmaintainable if scattered ad hoc — asked for it to be built in a scalable, readable way in both backend and frontend, and for the concern itself to be documented for future refactors.

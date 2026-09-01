@@ -224,20 +224,32 @@ describe("Sidebar spotlight start", () => {
 });
 
 describe("Sidebar worktree pin", () => {
-  it("shows the pin indicator on the collapsed row for a pinned worktree, not an unpinned one", async () => {
+  // The always-visible collapsed-row glyph this used to have was removed
+  // (real user feedback: it took up space and was distracting for
+  // something that only needs to be visible when you're actually looking
+  // at that worktree's actions) — pin state now shows only inside the
+  // expanded card, same as every other per-worktree action.
+  it("shows no pin indicator on the collapsed row, pinned or not", async () => {
     vi.mocked(listWorktrees).mockResolvedValue([
       { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active", pinned: true },
     ]);
     render(<Harness />);
-
-    expect(await screen.findByTitle("Pinned — never archived")).toBeInTheDocument();
-  });
-
-  it("has no pin indicator for an unpinned worktree", async () => {
-    render(<Harness />);
     await screen.findByTitle("feature");
 
-    expect(screen.queryByTitle("Pinned — never archived")).not.toBeInTheDocument();
+    expect(document.querySelector(".sidebar-pin-icon")).not.toBeInTheDocument();
+  });
+
+  it("the expanded card's pin toggle reflects pinned state: filled and labeled to unpin", async () => {
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active", pinned: true },
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByText("feature"));
+
+    const toggle = screen.getByTitle("Unpin worktree");
+    expect(toggle).toHaveClass("active");
   });
 
   it("clicking the pin toggle pins an unpinned worktree", async () => {

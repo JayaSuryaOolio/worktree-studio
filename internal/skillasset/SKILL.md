@@ -160,7 +160,7 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/arc
 curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/unarchive   # reverse it
 ```
 
-**Pinning a worktree** exempts it from ever being archived — `POST .../archive` returns `409` for a pinned one — and sorts it ahead of every unpinned worktree in its repo, both in the sidebar and in `GET .../worktrees/`. In the UI: the pin icon in a worktree's expanded card (fills solid when on); a pinned row also shows a small pin glyph next to its branch name even collapsed.
+**Pinning a worktree** exempts it from ever being archived — `POST .../archive` returns `409` for a pinned one — and sorts it ahead of every unpinned worktree in its repo, both in the sidebar and in `GET .../worktrees/`. In the UI: the pin icon in a worktree's expanded card (fills solid when on) — nothing shows on the collapsed row; an earlier always-visible glyph there was removed per direct feedback that it took up space and was distracting.
 
 ```bash
 curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/<worktreeId>/pin

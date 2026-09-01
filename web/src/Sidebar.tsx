@@ -136,11 +136,6 @@ function SidebarWorktreeRow({
             {branchTail !== "" && <span className="sidebar-worktree-branch-tail">{branchTail}</span>}
           </span>
           <span className="sidebar-worktree-meta">
-            {wt.pinned && (
-              <span className="sidebar-pin-icon" title="Pinned — never archived">
-                <PinIcon size={12} filled />
-              </span>
-            )}
             {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
               <span
                 className="sidebar-ticks"
