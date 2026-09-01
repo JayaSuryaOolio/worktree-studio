@@ -24,6 +24,8 @@ const (
 	EventWorktreeRemove    Event = "worktree.remove"
 	EventWorktreeArchive   Event = "worktree.archive"
 	EventWorktreeUnarchive Event = "worktree.unarchive"
+	EventWorktreePin       Event = "worktree.pin"
+	EventWorktreeUnpin     Event = "worktree.unpin"
 
 	EventTerminalCreate Event = "terminal.create"
 	EventTerminalClose  Event = "terminal.close"

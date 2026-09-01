@@ -80,6 +80,8 @@ func (s *Server) Routes(r chi.Router) {
 				r.Get("/audit-log", s.handleWorktreeAuditLog)
 				r.Post("/archive", s.handleArchiveWorktree)
 				r.Post("/unarchive", s.handleUnarchiveWorktree)
+				r.Post("/pin", s.handlePinWorktree)
+				r.Post("/unpin", s.handleUnpinWorktree)
 				r.Post("/attention/clear", s.handleClearAttention)
 
 				r.Route("/terminals", func(r chi.Router) {

@@ -86,6 +86,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate worktrees.source_branch: %w", err)
 	}
+	if err := s.migrateAddWorktreePinned(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate worktrees.pinned: %w", err)
+	}
 	return s, nil
 }
 
@@ -282,6 +286,22 @@ func (s *Store) migrateAddWorktreeSourceBranch() error {
 	return err
 }
 
+// migrateAddWorktreePinned adds the worktrees.pinned column for databases
+// created before it existed, same ALTER-if-missing approach as the other
+// single-column migrations above. See Worktree.Pinned's own doc comment
+// for what pinning means; every existing row defaults to unpinned.
+func (s *Store) migrateAddWorktreePinned() error {
+	hasColumn, err := s.hasColumn("worktrees", "pinned")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE worktrees ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
+	return err
+}
+
 // hasColumn reports whether table has a column named col.
 func (s *Store) hasColumn(table, col string) (bool, error) {
 	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
@@ -370,6 +390,12 @@ type Worktree struct {
 	// where that's not meaningful (imported, or the synthetic root
 	// worktree — see store.WorktreeSourceRoot).
 	SourceBranch string `json:"source_branch"`
+	// Pinned marks a worktree as exempt from ever being archived (see
+	// api.CanArchiveWorktree, the single place that rule is enforced) and
+	// sorted ahead of every unpinned worktree in its repo (see
+	// ListWorktrees's ORDER BY). A pure flag, same posture as Status — no
+	// git operation of its own, toggled via POST .../pin and .../unpin.
+	Pinned bool `json:"pinned"`
 }
 
 // AddRepo inserts a new repo row.
@@ -432,8 +458,8 @@ func (s *Store) AddWorktree(w Worktree) error {
 		w.Source = WorktreeSourceCreated
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status, source, source_branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status, w.Source, w.SourceBranch,
+		`INSERT INTO worktrees (id, repo_id, name, branch, path, created_at, status, source, source_branch, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.RepoID, w.Name, w.Branch, w.Path, w.CreatedAt, w.Status, w.Source, w.SourceBranch, w.Pinned,
 	)
 	return err
 }
@@ -448,12 +474,16 @@ func (s *Store) WorktreePathExists(path string) (bool, error) {
 	return count > 0, err
 }
 
-// ListWorktrees returns worktrees for a given repo, newest first. statuses
-// filters which status values to include; passing none returns every
-// status (used by ListAllWorktreesForRepo, e.g. a future settings-modal
-// datagrid) — the normal UI list calls this with WorktreeStatusActive only.
+// ListWorktrees returns worktrees for a given repo, pinned first and newest
+// first within each of those two groups — the single place this ordering
+// is decided, so every caller (the sidebar, a future CLI, a script hitting
+// this same query path) gets it for free rather than each having to
+// re-sort client-side. statuses filters which status values to include;
+// passing none returns every status (used by ListAllWorktreesForRepo, e.g.
+// a future settings-modal datagrid) — the normal UI list calls this with
+// WorktreeStatusActive only.
 func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, error) {
-	query := `SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees WHERE repo_id = ?`
+	query := `SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch, pinned FROM worktrees WHERE repo_id = ?`
 	args := []any{repoID}
 	if len(statuses) > 0 {
 		query += ` AND status IN (` + placeholders(len(statuses)) + `)`
@@ -461,7 +491,7 @@ func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, er
 			args = append(args, st)
 		}
 	}
-	query += ` ORDER BY created_at DESC`
+	query += ` ORDER BY pinned DESC, created_at DESC`
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -472,7 +502,7 @@ func (s *Store) ListWorktrees(repoID string, statuses ...string) ([]Worktree, er
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.Pinned); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -497,7 +527,7 @@ func placeholders(n int) string {
 // outcome: most claude sessions on this machine have nothing to do with
 // worktree-studio).
 func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
-	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees`)
+	rows, err := s.db.Query(`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch, pinned FROM worktrees`)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -505,7 +535,7 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.Pinned); err != nil {
 			return Worktree{}, err
 		}
 		if cwd == w.Path || strings.HasPrefix(cwd, w.Path+"/") {
@@ -522,8 +552,8 @@ func (s *Store) FindWorktreeByPath(cwd string) (Worktree, error) {
 func (s *Store) GetWorktree(id string) (Worktree, error) {
 	var w Worktree
 	err := s.db.QueryRow(
-		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees WHERE id = ?`, id,
-	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch)
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch, pinned FROM worktrees WHERE id = ?`, id,
+	).Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.Pinned)
 	return w, err
 }
 
@@ -541,6 +571,16 @@ func (s *Store) SetWorktreeStatus(id, status string) error {
 		archivedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 	_, err := s.db.Exec(`UPDATE worktrees SET status = ?, archived_at = ? WHERE id = ?`, status, archivedAt, id)
+	return err
+}
+
+// SetWorktreePinned sets or clears a worktree's pinned flag. See
+// Worktree.Pinned's own doc comment for what that means; enforcement of
+// what pinning actually protects against (today: archiving — see
+// api.CanArchiveWorktree) lives at the API layer, not here — this is
+// purely the data-layer write.
+func (s *Store) SetWorktreePinned(id string, pinned bool) error {
+	_, err := s.db.Exec(`UPDATE worktrees SET pinned = ? WHERE id = ?`, pinned, id)
 	return err
 }
 
@@ -562,7 +602,7 @@ func (s *Store) SetWorktreeArchivedAt(id, archivedAt string) error {
 // unlike ListWorktrees, this is a maintenance query over the whole DB.
 func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error) {
 	rows, err := s.db.Query(
-		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch FROM worktrees
+		`SELECT id, repo_id, name, branch, path, created_at, status, source, archived_at, source_branch, pinned FROM worktrees
 		 WHERE status = ? AND archived_at != '' AND archived_at < ?`,
 		WorktreeStatusArchived, cutoff,
 	)
@@ -574,7 +614,7 @@ func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error
 	var out []Worktree
 	for rows.Next() {
 		var w Worktree
-		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch); err != nil {
+		if err := rows.Scan(&w.ID, &w.RepoID, &w.Name, &w.Branch, &w.Path, &w.CreatedAt, &w.Status, &w.Source, &w.ArchivedAt, &w.SourceBranch, &w.Pinned); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

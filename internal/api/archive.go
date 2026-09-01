@@ -20,12 +20,26 @@ import (
 // from the normal list (handleListWorktrees) until a future settings-modal
 // view exists to browse them.
 func (s *Server) handleArchiveWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreeStatus(w, r, store.WorktreeStatusArchived, audit.EventWorktreeArchive)
+	wt, ok := s.getRepoAndWorktree(w, r)
+	if !ok {
+		return
+	}
+	if err := CanArchiveWorktree(wt); err != nil {
+		writeError(w, http.StatusConflict, "pinned worktrees can't be archived — unpin it first")
+		return
+	}
+	s.setWorktreeStatus(w, wt, store.WorktreeStatusArchived, audit.EventWorktreeArchive)
 }
 
-// handleUnarchiveWorktree reverses handleArchiveWorktree.
+// handleUnarchiveWorktree reverses handleArchiveWorktree. No lifecycle
+// rule gates this direction — unpinning isn't required, and a pinned
+// worktree can never have reached "archived" in the first place anyway.
 func (s *Server) handleUnarchiveWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreeStatus(w, r, store.WorktreeStatusActive, audit.EventWorktreeUnarchive)
+	wt, ok := s.getRepoAndWorktree(w, r)
+	if !ok {
+		return
+	}
+	s.setWorktreeStatus(w, wt, store.WorktreeStatusActive, audit.EventWorktreeUnarchive)
 }
 
 // handleListArchivedWorktrees returns every archived worktree for a repo —
@@ -58,12 +72,7 @@ func (s *Server) handleListArchivedWorktrees(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, worktrees)
 }
 
-func (s *Server) setWorktreeStatus(w http.ResponseWriter, r *http.Request, status string, event audit.Event) {
-	wt, ok := s.getRepoAndWorktree(w, r)
-	if !ok {
-		return
-	}
-
+func (s *Server) setWorktreeStatus(w http.ResponseWriter, wt store.Worktree, status string, event audit.Event) {
 	if err := s.Store.SetWorktreeStatus(wt.ID, status); err != nil {
 		s.Log.Error("set worktree status", "err", err, "status", status)
 		writeError(w, http.StatusInternalServerError, "failed to update worktree status")

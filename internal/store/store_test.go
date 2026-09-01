@@ -208,6 +208,77 @@ func TestWorktreeStatusDefaultsAndFiltering(t *testing.T) {
 	}
 }
 
+// TestWorktreePinnedDefaultsAndOrdering covers both halves of pinning at
+// the store layer: it defaults to false for a freshly created worktree
+// (so every pre-existing row, and every ordinary new one, behaves exactly
+// as before this feature existed), SetWorktreePinned flips it, and
+// ListWorktrees' ORDER BY puts a pinned worktree ahead of an unpinned one
+// even when the unpinned one is newer — the actual display-order rule,
+// not just that the flag round-trips.
+func TestWorktreePinnedDefaultsAndOrdering(t *testing.T) {
+	s := newTestStore(t)
+	repo := Repo{ID: "r1", Name: "test", Path: "/tmp/r1"}
+	if err := s.AddRepo(repo); err != nil {
+		t.Fatalf("AddRepo: %v", err)
+	}
+
+	older := Worktree{ID: "older", RepoID: repo.ID, Name: "older", Branch: "older", Path: "/tmp/older", CreatedAt: "2026-08-01T00:00:00Z"}
+	if err := s.AddWorktree(older); err != nil {
+		t.Fatalf("AddWorktree(older): %v", err)
+	}
+	newer := Worktree{ID: "newer", RepoID: repo.ID, Name: "newer", Branch: "newer", Path: "/tmp/newer", CreatedAt: "2026-08-02T00:00:00Z"}
+	if err := s.AddWorktree(newer); err != nil {
+		t.Fatalf("AddWorktree(newer): %v", err)
+	}
+
+	got, err := s.GetWorktree(older.ID)
+	if err != nil {
+		t.Fatalf("GetWorktree: %v", err)
+	}
+	if got.Pinned {
+		t.Fatal("a freshly created worktree should default to Pinned=false")
+	}
+
+	// Plain newest-first would put newer ahead of older.
+	list, err := s.ListWorktrees(repo.ID)
+	if err != nil {
+		t.Fatalf("ListWorktrees: %v", err)
+	}
+	if list[0].ID != newer.ID {
+		t.Fatalf("ListWorktrees (neither pinned) = %+v, want newer first (newest-first)", list)
+	}
+
+	if err := s.SetWorktreePinned(older.ID, true); err != nil {
+		t.Fatalf("SetWorktreePinned: %v", err)
+	}
+	got, err = s.GetWorktree(older.ID)
+	if err != nil {
+		t.Fatalf("GetWorktree after pin: %v", err)
+	}
+	if !got.Pinned {
+		t.Fatal("Pinned should be true after SetWorktreePinned(id, true)")
+	}
+
+	list, err = s.ListWorktrees(repo.ID)
+	if err != nil {
+		t.Fatalf("ListWorktrees after pin: %v", err)
+	}
+	if list[0].ID != older.ID || list[1].ID != newer.ID {
+		t.Fatalf("ListWorktrees after pinning the older one = %+v, want [older, newer] despite older being created first", list)
+	}
+
+	if err := s.SetWorktreePinned(older.ID, false); err != nil {
+		t.Fatalf("SetWorktreePinned(false): %v", err)
+	}
+	got, err = s.GetWorktree(older.ID)
+	if err != nil {
+		t.Fatalf("GetWorktree after unpin: %v", err)
+	}
+	if got.Pinned {
+		t.Fatal("Pinned should be false after SetWorktreePinned(id, false)")
+	}
+}
+
 func TestWorktreeLayoutSaveLoad(t *testing.T) {
 	s := newTestStore(t)
 	repo := Repo{ID: "r1", Name: "test", Path: "/tmp/r1"}
