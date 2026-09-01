@@ -207,6 +207,18 @@ tmux attach -t wts-<terminalId>       # attach from your own real terminal, alon
 tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents without attaching
 ```
 
+### Cleaning up orphaned tmux sessions
+
+A `wts-`-prefixed tmux session with no matching terminal_sessions row (a leaked test session, or one made by hand) is an **orphan** — don't hand-kill these with `tmux kill-session` based on eyeballing `tmux list-sessions`. That was tried exactly once, informally, and it killed real, still-in-use sessions along with the actual leaks, because "looks unattached" and "actually abandoned" aren't the same thing.
+
+```bash
+worktree-studio orphans                          # list only, nothing killed — 7-day activity window by default
+worktree-studio orphans --kill                   # kill only the ones NOT active in the last 7 days
+worktree-studio orphans --kill --min-age=24h      # a different (still real, still enforced) window
+```
+
+Every session is checked against tmux's own `#{session_activity}` (last output in any of its panes — covers a `claude` session producing output on its own, not just keystrokes) before anything is killed; anything touched inside the window is reported as `protected` and left alone. There's no flag to bypass this — only to choose a different window, which is a visible, deliberate call at the command line, not a silent one. See `internal/term/orphans.go` for the actual safeguard and why it lives there rather than in the CLI itself. A dead tmux session's **stale DB row** (the opposite mismatch — the row survives after the session itself dies, e.g. `claude` exiting and taking the whole session down with it since it was the pane's only process) is handled separately by `Reconcile` at server startup, not by this command. It's also handled the moment someone actually tries to open that tab: `handleTerminalWS` checks `term.HasSession` before attaching and, if the session's already gone, writes a plain "this session no longer exists, close this tab" message instead of relaying tmux's own `can't find session: ...` stderr through the pty as if it were real pane output (which is what it did before this check existed) — it deliberately doesn't delete the row itself, leaving that to closing the tab (`handleDeleteTerminal`) or the next `Reconcile`, so there's still exactly one path that removes a `terminal_sessions` row.
+
 The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
 
 **Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste. Drag-to-select-then-release also copies directly (via tmux's own mouse handling + OSC 52), working the same inside a plain shell or inside a program like `claude` that's grabbed its own mouse tracking — tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter`) is a keyboard-only fallback, not required for the normal case anymore. If copy/paste (or link-clicking) seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.

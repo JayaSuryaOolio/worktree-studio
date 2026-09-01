@@ -207,6 +207,18 @@ tmux attach -t wts-<terminalId>       # attach from your own real terminal, alon
 tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents without attaching
 ```
 
+### Cleaning up orphaned tmux sessions
+
+A `wts-`-prefixed tmux session with no matching terminal_sessions row (a leaked test session, or one made by hand) is an **orphan** — don't hand-kill these with `tmux kill-session` based on eyeballing `tmux list-sessions`. That was tried exactly once, informally, and it killed real, still-in-use sessions along with the actual leaks, because "looks unattached" and "actually abandoned" aren't the same thing.
+
+```bash
+worktree-studio orphans                          # list only, nothing killed — 7-day activity window by default
+worktree-studio orphans --kill                   # kill only the ones NOT active in the last 7 days
+worktree-studio orphans --kill --min-age=24h      # a different (still real, still enforced) window
+```
+
+Every session is checked against tmux's own `#{session_activity}` (last output in any of its panes — covers a `claude` session producing output on its own, not just keystrokes) before anything is killed; anything touched inside the window is reported as `protected` and left alone. There's no flag to bypass this — only to choose a different window, which is a visible, deliberate call at the command line, not a silent one. See `internal/term/orphans.go` for the actual safeguard and why it lives there rather than in the CLI itself. A dead tmux session's **stale DB row** (the opposite mismatch — the row survives after the session itself dies, e.g. `claude` exiting and taking the whole session down with it since it was the pane's only process) is handled separately by `Reconcile` at server startup, not by this command. It's also handled the moment someone actually tries to open that tab: `handleTerminalWS` checks `term.HasSession` before attaching and, if the session's already gone, writes a plain "this session no longer exists, close this tab" message instead of relaying tmux's own `can't find session: ...` stderr through the pty as if it were real pane output (which is what it did before this check existed) — it deliberately doesn't delete the row itself, leaving that to closing the tab (`handleDeleteTerminal`) or the next `Reconcile`, so there's still exactly one path that removes a `terminal_sessions` row.
+
 The "⧉ New tab" button on a worktree's detail page just opens the same page in a new browser tab (`window.open`) — it's the mechanism for the multi-repo story too: open a different repo's workspace in another tab, no special multi-repo UI needed.
 
 **Copy/paste in a terminal panel**: Ctrl+C/Cmd+C copy a selection, Ctrl+V/Cmd+V paste. Drag-to-select-then-release also copies directly (via tmux's own mouse handling + OSC 52), working the same inside a plain shell or inside a program like `claude` that's grabbed its own mouse tracking — tmux's own copy-mode (`Ctrl+b` then `[`, move/select, `Enter`) is a keyboard-only fallback, not required for the normal case anymore. If copy/paste (or link-clicking) seems broken, see `docs/terminal-clipboard.md` — kept as its own doc since it's deep xterm.js/tmux mechanism detail, not something every session needs to read.
@@ -307,7 +319,26 @@ The UI is now built around a persistent left sidebar (not the flat pages describ
 
 Adding a repo or a worktree is a modal now, not a page — reachable via the sidebar's "+" buttons or the command palette, not a separate route.
 
-**Visual design**: the app has one theme, "Command Deck" (dark, mission-control-styled — see `docs/design.md` for the full token system and rationale). Worktree rows in the sidebar are styled as flight strips: status figures and branch names render in monospace like telemetry, page titles use a display face. Row color is deliberately minimal now — every row is neutral gray by default, and only the currently-selected worktree gets a green left-edge accent; there's no separate dirty/clean color-coding on the row itself (per direct feedback that red/green/amber all at once on every row read as noise, not signal — dirty state is still visible via the ahead/behind ticks). There's no theme switcher — that's a recorded `PLAN.md` TODO, not built.
+**Visual design**: see `docs/design-system.md` — the token contract, the seven principles each rule traces back to, and the three themes. `docs/design.md` is now just a pointer to it.
+
+Three selectable themes on two independent axes, both set in the settings modal's **Appearance** tab and stamped on `<html>` as `data-theme` (family) and `data-mode`:
+
+- **Graphite** — modern, the default. Neutral greys, one warm amber accent, no outlines.
+- **Ledger** — classic. Warm paper/ink, square corners, deep editor blue.
+- **Command Deck** — the pre-redesign theme, kept, mapped onto the same contract.
+
+Mode is **Dark / Light / System**. `data-mode` is always a resolved `dark` or `light` — `system` is storable but resolved in `web/src/theme.ts` and the inline pre-paint snippet in `index.html`, never in CSS. Adding a theme means adding one palette block in `web/src/styles/tokens.css` that defines exactly the same token names as the others; a theme needing a new token is a redesign, not a theme.
+
+**Sidebar behaviour** (all of it persisted in `localStorage`, `web/src/sidebarPreferences.ts`):
+
+- Worktree rows are plain rows — no borders, no cards. Selection is a background wash plus a 2px accent rail, and exactly one row on screen has it.
+- Branch names truncate in the **middle** (`web/src/branchLabel.ts`), because branch names are prefix-clustered and the tail is what tells them apart.
+- `/` focuses a filter box (matches branch, worktree name and repo name across every repo at once). Escape clears before it blurs.
+- Repo groups collapse; a collapsed group still shows its count and an attention dot if anything inside is waiting.
+- A "N waiting" count in the sidebar header, rendering nothing at zero; click it to narrow the list to just those worktrees. Rows are deliberately **not** re-sorted attention-first — attention arrives over a websocket, so rows would reorder under the pointer.
+- Drag the seam to resize (180–460px, double-click resets). `Cmd/Ctrl+B` hides the sidebar entirely; a 4px strip at the screen edge brings it back.
+
+`/` and `Cmd+B` both go through `web/src/keyboard.ts` rather than binding directly: `/` bails on any text-entry target (xterm reads keys through a hidden textarea, so that check covers the terminal), and `Cmd+B` only honours `Ctrl` outside a terminal, since `Ctrl+B` is tmux's default prefix.
 
 **Deleting a worktree also closes its terminal sessions now** (real tmux kill, not just a DB row disappearing via cascade) — found and fixed while building the dockview arrangement above; before this fix, a deleted worktree's tmux sessions leaked forever with no trace in the DB pointing back to them.
 
@@ -350,7 +381,7 @@ Once installed, a `claude.session.create` entry with `"source": "hook"` appears 
 
 ## Global settings
 
-A gear icon in the sidebar header opens a settings modal with three tabs: **Installation** (status for tmux, the spotlight CLI, the globally-installed skill, and the claude hook above, with Install/Uninstall buttons for the latter two), **Appearance** (dark/light theme — dark is the default, stored in `localStorage`, not tied to OS preference), and **Logs** (this server's own recent `ERROR`-level lines, plus the log file's real path — `~/.worktree-studio/server.log`). Via the API:
+A gear icon in the sidebar header opens a settings modal with three tabs: **Installation** (status for tmux, the spotlight CLI, the globally-installed skill, and the claude hook above, with Install/Uninstall buttons for the latter two), **Appearance** (theme family + dark/light/system mode, and the desktop-notification toggle — all stored in `localStorage`; see "Visual design" above), and **Logs** (this server's own recent `ERROR`-level lines, plus the log file's real path — `~/.worktree-studio/server.log`). Via the API:
 
 ```bash
 curl http://localhost:8787/api/settings/dependencies   # dependency status
