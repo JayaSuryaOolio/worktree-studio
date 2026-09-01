@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { terminalWsUrl } from "./api";
 
@@ -14,6 +14,23 @@ interface Props {
 }
 
 export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
+
+// @xterm/addon-clipboard's default BrowserClipboardProvider only relays to
+// navigator.clipboard when the OSC 52 selection field is exactly "c" — read
+// directly from its source (`writeText(selection, text) { return selection
+// !== "c" ? Promise.resolve() : navigator.clipboard.writeText(text); }`).
+// tmux's own OSC 52 output always uses an EMPTY selection field
+// (`\x1b]52;;<base64>\x07`, confirmed via a real websocket-frame capture —
+// see docs/terminal-clipboard.md's Problem 7), which silently no-ops against
+// that default: the escape arrives, the addon parses it, but never calls
+// navigator.clipboard at all. This provider ignores which selection buffer
+// was requested (there's only one real clipboard a browser exposes anyway)
+// and always relays to it, so tmux's blank-selection writes actually reach
+// the browser clipboard instead of vanishing silently.
+export const alwaysSystemClipboardProvider: IClipboardProvider = {
+  readText: () => navigator.clipboard.readText(),
+  writeText: (_selection, text) => navigator.clipboard.writeText(text),
+};
 
 /**
  * Decides what a keydown means for copy/paste, independent of xterm/
@@ -85,6 +102,12 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
       // 52 handler via registerOscHandler, which xterm.js gates behind
       // this flag as a "proposed" (not-yet-fully-stabilized) API.
       allowProposedApi: true,
+      // Without this, macOS Option+key produces a special Unicode
+      // character (e.g. Option+B -> "∫") instead of the ESC-prefixed
+      // sequence (`\x1bb`) shells' readline/zle bind word-navigation to —
+      // xterm.js won't send that sequence for Option unless told this is
+      // the intended meaning of the key. See docs/terminal-keybindings.md.
+      macOptionIsMeta: true,
       // xterm.js already parses OSC 8 hyperlinks (the escape sequence
       // `claude` itself uses for its clickable-looking links — confirmed
       // via `strings` on the binary) with no addon needed for that part.
@@ -112,10 +135,11 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
     // is the mechanism that makes copying work even when the pane's
     // program has grabbed mouse tracking (e.g. `claude`'s TUI) and
     // disabled xterm.js's own drag-to-select entirely — see
-    // docs/terminal-clipboard.md for the full story. Uses the addon's
-    // default BrowserClipboardProvider (navigator.clipboard), no custom
-    // provider needed.
-    term.loadAddon(new ClipboardAddon());
+    // docs/terminal-clipboard.md for the full story. Uses
+    // alwaysSystemClipboardProvider, not the addon's own default, because
+    // tmux's OSC 52 writes use a selection field the default provider
+    // doesn't honor — see that provider's own comment above.
+    term.loadAddon(new ClipboardAddon(undefined, alwaysSystemClipboardProvider));
     term.open(containerRef.current);
     fit.fit();
 

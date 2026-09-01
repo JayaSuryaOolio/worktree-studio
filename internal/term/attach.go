@@ -16,12 +16,37 @@ import (
 // or the client going away) does NOT kill the tmux session itself — that's
 // the entire point: the shell inside tmux keeps running.
 func Attach(tmuxSessionName string) (*os.File, *exec.Cmd, error) {
-	cmd := exec.Command("tmux", "attach-session", "-t", tmuxSessionName)
+	cmd := TmuxCmd("attach-session", "-t", tmuxSessionName)
+	// Force a known-capable TERM for this attaching client rather than
+	// inheriting whatever the Go server process's own ambient TERM happens
+	// to be (a login shell, a background/launchd context, an editor task
+	// runner — all different, none guaranteed). tmux's own "xterm-keys"
+	// translation (see term.go's CreateSession) needs a terminfo entry that
+	// actually describes the modified-arrow-key sequences (`\x1b[1;5C` etc.)
+	// xterm.js sends; a wrong or unset inherited TERM is exactly the kind of
+	// thing that silently breaks that translation. See
+	// docs/terminal-keybindings.md.
+	cmd.Env = attachEnv()
 	f, err := pty.Start(cmd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("attach pty to tmux session %s: %w", tmuxSessionName, err)
 	}
 	return f, cmd, nil
+}
+
+// attachEnv returns the current environment with TERM overridden (not just
+// appended — a duplicate TERM entry would leave which one "wins" up to
+// whichever C library reads envp, which isn't guaranteed) to a value both
+// tmux and its pane's own shell reliably support xterm-style modified-key
+// sequences under.
+func attachEnv() []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "TERM=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "TERM=xterm-256color")
 }
 
 // Resize applies new terminal dimensions to an attached pty.
@@ -42,7 +67,7 @@ func Resize(f *os.File, cols, rows uint16) error {
 // gets the right answer immediately instead of showing a stale/generic
 // label until something inside the pane happens to touch its title next.
 func CurrentTitle(tmuxSessionName string) (string, error) {
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", tmuxSessionName, "#{pane_title}").Output()
+	out, err := TmuxCmd("display-message", "-p", "-t", tmuxSessionName, "#{pane_title}").Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux display-message pane_title: %w", err)
 	}
@@ -61,7 +86,7 @@ func CurrentTitle(tmuxSessionName string) (string, error) {
 // polling really does carry its weight — a live status many rows show at
 // once, not a one-off directory check).
 func CurrentPath(tmuxSessionName string) (string, error) {
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", tmuxSessionName, "#{pane_current_path}").Output()
+	out, err := TmuxCmd("display-message", "-p", "-t", tmuxSessionName, "#{pane_current_path}").Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux display-message pane_current_path: %w", err)
 	}

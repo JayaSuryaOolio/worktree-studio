@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/term"
 )
 
 func requireTmuxAPI(t *testing.T) {
@@ -47,14 +48,14 @@ func TestCreateTerminalWithInitialCommand(t *testing.T) {
 	var termSession store.TerminalSession
 	decodeInto(t, resp, &termSession)
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", termSession.TmuxSessionName).Run()
+		_ = term.TmuxCmd("kill-session", "-t", termSession.TmuxSessionName).Run()
 	})
 
 	var out []byte
 	var err error
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		out, err = exec.Command("tmux", "capture-pane", "-p", "-t", termSession.TmuxSessionName).Output()
+		out, err = term.TmuxCmd("capture-pane", "-p", "-t", termSession.TmuxSessionName).Output()
 		if err != nil {
 			t.Fatalf("capture-pane: %v", err)
 		}
@@ -90,7 +91,7 @@ func TestGetTerminalCwd(t *testing.T) {
 	var termSession store.TerminalSession
 	decodeInto(t, resp, &termSession)
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", termSession.TmuxSessionName).Run()
+		_ = term.TmuxCmd("kill-session", "-t", termSession.TmuxSessionName).Run()
 	})
 
 	resolvedWtPath, err := filepath.EvalSymlinks(wt.Path)
@@ -113,7 +114,7 @@ func TestGetTerminalCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks(%q): %v", elsewhere, err)
 	}
-	if out, err := exec.Command("tmux", "send-keys", "-t", termSession.TmuxSessionName, "cd "+elsewhere, "Enter").CombinedOutput(); err != nil {
+	if out, err := term.TmuxCmd("send-keys", "-t", termSession.TmuxSessionName, "cd "+elsewhere, "Enter").CombinedOutput(); err != nil {
 		t.Fatalf("tmux send-keys: %v (%s)", err, out)
 	}
 

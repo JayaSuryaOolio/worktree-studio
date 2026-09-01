@@ -39,7 +39,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	id := newSessionID()
 	tmuxName := tmuxNamePrefix + id
 
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", tmuxName, "-c", worktreePath)
+	cmd := TmuxCmd("new-session", "-d", "-s", tmuxName, "-c", worktreePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return store.TerminalSession{}, fmt.Errorf("tmux new-session: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
@@ -53,7 +53,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	// browser clipboard. Best-effort — a failure here doesn't affect the
 	// session's usability as a shell, only whether tmux's own copy-mode
 	// relays to the browser clipboard.
-	_ = exec.Command("tmux", "set-option", "-g", "set-clipboard", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "set-clipboard", "on").Run()
 	// Deliberately NOT "allow-passthrough on" here, despite trying it (see
 	// docs/terminal-clipboard.md's "Problem 5"): it would have let
 	// `claude`'s own DCS-passthrough-wrapped OSC 52 clipboard write reach
@@ -99,7 +99,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	// CorrectGlobalMouseAndPassthroughSettings (below) brings mouse back to
 	// on and allow-passthrough back to off for an installation that
 	// already ran the briefly-reverted, mouse-off version of this feature.
-	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "mouse", "on").Run()
 
 	// tmux does NOT forward a pane's OSC 0/2 title-set escape sequence to
 	// the outer terminal by default — `set-titles` is off out of the box,
@@ -113,31 +113,30 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	// which still contains the inner program's title as a substring — see
 	// web/src/terminalAppDetection.ts, which matches on that substring
 	// rather than an exact string for exactly this reason.
-	_ = exec.Command("tmux", "set-option", "-g", "set-titles", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "set-titles", "on").Run()
 
-	// tmux's own DEFAULT key bindings for both a mouse-drag release and
-	// pressing Enter in copy-mode are "copy-pipe-and-cancel", not
-	// "copy-selection-and-cancel" — confirmed via `tmux list-keys`. The
-	// two commands both copy into tmux's own paste buffer, but only
-	// copy-selection also emits the `\x1b]52;` OSC 52 escape sequence
-	// that set-clipboard above needs to relay the copy into the browser's
-	// clipboard; copy-pipe instead hands the text to an external shell
-	// command (`copy-command`, empty by default here), which is a no-op
-	// as far as the browser is concerned. Verified empirically: with the
-	// stock bindings, dragging to select in a real terminal pane sets
-	// tmux's paste buffer (`tmux show-buffer` proves it) but no OSC 52
-	// frame ever reaches the browser, so `navigator.clipboard` is never
-	// written to — copy-by-dragging silently does nothing. Rebinding both
-	// the emacs and vi copy-mode key tables (mode-keys can be either)
-	// fixes it without touching `copy-command` or anyone's own tmux.conf.
-	// Key tables are server-global like the two set-options above.
-	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode", "MouseDragEnd1Pane", "send-keys", "-X", "copy-selection-and-cancel").Run()
-	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode-vi", "MouseDragEnd1Pane", "send-keys", "-X", "copy-selection-and-cancel").Run()
-	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode", "Enter", "send-keys", "-X", "copy-selection-and-cancel").Run()
-	_ = exec.Command("tmux", "bind-key", "-T", "copy-mode-vi", "Enter", "send-keys", "-X", "copy-selection-and-cancel").Run()
+	// tmux only translates a client's raw Ctrl/Alt-modified arrow-key bytes
+	// (e.g. xterm.js's own default `\x1b[1;5C` for Ctrl+Right) into the
+	// equivalent sequence it forwards on to the pane's actual shell when
+	// "xterm-keys" is on — without it, tmux can collapse a modified arrow
+	// key down to a bare one before the shell ever sees it, silently
+	// dropping the modifier that readline/zle word-navigation bindings
+	// (e.g. `bindkey '^[[1;5C' forward-word`) key off of. Default-on since
+	// tmux 2.4, but set explicitly here rather than trusted, same posture
+	// as every other tmux option in this function. "extended-keys" (tmux
+	// 3.2+) improves fidelity for combinations xterm-keys alone doesn't
+	// fully disambiguate; harmless to enable even for programs that never
+	// ask for it. See docs/terminal-keybindings.md.
+	_ = TmuxCmd("set-option", "-g", "xterm-keys", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "extended-keys", "on").Run()
+
+	// Server-global key tables (see the function's own comment for the full
+	// mechanism) — set here so a freshly created session is correct even if
+	// the server process itself was never restarted since these changed.
+	BindGlobalCopyModeKeys()
 
 	if initialCommand != "" {
-		sendKeys := exec.Command("tmux", "send-keys", "-t", tmuxName, initialCommand, "Enter")
+		sendKeys := TmuxCmd("send-keys", "-t", tmuxName, initialCommand, "Enter")
 		if err := sendKeys.Run(); err != nil {
 			// Not fatal to the whole operation — the session exists and is
 			// usable, it just didn't get its auto-run command. Reflected in
@@ -155,7 +154,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	}
 	if err := m.Store.AddTerminalSession(ts); err != nil {
 		// Don't leak the tmux session we just created if we can't record it.
-		_ = exec.Command("tmux", "kill-session", "-t", tmuxName).Run()
+		_ = TmuxCmd("kill-session", "-t", tmuxName).Run()
 		return store.TerminalSession{}, fmt.Errorf("save terminal session: %w", err)
 	}
 
@@ -180,7 +179,7 @@ func (m *Manager) ListSessions(worktreeID string) ([]store.TerminalSession, erro
 // Killing an already-dead tmux session is not an error — the row is
 // removed regardless, since the goal is "this tab is gone" either way.
 func (m *Manager) CloseSession(ts store.TerminalSession) error {
-	_ = exec.Command("tmux", "kill-session", "-t", ts.TmuxSessionName).Run()
+	_ = TmuxCmd("kill-session", "-t", ts.TmuxSessionName).Run()
 	if err := m.Store.RemoveTerminalSession(ts.ID); err != nil {
 		return fmt.Errorf("remove terminal session row: %w", err)
 	}
@@ -197,7 +196,7 @@ func (m *Manager) CloseSession(ts store.TerminalSession) error {
 // all, tmux exits non-zero with "no server running on ..." — that's not a
 // real error for our purposes, just an empty set.
 func ListLiveTmuxSessionNames() (map[string]bool, error) {
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	out, err := TmuxCmd("list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		if isNoServerRunning(err) {
 			return map[string]bool{}, nil
@@ -273,6 +272,85 @@ func Reconcile(st *store.Store) (dropped int, err error) {
 // failure (e.g. no tmux server running yet, so there's nothing to correct
 // anyway) doesn't block startup.
 func CorrectGlobalMouseAndPassthroughSettings() {
-	_ = exec.Command("tmux", "set-option", "-g", "mouse", "on").Run()
-	_ = exec.Command("tmux", "set-option", "-g", "allow-passthrough", "off").Run()
+	_ = TmuxCmd("set-option", "-g", "mouse", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "allow-passthrough", "off").Run()
+}
+
+// BindGlobalCopyModeKeys rebinds the copy-mode keys that a mouse-drag
+// release and Enter-in-copy-mode trigger, so a copy actually reaches the
+// browser's clipboard (and visibly says so). Called both from CreateSession
+// and once at server startup — tmux key tables are server-global, so an
+// installation whose tmux server predates this shouldn't have to open a
+// brand new terminal to get a working copy; a restart is enough. Same
+// call-once-at-startup posture and best-effort error handling as
+// CorrectGlobalMouseAndPassthroughSettings.
+//
+// tmux's own DEFAULT bindings for both keys are "copy-pipe-and-cancel", not
+// "copy-selection-and-cancel" — confirmed via `tmux list-keys`. Both copy
+// into tmux's own paste buffer, but copy-pipe hands the text to an external
+// shell command (`copy-command`, empty by default here), a no-op as far as
+// the browser is concerned. Verified empirically: with the stock bindings,
+// dragging to select sets tmux's paste buffer (`tmux show-buffer` proves
+// it) but no OSC 52 frame ever reaches the browser. Rebinding both the
+// emacs and vi copy-mode tables (mode-keys can be either) fixes it without
+// touching `copy-command` or anyone's own tmux.conf.
+//
+// Plain "copy-selection-and-cancel" alone turned out not to be enough
+// either, on this tmux build (3.7b) — see docs/terminal-clipboard.md's
+// "Problem 7": it fills the paste buffer but does not itself emit the OSC
+// 52 escape, even with set-clipboard on. The missing piece, confirmed with
+// an isolated pty harness feeding raw SGR mouse bytes into a throwaway
+// session: `set-buffer -w` (the command that DOES emit OSC 52) requires an
+// explicit `data` argument — it has no mode that just "relays whatever's
+// already in the buffer" — so it has to be re-run with the buffer's own
+// current content.
+//
+// bind-key's own inline multi-command syntax (`cmd1 \; cmd2`,
+// `{ cmd1 ; cmd2 }`) was tried first and rejected: passed as separate argv
+// tokens tmux doesn't group them into one bound command at all (`;` there
+// ends the whole bind-key invocation and starts a second, immediate,
+// bind-TIME command instead of a second run-TIME one — `tmux list-keys`
+// showed only the first command ever got bound); passed as a single string
+// it hits tmux's own "syntax error" on this build. run-shell sidesteps that
+// entirely by handing the sequence to a real shell. `#{client_tty}` is a
+// tmux format specifier, expanded by tmux itself before the string reaches
+// the shell — not a shell variable.
+//
+// The final display-message exists purely to fix a real UX trap, not for
+// the copy itself. "copy-selection-and-cancel" exits copy-mode the instant
+// it copies, which clears the visual highlight — so a SUCCESSFUL drag-copy
+// looks exactly like a failed one ("the selection just disappears when I
+// let go"). That cost real debugging time twice: the copy was working and
+// the vanishing highlight was mistaken for the copy failing. A brief
+// status-line confirmation makes the success visible. "-l" prints the
+// message literally so tmux doesn't try to interpret anything in it as a
+// format specifier; "${#B}" is ordinary POSIX shell parameter expansion
+// (string length), which survives tmux's own format expansion untouched
+// because it contains no "#{" sequence — verified against a real tmux
+// server, not assumed. "-d 1500" sets this one message's duration
+// explicitly rather than relying on (or mutating) the global display-time
+// server option, whose 750ms default is short enough to miss and which is
+// exactly the kind of thing a user may have deliberately tuned themselves.
+func BindGlobalCopyModeKeys() {
+	copySelectionAndRelay := "tmux send-keys -X copy-selection-and-cancel; " +
+		"B=$(tmux show-buffer); " +
+		"tmux set-buffer -w -t '#{client_tty}' \"$B\"; " +
+		"tmux display-message -l -d 1500 -c '#{client_tty}' \"Copied ${#B} chars to clipboard\""
+	for _, table := range []string{"copy-mode", "copy-mode-vi"} {
+		for _, key := range []string{"MouseDragEnd1Pane", "Enter"} {
+			_ = TmuxCmd("bind-key", "-T", table, key, "run-shell", copySelectionAndRelay).Run()
+		}
+	}
+}
+
+// CorrectGlobalKeyEncodingSettings brings tmux's global "xterm-keys" and
+// "extended-keys" server options up to what CreateSession itself now sets,
+// for an installation whose tmux server has been running since before this
+// existed (see CreateSession's own comment and docs/terminal-keybindings.md).
+// Both are tmux server-wide options, so this takes effect for every existing
+// session immediately, not just new ones — same idiom and same
+// call-once-at-startup posture as CorrectGlobalMouseAndPassthroughSettings.
+func CorrectGlobalKeyEncodingSettings() {
+	_ = TmuxCmd("set-option", "-g", "xterm-keys", "on").Run()
+	_ = TmuxCmd("set-option", "-g", "extended-keys", "on").Run()
 }

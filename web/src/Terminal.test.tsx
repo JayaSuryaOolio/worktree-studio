@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { classifyTerminalKeyEvent } from "./Terminal";
+import { describe, expect, it, vi } from "vitest";
+import { classifyTerminalKeyEvent, alwaysSystemClipboardProvider } from "./Terminal";
 
 // Terminal.tsx itself (xterm.js + websocket wiring) isn't unit-tested here
 // — same established practice as elsewhere in this project (WorktreeDetail
@@ -76,5 +76,34 @@ describe("classifyTerminalKeyEvent", () => {
     expect(
       classifyTerminalKeyEvent({ type: "keyup", ctrlKey: false, metaKey: false, shiftKey: true, key: "Enter" })
     ).toBe("pass");
+  });
+});
+
+// @xterm/addon-clipboard's own default BrowserClipboardProvider only
+// forwards to navigator.clipboard when the OSC 52 selection field is
+// exactly "c" — everything else, including the empty selection field tmux
+// actually sends, is silently ignored (confirmed by reading that provider's
+// source directly; see docs/terminal-clipboard.md's Problem 7). This is the
+// regression test for that: alwaysSystemClipboardProvider must relay
+// regardless of what selection value it's handed.
+describe("alwaysSystemClipboardProvider", () => {
+  it("writes to navigator.clipboard for an empty selection (tmux's actual OSC 52 field)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    await alwaysSystemClipboardProvider.writeText("" as never, "dragged text");
+
+    expect(writeText).toHaveBeenCalledWith("dragged text");
+  });
+
+  it("also writes for the 'c' and 'p' selections, not just empty", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    await alwaysSystemClipboardProvider.writeText("c" as never, "system selection");
+    await alwaysSystemClipboardProvider.writeText("p" as never, "primary selection");
+
+    expect(writeText).toHaveBeenNthCalledWith(1, "system selection");
+    expect(writeText).toHaveBeenNthCalledWith(2, "primary selection");
   });
 });

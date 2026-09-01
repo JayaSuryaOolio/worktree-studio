@@ -409,7 +409,7 @@ func TestDeleteWorktreeClosesItsTerminalSessions(t *testing.T) {
 	var termSession store.TerminalSession
 	decodeInto(t, resp, &termSession)
 
-	liveBefore, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	liveBefore, err := term.TmuxCmd("list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		t.Fatalf("tmux list-sessions: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestDeleteWorktreeClosesItsTerminalSessions(t *testing.T) {
 		t.Fatalf("delete worktree: status = %d, want 200", resp.StatusCode)
 	}
 
-	liveAfter, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	liveAfter, err := term.TmuxCmd("list-sessions", "-F", "#{session_name}").Output()
 	// tmux exits non-zero ("no server running") once its last session is
 	// gone — that's success here, not a real error.
 	if err != nil && !strings.Contains(string(liveAfter), termSession.TmuxSessionName) {
@@ -522,7 +522,7 @@ func TestDeleteDirtyWorktreeRefusalKeepsTerminalSessionsAlive(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	live, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	live, err := term.TmuxCmd("list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		t.Fatalf("tmux list-sessions: %v", err)
 	}

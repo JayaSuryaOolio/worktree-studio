@@ -130,6 +130,21 @@ func main() {
 	// docs/terminal-clipboard.md's "Problem 4"/"Problem 5"/"Problem 6".
 	term.CorrectGlobalMouseAndPassthroughSettings()
 
+	// Same idea, for an installation whose tmux server predates the
+	// xterm-keys/extended-keys word-navigation fix — see
+	// term.CorrectGlobalKeyEncodingSettings's own comment and
+	// docs/terminal-keybindings.md.
+	term.CorrectGlobalKeyEncodingSettings()
+
+	// Same idea again, for the copy-mode keys that relay a copy to the
+	// browser clipboard (and now show a "Copied N chars" confirmation).
+	// tmux key tables are server-global, so this corrects every existing
+	// session immediately — without it, an already-running tmux server
+	// would keep its old bindings until someone happened to open a brand
+	// new terminal. See term.BindGlobalCopyModeKeys and
+	// docs/terminal-clipboard.md's "Problem 7"/"Problem 8".
+	term.BindGlobalCopyModeKeys()
+
 	addr := defaultAddr
 	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
 		addr = v

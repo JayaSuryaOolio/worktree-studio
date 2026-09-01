@@ -148,10 +148,122 @@ So the real fix here is narrower than it first looked:
 
 **Not attempted, and deliberately so**: overriding xterm.js's wheel behavior client-side via its public `attachCustomWheelEventHandler` API (confirmed to exist and be stable in `@xterm/xterm`'s own type definitions) to bypass the "no scrollback → arrow keys" heuristic entirely, independent of the `mouse` option. Rejected because there's no way to make it actually scroll anything meaningful without tmux itself also treating the event as a mouse report — tmux, not xterm.js, owns the real scrollback for an attached session, so a client-side-only fix could at best suppress the wrong behavior, not replace it with a correct one; tmux still needs `mouse on` to interpret whatever we'd send it. Also would have meant re-implementing the exact decision xterm.js's own wheel handler already makes correctly once `mouse on` is set — the same "don't build a replacement for a mechanism that's already correct" principle from Problem 4 applies here too.
 
+## Problem 7 (FIXED): mouse-drag-to-clipboard no longer emits OSC 52 at all
+
+**Symptom, found 2026-08-28 during a live re-verification of this whole page (prompted by an unrelated request to test select+copy for real, using browser automation rather than trusting this doc's own "verified" claims at face value)**: a real drag-select in a plain shell (no `claude`, no modifier key) visually behaves as documented — the highlight disappears on release, which Problem 4 already explains as expected — but **nothing reaches the browser clipboard**. Confirmed two independent ways, not guessed:
+
+1. **Real browser, live app**: patched `navigator.clipboard.writeText` on the actual running page to record every call (`window.__clipboardCalls`), performed a real `left_click_drag` over rendered terminal text with `browser_batch`, waited 2s, checked the array — empty. A direct call to the patched function from the same page (`navigator.clipboard.writeText('sanity-check')`) *did* get recorded, confirming the patch itself works and the app genuinely never attempted the call.
+2. **Isolated tmux reproduction, no browser involved**: a throwaway `tmux new-session`, with `mouse on`/`set-clipboard on`/the `copy-selection-and-cancel` key rebind applied exactly as `internal/term.CreateSession` does it, attached via a real pty (`pty.fork()` + `tmux attach-session`, `TERM=xterm-256color`) and fed genuine SGR mouse press/motion/release bytes (`\x1b[<0;...M` / `\x1b[<32;...M` / `\x1b[<0;...m`) directly into the pty — the same shape of bytes a real xterm.js client sends. `tmux show-buffer` afterward correctly contained the dragged text (the *selection* mechanism works), but zero `\x1b]52;` bytes ever appeared on the client's own output stream, checked with generous (2-3s) capture windows to rule out a flush-timing false negative.
+
+**What's confirmed NOT the cause** (each checked directly against the live tmux server, not assumed):
+- `internal/term.CreateSession`'s global options are exactly as intended: `tmux show-options -g` reports `mouse on`, `set-clipboard on`, `allow-passthrough off`, `xterm-keys on`, `extended-keys on` — no drift.
+- The `MouseDragEnd1Pane`/`Enter` key rebind from Problem 3 is intact in both `copy-mode` and `copy-mode-vi` tables (`tmux list-keys -T copy-mode` confirms `copy-selection-and-cancel`, not the default `copy-pipe-and-cancel`).
+- Today's unrelated `TERM=xterm-256color` fix (`internal/term.Attach`, see `docs/terminal-keybindings.md`) isn't the cause either: `tmux display-message -p "#{client_termfeatures}"` for an `xterm-256color` client reports `clipboard` as a granted feature (tmux 3.2+'s `terminal-features` table matches `xterm*` and grants it — this is a *different*, newer mechanism than the terminfo-`Ms`-capability check the tmux man page's `set-clipboard` section describes, and it's working correctly).
+
+**Root cause, narrowed but not fully pinned down**: `copy-selection-and-cancel` (the command both the mouse-drag binding and the keyboard `Enter` binding call) does **not**, by itself, trigger tmux's client-clipboard-set escape in this environment (tmux 3.7b) — regardless of `set-clipboard on`. The underlying mechanism *can* work: an explicit `tmux set-buffer -w -t <client-name>` (naming the exact attached client, found via `tmux list-clients`) reliably produces a real `\x1b]52;;<base64>\x07` on that client's stream, verified in the same isolated pty harness. So this isn't a broken client, a broken `set-clipboard` option, or a build without clipboard support — it's specifically that `copy-selection-and-cancel` doesn't carry the `-w` (also-send-to-clipboard) behavior the way `docs/terminal-clipboard.md`'s Problem 2/3 verification apparently observed when originally written. Whether that's a genuine tmux behavior change since this page's original verification (version drift on this dev machine) or a subtlety in the original verification that didn't actually exercise the same code path is unknown — not resolved here.
+
+**Fix shipped** (`internal/term.Manager.CreateSession`): rebound `MouseDragEnd1Pane` and `Enter` (both `copy-mode` and `copy-mode-vi` tables) to a `run-shell`-wrapped script instead of a bare `send-keys -X copy-selection-and-cancel`:
+
+```
+tmux send-keys -X copy-selection-and-cancel; tmux set-buffer -w -t '#{client_tty}' "$(tmux show-buffer)"
+```
+
+Two things had to be untangled to get here, both confirmed empirically rather than assumed:
+
+1. **`set-buffer -w` needs an explicit `data` argument — it has no "just relay what's already in the buffer" mode.** Running `tmux set-buffer -w` with no data errors `no data specified`; there's no flag that means "re-emit the current buffer's contents via OSC 52." So the fix has to read the buffer back out (`$(tmux show-buffer)`) and re-set it with `-w` to trigger the relay — it can't just add a flag to the existing `copy-selection-and-cancel` command.
+2. **tmux's own inline multi-command syntax couldn't express this from a Go `exec.Command` call, only via `run-shell`.** Every variant of `bind-key ... cmd1 \; cmd2` tried directly against the real tmux server (3.7b) failed one of two ways: passed as separate argv tokens (`"send-keys", "-X", "copy-selection-and-cancel", ";", "set-buffer", "-w", ...`), tmux doesn't group them into one bound command at all — `;` there just ends the whole `bind-key` invocation and starts a second, immediate, bind-*time* command instead of a second run-*time* one (confirmed: `tmux list-keys` showed only the first command ever got bound). Passed as a single string (`bind-key -T copy-mode Enter '{ send-keys -X copy-selection-and-cancel ; set-buffer -w }'`), tmux's own CLI parser rejected every brace-grouping variant tried with a bare `syntax error`, even though this is the standard `.tmux.conf` pattern for grouping multiple commands under one binding — something about invoking it this way (via direct argv, not through tmux.conf's own line parser) doesn't accept it on this build. `run-shell` sidesteps the problem entirely: it hands the whole sequence to a real `/bin/sh -c`, which has no trouble chaining two commands with `;`. `#{client_tty}` is a tmux format specifier, expanded by tmux itself before the string ever reaches the shell — not a shell variable, so no escaping conflict with the shell's own `$(...)`.
+
+**Verified two ways, not just reasoned through:**
+- **Isolated pty harness** (no browser, no Go): a throwaway tmux session with the exact same `mouse on` / `set-clipboard on` / rebound keys as `CreateSession`, attached via a real pty (`pty.fork()` + `tmux attach-session`, `TERM=xterm-256color`), fed genuine SGR mouse press/motion/release bytes. Before the fix (bare `copy-selection-and-cancel`): `tmux show-buffer` had the dragged text, zero `\x1b]52;` bytes on the client stream. After the fix: a real `\x1b]52;;<base64>\x07` frame appears, decoding to exactly the dragged text.
+- **Go regression test** (`internal/term.TestMouseDragCopyRelaysOSC52`): creates a real session via `CreateSession`, attaches via the real `Attach`, writes genuine SGR mouse-drag bytes into the pty, and asserts an OSC 52 frame comes back — the same harness shape as the isolated pty script, but exercising the actual production code path instead of a hand-rolled duplicate of it. Confirmed this test fails against the pre-fix binding (bare `copy-selection-and-cancel`, via a scratch revert) and passes against the fix — a real regression guard, not a tautology.
+
+Live-browser re-confirmation with a real drag and the `navigator.clipboard.writeText` monkeypatch (or a human's own Cmd+V) is still worth doing before calling this fully closed end-to-end — the pty harness proves the tmux→client OSC 52 relay works, not that `@xterm/addon-clipboard` on the receiving end still behaves as documented in Problem 2's fix.
+
+**Still working, unaffected by this**: the keyboard-driven tmux copy-mode workflow's *selection* half (Ctrl+b `[`, move, select) and Ctrl+C's SIGINT behavior when there's no selection (confirmed live: `sleep 30` interrupted cleanly by Ctrl+C, no selection active) — only the final "relay the copied text to the browser's actual clipboard" step is broken. `claude`'s own OSC 52 copy-on-select (Problem 5, already a known, deliberately-unfixed gap) is unrelated to this and unaffected either way.
+
+That live-browser re-confirmation is exactly what turned up Problem 8 below — the pty-level relay this section fixes really does work, but it wasn't the whole story.
+
+## Problem 8 (FIXED): the OSC 52 relay reached the browser but the clipboard addon silently dropped it anyway
+
+**How this was found**: doing the live-browser re-confirmation Problem 7 flagged as still outstanding, using real OS-level input (Chrome DevTools Protocol mouse events via the browser-automation tool, not JS-dispatched synthetic `MouseEvent`s — those turned out to be silently ignored by xterm.js entirely, presumably because they're not `isTrusted`). A real drag correctly landed the dragged text in `tmux show-buffer` (confirming Problem 7's fix does work end to end at the tmux layer), but a `navigator.clipboard.writeText` monkeypatch on the live page never fired — not once, across multiple real drags and even a manual `tmux set-buffer -w -t <client-tty>` targeted directly at the live client's tty.
+
+**Root cause, found by reading `@xterm/addon-clipboard@0.2.0`'s actual shipped source** (`web/node_modules/@xterm/addon-clipboard/lib/addon-clipboard.js`, deminified by hand) rather than its docs or types: its default `BrowserClipboardProvider` is
+
+```js
+class BrowserClipboardProvider {
+  async writeText(selection, text) {
+    return selection !== "c" ? Promise.resolve() : navigator.clipboard.writeText(text);
+  }
+}
+```
+
+It only ever calls `navigator.clipboard.writeText` when the OSC 52 selection field is *exactly* the string `"c"` — anything else, silently, is a no-op that still resolves successfully (no thrown error, no rejected promise, nothing in the console). And tmux's own OSC 52 output — confirmed by capturing the actual raw websocket frames the live browser received, byte by byte, not assumed — is always `\x1b]52;;<base64>\x07`: an **empty** selection field (`;;`, nothing between the semicolons), never `"c"`. Every OSC 52 frame this whole document has ever captured from tmux (Problems 2, 3, 6, 7) shows this same empty-field shape. So the addon was receiving a perfectly well-formed OSC 52 escape, parsing it successfully, and then discarding it — because tmux's selection field has never matched the one string this provider checks for.
+
+This means the browser-side half of clipboard relay had likely never actually worked in this app, for any of it — tmux copy-mode, the Problem 7 fix, all of it — until now. Every earlier "verified" claim in this document that stopped at "a `\x1b]52;` frame reached the pty/websocket" (which is everywhere prior to this section) was verifying a necessary but not sufficient condition; nothing before this section actually drove a real browser far enough to see whether the addon *acted* on the frame it received.
+
+**Fix** (`web/src/Terminal.tsx`): a small custom `IClipboardProvider`, `alwaysSystemClipboardProvider`, that ignores the selection field entirely and always relays to `navigator.clipboard` — there's only one real clipboard a browser exposes anyway, so there was never a reason to gate on which OSC 52 selection buffer was named:
+
+```ts
+export const alwaysSystemClipboardProvider: IClipboardProvider = {
+  readText: () => navigator.clipboard.readText(),
+  writeText: (_selection, text) => navigator.clipboard.writeText(text),
+};
+```
+
+passed into the addon at construction: `new ClipboardAddon(undefined, alwaysSystemClipboardProvider)` (the `undefined` keeps the addon's default base64 codec — only the clipboard provider needed replacing).
+
+**Verified**: live, in the running app, via real OS-level mouse drags (not JS-dispatched events) plus raw-websocket-frame inspection to confirm the exact bytes reaching the browser, both before and after reading the addon's source pinpointed the cause. `bunx tsc --noEmit -p .` clean; `bunx vitest run` — 239 passing, including two new tests in `Terminal.test.tsx` (`alwaysSystemClipboardProvider` relays for an empty selection — tmux's actual field — and for `"c"`/`"p"` too, unlike the addon's own default).
+
+**Re-confirmed after the server restart, in a genuinely fresh browser window** (not a reused tab): first confirmed via `curl` against the running server that the served bundle (`assets/index-DieHuBY6.js`) actually contains the fix, then opened a brand-new tab group (not one of the tabs used for earlier testing — a same-origin SPA doesn't reload its JS just because the backend restarted, only a fresh navigation does), confirmed via `document.scripts` that it loaded that exact bundle, and repeated the real-mouse-drag + `navigator.clipboard.writeText` monkeypatch check. A drag over freshly-echoed marker text triggered `writeText("...")` with exactly the dragged text. This is now fully closed end-to-end: tmux → OSC 52 → websocket → `@xterm/addon-clipboard` → `navigator.clipboard`, confirmed at every link in the chain by direct observation, not assumption.
+
+**One easy way to get bitten by this again**: if a fix like this doesn't seem to take effect after a rebuild + server restart, check whether the browser tab being tested was already open before the restart — an already-loaded SPA keeps running its already-loaded JS indefinitely; only a fresh navigation (new tab, or a hard reload of an existing one) fetches the new bundle.
+
+## Problem 9 (FIXED): a successful copy was indistinguishable from a failed one
+
+**Symptom, reported after Problems 7/8 shipped and were confirmed working**: "Selection of text in shell just clears when I leave the mouse button." The copy was, at that point, genuinely working — but there was no way to tell from the UI, because the only feedback available was the highlight, which *disappears on release by design*.
+
+**This is not a cosmetic complaint — it caused two separate multi-hour misdiagnoses in this very document.** Problem 4's symptom list opens with "the highlight disappears the instant the mouse button is released" as evidence of breakage; Problem 7 was investigated partly on the same premise. Both times, the vanishing highlight was read as "the copy failed." The cause is simply that `MouseDragEnd1Pane` is bound to `copy-selection-and-**cancel**` — the `-and-cancel` exits copy-mode immediately, which clears the highlight, *after* having successfully copied. A silent success that looks exactly like a failure is a design defect in its own right, independent of whether the underlying copy works.
+
+**Root-cause note on why the earlier "verification" methods couldn't catch this class of bug either**: every check up to this point confirmed the copy at the *mechanism* level (OSC 52 bytes on the wire, `navigator.clipboard.writeText` being called via a monkeypatch). None of them confirmed it the way a *user* does. Notably, the `navigator.clipboard.writeText` monkeypatch proves only that the call was *made*, not that the OS pasteboard actually changed. The decisive check turned out to be far simpler than any of the elaborate harnesses: set the real macOS clipboard to a known sentinel with `pbcopy`, do a real drag, then read it back with `pbpaste` — a completely separate process, no browser JS in the loop at all. **Prefer that over the monkeypatch for any future verification of this;** it is both simpler and strictly stronger evidence.
+
+**Fix** (`internal/term.BindGlobalCopyModeKeys`): the run-shell chain now ends with a status-line confirmation:
+
+```
+tmux display-message -l -d 1500 -c '#{client_tty}' "Copied ${#B} chars to clipboard"
+```
+
+- `-l` prints the message literally, so tmux doesn't try to interpret anything in it as a format specifier.
+- `${#B}` is ordinary POSIX shell parameter expansion (string length of the copied buffer). It survives tmux's own format expansion untouched because it contains no `#{` sequence — verified against a real tmux server rather than assumed, since tmux *does* expand formats in a `run-shell` command string.
+- `-d 1500` sets this one message's duration explicitly instead of relying on (or mutating) the global `display-time` server option, whose 750ms default is short enough to be missed and which a user may have deliberately tuned themselves.
+
+**Also fixed in the same pass — the bindings now survive without opening a new terminal.** The copy-mode rebinding previously lived inline in `CreateSession` only, so an existing tmux server kept its old bindings until someone happened to create a *new* terminal — which is very likely part of why Problems 7/8 appeared not to take effect when first tested. It's now extracted into `term.BindGlobalCopyModeKeys` and called from **both** `CreateSession` and once at server startup (`main.go`), the same idiom already used by `CorrectGlobalMouseAndPassthroughSettings` and `CorrectGlobalKeyEncodingSettings`. tmux key tables are server-global, so a restart alone now corrects every existing session immediately. Extracting it also means the two call sites can't drift.
+
+**Verified live, end to end, with the strongest available evidence**: `pbcopy` a sentinel → real OS-level mouse drag in the app → `pbpaste` returns exactly the dragged text (sentinel replaced), and the status line visibly reads `Copied 38 chars to clipboard` with the count matching `pbpaste`'s byte length exactly. Both halves confirmed in the same drag, in a fresh browser window. Isolated-pty harness confirmed the OSC 52 relay still fires alongside the new message (adding it broke nothing).
+
 ## If copy/paste still doesn't work after all this
 
+**Read this first — the two most common false alarms**, both of which have cost real debugging time on this page:
+
+0a. **"The highlight disappears when I release the mouse" is NOT a failure.** That's `copy-selection-and-cancel` exiting copy-mode by design, *after* copying successfully — see Problem 9. Since that fix, the status line briefly shows `Copied N chars to clipboard` instead; that message, not the highlight, is the success signal. Don't diagnose anything else until you've checked whether the text actually pastes.
+
+0b. **Test with `pbpaste`, not by watching the UI and not with a `navigator.clipboard.writeText` monkeypatch.** The monkeypatch proves only that the call was made, not that the OS pasteboard changed — it can pass while real copy is broken. The decisive test:
+```sh
+printf 'SENTINEL' | pbcopy     # known baseline
+# ...do a real drag in the terminal panel...
+pbpaste                        # should print the dragged text, not SENTINEL
+```
+This involves no browser JS at all and is strictly stronger evidence than anything else on this page.
+
+Then, if it's genuinely still broken:
+
 1. Confirm `tmux show-options -g mouse` reports `on`, `tmux show-options -g allow-passthrough` reports `off`, and `tmux show-options -g set-clipboard` reports `on`, on the machine running the server (Problem 6 restored `mouse on`, reverting Problem 4's revert; Problem 5 tried and then reverted `allow-passthrough` — if either is wrong on your machine, something changed it outside this app, since `term.CorrectGlobalMouseAndPassthroughSettings` runs at every startup). All three are server-wide options, corrected retroactively via that startup call or the next `CreateSession`, applying to every existing session immediately once corrected. Otherwise, an older binary may still be running.
-5. If wheel-scroll in a plain shell is cycling through command history instead of scrolling: that's `mouse` being `off` when it should be `on` — see Problem 6. Don't "fix" it by turning `mouse off` again; that trades this bug for Problem 4's selection regression.
-2. Confirm the browser actually granted clipboard permission — `navigator.clipboard.writeText`/`readText` can silently fail if permission was denied; check the browser's own site-permission UI for `localhost:8787` (or whatever port).
-3. Confirm you rebuilt the frontend (`bun run build`) and restarted the actual server process you're testing against — these are code changes, not config a running old binary would pick up.
-4. If dragging still doesn't work but the tmux copy-mode keyboard shortcut does: that specifically would point at the mouse-event-simulation path (browser → xterm.js → pty) rather than the OSC 52 relay itself, since the keyboard path bypasses mouse handling entirely — worth mentioning which one you tried if reporting this further.
+2. Confirm the copy-mode bindings are the current ones: `tmux list-keys -T copy-mode | grep MouseDragEnd1Pane` should show the `run-shell` chain ending in `display-message`, not a bare `copy-selection-and-cancel` or the tmux default `copy-pipe-and-cancel`. `term.BindGlobalCopyModeKeys` runs at every server startup (and in every `CreateSession`), so a stale binding means an older binary is running.
+3. **Check whether the browser tab predates the last frontend build.** A loaded SPA keeps running its already-loaded JS forever — restarting the server does *not* refresh it. Open a brand-new tab (or hard-reload) and confirm via `document.scripts` that it fetched the current bundle; cross-check with `curl -s localhost:8787/ | grep -o 'assets/index-[^"]*\.js'`. This one masqueraded as "the fix doesn't work" for a whole round-trip.
+4. Confirm the browser actually granted clipboard permission — `navigator.clipboard.writeText`/`readText` can silently fail if permission was denied; check the browser's own site-permission UI for `localhost:8787` (or whatever port).
+5. Confirm you rebuilt the frontend (`bun run build`) and restarted the actual server process you're testing against — these are code changes, not config a running old binary would pick up.
+6. If dragging still doesn't work but the tmux copy-mode keyboard shortcut does: that specifically would point at the mouse-event-simulation path (browser → xterm.js → pty) rather than the OSC 52 relay itself, since the keyboard path bypasses mouse handling entirely — worth mentioning which one you tried if reporting this further.
+7. If wheel-scroll in a plain shell is cycling through command history instead of scrolling: that's `mouse` being `off` when it should be `on` — see Problem 6. Don't "fix" it by turning `mouse off` again; that trades this bug for Problem 4's selection regression.
+
+## Still genuinely open
+
+**Shift-held drag-selection is flaky** ("when I hold shift after selection, it stays, but only sometimes"). This is a *different* code path from everything fixed above: it's xterm.js's own `SelectionService` force-selection (Problem 4's `shouldForceSelection`), not tmux copy-mode, so none of the tmux-side fixes touch it. Problem 4 already flagged the unexplained half of this — why `Cmd+C`/`term.getSelection()` on a Shift-forced selection doesn't reliably copy, when the mechanism reads as correct from source. Not investigated since. Note that with the plain-drag path now working and visibly confirmed, Shift is no longer *needed* for ordinary copying — so this is a lower-stakes inconsistency than it used to be, not a blocker.
