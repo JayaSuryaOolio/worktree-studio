@@ -141,7 +141,14 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
     // doesn't honor — see that provider's own comment above.
     term.loadAddon(new ClipboardAddon(undefined, alwaysSystemClipboardProvider));
     term.open(containerRef.current);
-    fit.fit();
+    // Deferred a frame, not called inline: dockview's own layout pass for
+    // a freshly-mounted panel isn't guaranteed to have settled yet on this
+    // exact tick, so fitting synchronously here can measure a container
+    // that's still its pre-layout size and lock in too few rows/cols. The
+    // ResizeObserver below won't catch that later, since it only fires on
+    // an actual size *change* — by the time it's attached, the container's
+    // outer box may already be at its final layout size.
+    const fitFrame = requestAnimationFrame(() => fit.fit());
 
     const ws = new WebSocket(terminalWsUrl(terminalId));
     ws.binaryType = "arraybuffer";
@@ -229,6 +236,7 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      cancelAnimationFrame(fitFrame);
       resizeObserver.disconnect();
       dataDisposable.dispose();
       titleDisposable.dispose();
