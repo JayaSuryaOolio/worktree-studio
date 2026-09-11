@@ -144,25 +144,49 @@ func (s *Server) handleClaudeHookContext(w http.ResponseWriter, r *http.Request)
 }
 
 // handleClaudeSessionTitle looks up a human-readable title for a claude
-// session id by reading its own local transcript (see
+// session id, preferring a live read of its own local transcript (see
 // claudehook.SessionTitle) — used by the audit log viewer to show more
 // than a bare session id for claude.session.create entries, regardless of
 // whether that entry came from the hook (no title logged at all) or the
 // older launch-time path (which does log a title, but the transcript is
 // the more accurate source once the session has actually said something).
+//
+// Read-through cache: a live lookup is tried first (it's the most
+// up-to-date source, and reflects a title even for a session that's kept
+// talking since it was last cached), and its result is cached in
+// s.Store on success. Only when the live read fails — most notably
+// claudehook.ErrTranscriptNotFound, which is exactly what happens once
+// Claude Code's own retention deletes an old session's transcript out from
+// under this tool, independent of anything worktree-studio does — does
+// this fall back to whatever was cached from an earlier successful lookup,
+// so a title already shown once doesn't regress to a bare session id just
+// because the source it came from no longer exists.
 func (s *Server) handleClaudeSessionTitle(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
+
 	title, err := claudehook.SessionTitle(sessionID)
-	if err != nil {
-		if errors.Is(err, claudehook.ErrTranscriptNotFound) {
-			writeError(w, http.StatusNotFound, "no transcript found for this session id")
-			return
+	if err == nil {
+		if cacheErr := s.Store.SetCachedSessionTitle(sessionID, title); cacheErr != nil {
+			s.Log.Warn("cache claude session title", "err", cacheErr, "session_id", sessionID)
 		}
+		writeJSON(w, http.StatusOK, map[string]string{"title": title})
+		return
+	}
+	if !errors.Is(err, claudehook.ErrTranscriptNotFound) {
 		s.Log.Warn("claude session title lookup", "err", err, "session_id", sessionID)
 		writeError(w, http.StatusInternalServerError, "failed to look up session title")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"title": title})
+
+	cached, ok, cacheErr := s.Store.GetCachedSessionTitle(sessionID)
+	if cacheErr != nil {
+		s.Log.Warn("read cached claude session title", "err", cacheErr, "session_id", sessionID)
+	}
+	if ok {
+		writeJSON(w, http.StatusOK, map[string]string{"title": cached})
+		return
+	}
+	writeError(w, http.StatusNotFound, "no transcript found for this session id")
 }
 
 type openFileRequest struct {

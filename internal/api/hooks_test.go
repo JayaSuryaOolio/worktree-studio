@@ -287,6 +287,55 @@ func TestClaudeSessionTitleNotFound(t *testing.T) {
 	}
 }
 
+// TestClaudeSessionTitleFallsBackToCacheOnceTranscriptIsGone reproduces the
+// scenario that motivated the read-through cache: Claude Code's own
+// retention can delete a session's transcript well after this tool has
+// already shown its title once, independent of anything worktree-studio
+// itself does. A title that was successfully resolved once should keep
+// showing, not silently regress to a bare 404, just because its source
+// file is gone by the time the audit log is opened again.
+func TestClaudeSessionTitleFallsBackToCacheOnceTranscriptIsGone(t *testing.T) {
+	ts, _ := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir := filepath.Join(home, ".claude", "projects", "-tmp-x")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcriptPath := filepath.Join(dir, "s2.jsonl")
+	line := `{"type":"user","message":{"role":"user","content":"cache me please"}}` + "\n"
+	if err := os.WriteFile(transcriptPath, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First lookup: resolved live from the transcript, and cached as a
+	// side effect.
+	resp := doJSON(t, http.MethodGet, ts.URL+"/api/claude-sessions/s2/title", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("first lookup: status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	decodeInto(t, resp, &body)
+	if body["title"] != "cache me please" {
+		t.Fatalf("first lookup title = %q, want %q", body["title"], "cache me please")
+	}
+
+	// Simulate Claude Code pruning the transcript.
+	if err := os.Remove(transcriptPath); err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/claude-sessions/s2/title", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second lookup (transcript gone): status = %d, want 200 from cache", resp.StatusCode)
+	}
+	decodeInto(t, resp, &body)
+	if body["title"] != "cache me please" {
+		t.Errorf("second lookup title = %q, want cached %q", body["title"], "cache me please")
+	}
+}
+
 func TestOpenFilePublishesEventForMatchingWorktree(t *testing.T) {
 	requireGit(t)
 	ts, srv := newTestServer(t)

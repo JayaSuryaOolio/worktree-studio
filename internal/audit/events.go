@@ -24,8 +24,18 @@ const (
 	EventWorktreeRemove    Event = "worktree.remove"
 	EventWorktreeArchive   Event = "worktree.archive"
 	EventWorktreeUnarchive Event = "worktree.unarchive"
-	EventWorktreePin       Event = "worktree.pin"
-	EventWorktreeUnpin     Event = "worktree.unpin"
+
+	// Pinning (internal/api/pin.go) is deliberately NOT an audit event:
+	// tried briefly, but per direct feedback it's noise rather than a
+	// checkpoint worth a permanent record, unlike every other event type
+	// here.
+
+	// EventWorktreeBranchChange records a real `git checkout <branch>` (or
+	// `git switch`, which also triggers post-checkout) inside a worktree —
+	// see internal/githook. Distinct from worktree.create's own "branch"
+	// field: that's the branch a worktree started on, this is every branch
+	// it's toggled through since.
+	EventWorktreeBranchChange Event = "worktree.branch_change"
 
 	EventTerminalCreate Event = "terminal.create"
 	EventTerminalClose  Event = "terminal.close"

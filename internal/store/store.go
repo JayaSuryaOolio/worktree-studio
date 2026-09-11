@@ -5,6 +5,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -143,6 +144,23 @@ CREATE TABLE IF NOT EXISTS worktree_layouts (
 	worktree_id  TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
 	layout_json  TEXT NOT NULL,
 	updated_at   TEXT NOT NULL
+);
+
+-- Read-through cache of claude_session titles resolved from
+-- ~/.claude/projects/*/<session-id>.jsonl (see claudehook.SessionTitle).
+-- Not scoped to any repo/worktree (no foreign key) since a session id is
+-- globally unique and can outlive whichever worktree it was started in.
+-- Exists because Claude Code itself may delete a session's transcript
+-- (its own storage retention, unrelated to worktree-studio) well after
+-- this tool has already shown its title once — once resolved, a title is
+-- worth keeping even if its source disappears. See
+-- internal/api.handleClaudeSessionTitle for the read-through logic: live
+-- transcript read first (most up to date), falling back to this cache only
+-- when that fails.
+CREATE TABLE IF NOT EXISTS claude_session_titles (
+	session_id TEXT PRIMARY KEY,
+	title      TEXT NOT NULL,
+	cached_at  TEXT NOT NULL
 );
 `
 	_, err := s.db.Exec(schema)
@@ -746,6 +764,34 @@ func (s *Store) ListTerminalSessionsForRepo(repoID string) ([]TerminalSessionWit
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// GetCachedSessionTitle returns a previously-cached claude session title, if
+// any. The bool is false (not an error) when nothing has been cached for
+// this id yet — the normal case for any session whose title hasn't been
+// successfully resolved from its transcript at least once before.
+func (s *Store) GetCachedSessionTitle(sessionID string) (string, bool, error) {
+	var title string
+	err := s.db.QueryRow(`SELECT title FROM claude_session_titles WHERE session_id = ?`, sessionID).Scan(&title)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return title, true, nil
+}
+
+// SetCachedSessionTitle upserts a resolved claude session title into the
+// read-through cache (see claude_session_titles' schema comment), stamping
+// cached_at to now.
+func (s *Store) SetCachedSessionTitle(sessionID, title string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO claude_session_titles (session_id, title, cached_at) VALUES (?, ?, ?)
+		 ON CONFLICT(session_id) DO UPDATE SET title = excluded.title, cached_at = excluded.cached_at`,
+		sessionID, title, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
 }
 
 // RemoveTerminalSession deletes a terminal session row by id.

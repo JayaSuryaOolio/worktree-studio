@@ -2,24 +2,28 @@ package api
 
 import (
 	"net/http"
-
-	"worktree-studio/internal/audit"
 )
 
 // handlePinWorktree marks a worktree pinned: exempt from ever being
 // archived (CanArchiveWorktree, worktree_rules.go) and sorted ahead of
 // every unpinned worktree in its repo (store.ListWorktrees's ORDER BY).
 // Purely a flag, same posture as archive/unarchive — no git operation.
+//
+// Deliberately not audit-logged: pin/unpin was audit-logged briefly, but
+// per direct feedback it's noise, not a checkpoint worth a permanent
+// record — unlike archive/create/remove, toggling it destroys nothing and
+// carries no useful "what happened to this piece of work" signal on its
+// own, especially skimming a log full of other, more meaningful entries.
 func (s *Server) handlePinWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreePinned(w, r, true, audit.EventWorktreePin)
+	s.setWorktreePinned(w, r, true)
 }
 
 // handleUnpinWorktree reverses handlePinWorktree.
 func (s *Server) handleUnpinWorktree(w http.ResponseWriter, r *http.Request) {
-	s.setWorktreePinned(w, r, false, audit.EventWorktreeUnpin)
+	s.setWorktreePinned(w, r, false)
 }
 
-func (s *Server) setWorktreePinned(w http.ResponseWriter, r *http.Request, pinned bool, event audit.Event) {
+func (s *Server) setWorktreePinned(w http.ResponseWriter, r *http.Request, pinned bool) {
 	wt, ok := s.getRepoAndWorktree(w, r)
 	if !ok {
 		return
@@ -30,13 +34,6 @@ func (s *Server) setWorktreePinned(w http.ResponseWriter, r *http.Request, pinne
 		writeError(w, http.StatusInternalServerError, "failed to update worktree pin state")
 		return
 	}
-
-	s.auditLog(event, map[string]any{
-		"repo_id":     wt.RepoID,
-		"worktree_id": wt.ID,
-		"name":        wt.Name,
-		"branch":      wt.Branch,
-	})
 
 	writeJSON(w, http.StatusOK, map[string]bool{"pinned": pinned})
 }

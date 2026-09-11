@@ -71,9 +71,13 @@ func TestPinWorktreeBlocksArchive(t *testing.T) {
 	}
 }
 
-// TestPinWorktreeAuditLogged confirms both transitions are recorded, same
-// expectation as archive/unarchive.
-func TestPinWorktreeAuditLogged(t *testing.T) {
+// TestPinWorktreeNotAuditLogged is a regression test for direct feedback:
+// pinning/unpinning was briefly audit-logged, then deliberately removed as
+// noise (unlike archive/create/remove, it destroys nothing and isn't a
+// checkpoint worth a permanent record). Neither transition should appear
+// in the audit log, and no other worktree's events (in this case
+// worktree.create) should be affected.
+func TestPinWorktreeNotAuditLogged(t *testing.T) {
 	requireGit(t)
 	ts, _ := newTestServer(t)
 	repoPath := newTestGitRepo(t)
@@ -94,17 +98,19 @@ func TestPinWorktreeAuditLogged(t *testing.T) {
 	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/audit-log", nil)
 	var entries []map[string]any
 	decodeInto(t, resp, &entries)
-	var sawPin, sawUnpin bool
+	var sawCreate bool
 	for _, e := range entries {
 		switch e["event"] {
 		case "worktree.pin":
-			sawPin = true
+			t.Errorf("expected no worktree.pin entry, got %+v", e)
 		case "worktree.unpin":
-			sawUnpin = true
+			t.Errorf("expected no worktree.unpin entry, got %+v", e)
+		case "worktree.create":
+			sawCreate = true
 		}
 	}
-	if !sawPin || !sawUnpin {
-		t.Fatalf("expected both worktree.pin and worktree.unpin in the audit log, got %+v", entries)
+	if !sawCreate {
+		t.Fatalf("expected the unrelated worktree.create entry to still be present, got %+v", entries)
 	}
 }
 

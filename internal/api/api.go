@@ -65,6 +65,12 @@ func (s *Server) Routes(r chi.Router) {
 		r.Put("/{repoID}/settings", s.handleUpdateRepoSettings)
 		r.Get("/{repoID}/branches", s.handleListBranches)
 
+		r.Route("/{repoID}/git-hook", func(r chi.Router) {
+			r.Get("/", s.handleGitHookStatus)
+			r.Post("/install", s.handleGitHookInstall)
+			r.Post("/uninstall", s.handleGitHookUninstall)
+		})
+
 		r.Route("/{repoID}/worktrees", func(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
 			r.Post("/", s.handleCreateWorktree)
@@ -78,6 +84,7 @@ func (s *Server) Routes(r chi.Router) {
 				r.Get("/status", s.handleWorktreeStatus)
 				r.Get("/summary", s.handleWorktreeSummary)
 				r.Get("/audit-log", s.handleWorktreeAuditLog)
+				r.Get("/claude-sessions", s.handleListWorktreeClaudeSessions)
 				r.Post("/archive", s.handleArchiveWorktree)
 				r.Post("/unarchive", s.handleUnarchiveWorktree)
 				r.Post("/pin", s.handlePinWorktree)
@@ -124,6 +131,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Get("/status", s.handleSpotlightCLIStatus)
 	})
 	r.Post("/api/claude-hook-context", s.handleClaudeHookContext)
+	r.Post("/api/git-hook/post-checkout", s.handleGitHookPostCheckout)
 	r.Get("/api/claude-sessions/{sessionID}/title", s.handleClaudeSessionTitle)
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)
 	r.Get("/api/orphan-tmux-sessions", s.handleListOrphanTmuxSessions)

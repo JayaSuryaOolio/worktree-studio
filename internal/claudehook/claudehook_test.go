@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestParsePayload(t *testing.T) {
@@ -110,6 +111,115 @@ func TestSessionTitleClipsLongMessages(t *testing.T) {
 	}
 	if len([]rune(title)) != titleClipLength+1 { // +1 for the trailing ellipsis rune
 		t.Errorf("clipped title length = %d, want %d", len([]rune(title)), titleClipLength+1)
+	}
+}
+
+// TestSessionTitleSkipsArrayContentToolResults reproduces the real-world
+// case that used to break title lookup entirely: a resumed/tool-heavy
+// session whose early "user" lines are tool_result echoes (message.content
+// is a JSON array, not a string) rather than anything actually typed. The
+// old plain-`string` decode target failed to unmarshal these lines (a type
+// mismatch), so json.Unmarshal returned an error and the `continue` above
+// skipped them along with everything else — including any later, real
+// typed message the array-content lines happened to precede in some
+// transcripts.
+func TestSessionTitleSkipsArrayContentToolResults(t *testing.T) {
+	home := withFakeHome(t)
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"tool_reference","tool_name":"WebFetch"}]}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"some tool output","tool_use_id":"t2"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"actually fix the bug now"}}`,
+	}
+	writeTranscript(t, home, "-tmp-wt", "s3", joinLines(lines))
+
+	title, err := SessionTitle("s3")
+	if err != nil {
+		t.Fatalf("SessionTitle: %v", err)
+	}
+	if title != "actually fix the bug now" {
+		t.Errorf("title = %q, want %q", title, "actually fix the bug now")
+	}
+}
+
+// TestSessionTitleExtractsTextBlockFromArrayContent covers a real typed
+// message that also attaches something else (e.g. an image), which Claude
+// Code represents as an array of content blocks including one of type
+// "text" rather than a bare string.
+func TestSessionTitleExtractsTextBlockFromArrayContent(t *testing.T) {
+	home := withFakeHome(t)
+	line := `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{}},{"type":"text","text":"what does this screenshot show"}]}}`
+	writeTranscript(t, home, "-tmp-wt", "s4", line)
+
+	title, err := SessionTitle("s4")
+	if err != nil {
+		t.Fatalf("SessionTitle: %v", err)
+	}
+	if title != "what does this screenshot show" {
+		t.Errorf("title = %q, want %q", title, "what does this screenshot show")
+	}
+}
+
+func TestProjectDirName(t *testing.T) {
+	// Verified against a real ~/.claude/projects/ directory name observed
+	// on disk for this exact path shape (a worktree-studio worktree path,
+	// which is where this function actually gets used).
+	got := projectDirName("/Users/jayasurya/.worktree-studio/worktrees/52d305545bcee229/attendance-ui")
+	want := "-Users-jayasurya--worktree-studio-worktrees-52d305545bcee229-attendance-ui"
+	if got != want {
+		t.Errorf("projectDirName = %q, want %q", got, want)
+	}
+}
+
+func TestListSessionsForCwdNoProjectDir(t *testing.T) {
+	withFakeHome(t)
+	sessions, err := ListSessionsForCwd("/nowhere/claude/has/ever/seen")
+	if err != nil {
+		t.Fatalf("ListSessionsForCwd: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("sessions = %+v, want empty (not an error) for an unseen cwd", sessions)
+	}
+}
+
+func TestListSessionsForCwdNewestFirstWithPreviewAndSize(t *testing.T) {
+	home := withFakeHome(t)
+	cwd := "/tmp/some-worktree"
+	project := projectDirName(cwd)
+
+	older := `{"type":"user","message":{"role":"user","content":"first session, older"}}` + "\n"
+	newer := `{"type":"user","message":{"role":"user","content":"second session, newer"}}` + "\n"
+	writeTranscript(t, home, project, "s-old", older)
+	writeTranscript(t, home, project, "s-new", newer)
+
+	oldPath := filepath.Join(home, ".claude", "projects", project, "s-old.jsonl")
+	newPath := filepath.Join(home, ".claude", "projects", project, "s-new.jsonl")
+	oldTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newTime := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := ListSessionsForCwd(cwd)
+	if err != nil {
+		t.Fatalf("ListSessionsForCwd: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("got %d sessions, want 2: %+v", len(sessions), sessions)
+	}
+	if sessions[0].SessionID != "s-new" || sessions[1].SessionID != "s-old" {
+		t.Errorf("order = [%s, %s], want newest first [s-new, s-old]", sessions[0].SessionID, sessions[1].SessionID)
+	}
+	if sessions[0].Preview != "second session, newer" {
+		t.Errorf("sessions[0].Preview = %q, want %q", sessions[0].Preview, "second session, newer")
+	}
+	if sessions[0].SizeBytes != int64(len(newer)) {
+		t.Errorf("sessions[0].SizeBytes = %d, want %d", sessions[0].SizeBytes, len(newer))
+	}
+	if sessions[0].UpdatedAt == "" {
+		t.Error("sessions[0].UpdatedAt should not be empty")
 	}
 }
 
