@@ -24,7 +24,7 @@ import PinIcon from "./icons/PinIcon";
 import { useAttentionBlink } from "./useAttentionBlink";
 import { useActiveWorktreeActions } from "./activeWorktreeActions";
 import { useActiveFileTreeActions } from "./activeFileTreeActions";
-import { setPendingNewTerminal } from "./pendingNewTerminal";
+import { openShell } from "./worktreeShellActions";
 import { isTextEntryTarget } from "./keyboard";
 import { getCollapsedRepos, setCollapsedRepos } from "./sidebarPreferences";
 
@@ -339,20 +339,11 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
   // whole point is to have the root's dependencies/build output available
   // to work with. Always opens a fresh terminal tab rather than checking
   // for one already sitting at the root (a "focus existing instead"
-  // version is a possible follow-up, deliberately skipped for now). If the
-  // root worktree's own tab is already open, adds the panel directly via
-  // activeWorktreeActions (same bridge the sidebar's per-worktree terminal
-  // icons use); otherwise navigates there first and leaves a
-  // pendingNewTerminal instruction for that page to pick up once its
-  // dockview is ready (same idiom as pendingFileOpen.ts).
+  // version is a possible follow-up, deliberately skipped for now).
+  // openShell itself handles the mounted-vs-not-mounted split — see
+  // worktreeShellActions.ts.
   function openShellAtRepoRoot(repoId: string) {
-    const rootId = rootWorktreeId(repoId);
-    if (activeWorktreeActions?.worktreeId === rootId) {
-      activeWorktreeActions.newTerminal();
-      return;
-    }
-    setPendingNewTerminal(rootId);
-    navigate(`/repo/${repoId}/worktree/${rootId}`);
+    openShell(navigate, repoId, rootWorktreeId(repoId));
   }
 
   async function handleSpotlightStop(wt: Worktree) {

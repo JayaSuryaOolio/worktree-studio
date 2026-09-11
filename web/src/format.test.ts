@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { commonValue, dominantValue, leafName, parentDir, relativeTime, shortenPath } from "./format";
+import {
+  commonValue,
+  dominantValue,
+  formatBytes,
+  formatDateTime,
+  leafName,
+  parentDir,
+  relativeTime,
+  shortenPath,
+} from "./format";
 
 const now = new Date("2026-08-25T12:00:00Z");
 const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
@@ -108,6 +117,47 @@ describe("dominantValue", () => {
     const a = dominantValue(rows("beta", "beta", "alpha", "alpha"), (r) => r.v);
     const b = dominantValue(rows("alpha", "alpha", "beta", "beta"), (r) => r.v);
     expect(a).toEqual(b);
+  });
+});
+
+describe("formatDateTime", () => {
+  it("includes the year, month, and a time-of-day", () => {
+    const out = formatDateTime("2026-01-15T10:34:00Z");
+    // Exact rendering (12h vs 24h, comma placement, and which day/hour a
+    // UTC instant lands on) is locale/timezone-dependent — this only
+    // asserts the pieces a developer actually needs to tell two sessions
+    // apart are present, not one specific locale's punctuation or the
+    // test runner's own TZ.
+    expect(out).toMatch(/2026/);
+    expect(out).toMatch(/Jan/);
+    expect(out).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it("returns empty string for an invalid timestamp", () => {
+    expect(formatDateTime("not-a-date")).toBe("");
+  });
+});
+
+describe("formatBytes", () => {
+  it("renders bytes plainly", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+  });
+
+  it("switches units at each 1024 boundary", () => {
+    expect(formatBytes(1024)).toBe("1.0 KB");
+    expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
+    expect(formatBytes(1024 * 1024 * 1024)).toBe("1.0 GB");
+  });
+
+  it("shows one decimal place under 10 units, whole numbers at/above it", () => {
+    expect(formatBytes(2.3 * 1024 * 1024)).toBe("2.3 MB");
+    expect(formatBytes(19 * 1024 * 1024)).toBe("19 MB");
+  });
+
+  it("returns empty string for invalid input", () => {
+    expect(formatBytes(-5)).toBe("");
+    expect(formatBytes(NaN)).toBe("");
   });
 });
 

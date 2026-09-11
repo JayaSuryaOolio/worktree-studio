@@ -10,17 +10,24 @@
 // two "open a terminal" requests for different worktrees race a
 // navigation, the mounting WorktreeDetail should only ever consume the one
 // addressed to it.
-let pendingWorktreeId: string | null = null;
-
-export function setPendingNewTerminal(worktreeId: string) {
-  pendingWorktreeId = worktreeId;
+export interface PendingNewTerminal {
+  tabLabel?: string;
+  initialCommand?: string;
 }
 
-/** Returns true and clears the flag if a new terminal is pending for
- * worktreeId, false otherwise (including if it belongs to a different
- * worktree) — call once from the mount effect that's ready to open one. */
-export function takePendingNewTerminal(worktreeId: string): boolean {
-  if (pendingWorktreeId !== worktreeId) return false;
-  pendingWorktreeId = null;
-  return true;
+let pending: { worktreeId: string; opts: PendingNewTerminal } | null = null;
+
+export function setPendingNewTerminal(worktreeId: string, opts: PendingNewTerminal = {}) {
+  pending = { worktreeId, opts };
+}
+
+/** Returns the pending options and clears the flag if a new terminal is
+ * pending for worktreeId, null otherwise (including if it belongs to a
+ * different worktree) — call once from the mount effect that's ready to
+ * open one. */
+export function takePendingNewTerminal(worktreeId: string): PendingNewTerminal | null {
+  if (!pending || pending.worktreeId !== worktreeId) return null;
+  const opts = pending.opts;
+  pending = null;
+  return opts;
 }

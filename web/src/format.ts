@@ -128,6 +128,45 @@ export function dominantValue<T>(
   return { value: best, exceptions: items.length - bestCount };
 }
 
+/**
+ * An absolute date/time: "Sep 11, 2026, 10:34 AM" — for a context where
+ * a coarse relativeTime ("2 weeks ago") is actively unhelpful, e.g.
+ * picking the right one out of several past claude sessions to resume:
+ * a developer needs to know *when*, not roughly how long ago, and every
+ * candidate might round to the same "2 weeks ago" anyway. Skips seconds
+ * (this isn't a debug log timestamp) but otherwise leans on the runtime's
+ * own locale formatting rather than a hand-rolled format string.
+ */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * A human file size: "512 B", "19.4 MB" — the same units `ls -lh`/Finder
+ * use, since that's the size a person is likely already thinking in when
+ * comparing it against something they saw in Finder or `du`.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 /** Everything before the last "/" — "" for a path with no directory part. */
 export function parentDir(path: string): string {
   const i = path.lastIndexOf("/");

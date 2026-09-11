@@ -273,11 +273,89 @@
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: var(--fs-3);
+  overflow-y: auto;
 }
 
 .dockview-watermark-actions {
   display: flex;
   gap: var(--space-2);
+}
+
+/* The "past claude sessions" welcome screen — see WorktreeDetail.tsx's
+   Watermark. justify-content:center above still centers this block as a
+   whole when it's short; the block itself grows to fit its own content
+   rather than trying to vertically center each card. */
+.dockview-welcome-sessions {
+  width: 100%;
+  max-width: 44rem;
+  margin-top: var(--space-2);
+  text-align: left;
+}
+
+.dockview-welcome-sessions h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.claude-session-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
+}
+
+/* A single card would otherwise stretch to fill the first 1fr column,
+   sitting flush left with empty space beside it — center it at a
+   readable width instead when there's nothing to share the row with. */
+.claude-session-cards:has(> .claude-session-card:only-child) {
+  grid-template-columns: minmax(0, 28rem);
+  justify-content: center;
+}
+
+@media (max-width: 40rem) {
+  .claude-session-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.claude-session-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.claude-session-card:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+.claude-session-card-preview {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2);
+  color: var(--text);
+  /* Clamp to a few lines rather than letting one long preview blow out the
+     card's height relative to its neighbors in the grid. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.claude-session-card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-1);
+  color: var(--text-3);
 }
 
 .terminal-pane {

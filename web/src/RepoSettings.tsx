@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ExternalWorktreeEntry,
+  getGitHookStatus,
   importWorktree,
+  installGitHook,
   listArchivedWorktrees,
   listExternalWorktrees,
   listTerminalsForRepo,
   Repo,
   TerminalSessionWithWorktree,
+  uninstallGitHook,
   updateRepoBaseBranch,
   Worktree,
 } from "./api";
@@ -143,7 +146,70 @@ function GeneralTab({ repo }: { repo: Repo }) {
       </div>
       {error && <p className="error">{error}</p>}
       {saved && !error && <p className="muted">Saved.</p>}
+      <GitHookSection repoId={repo.id} />
     </section>
+  );
+}
+
+// Install/uninstall for the shared post-checkout hook (see
+// internal/githook) that logs every branch a worktree gets checked out
+// onto ("branch toggles") to its audit log — see WorktreeAuditLog.tsx's
+// "worktree.branch_change" entries. Installed once per repo, not per
+// worktree: every worktree of a repo shares the same .git/hooks/
+// directory, so there's nothing worktree-specific to toggle here. Same
+// explicit-opt-in posture as the Claude Code hooks in the global settings
+// modal — this edits a file inside the user's actual repo, so it only
+// ever happens from a deliberate click here.
+function GitHookSection({ repoId }: { repoId: string }) {
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function refresh() {
+    getGitHookStatus(repoId)
+      .then((s) => setInstalled(s.installed))
+      .catch((err) => setError((err as Error).message));
+  }
+
+  useEffect(() => {
+    setInstalled(null);
+    setError(null);
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId]);
+
+  async function handleToggle() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (installed) {
+        await uninstallGitHook(repoId);
+      } else {
+        await installGitHook(repoId);
+      }
+      refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: "1.5rem" }}>
+      <h3>Branch-tracking git hook</h3>
+      <p className="muted">
+        Installs a <code>post-checkout</code> hook shared by every worktree of this repo, so the audit log records
+        every branch a worktree gets checked out onto — not just the one it was created with.
+      </p>
+      <div className="button-with-icon" style={{ gap: "0.5rem" }}>
+        <button type="button" disabled={busy || installed === null} onClick={handleToggle}>
+          {busy ? "…" : installed ? "Uninstall" : "Install"}
+        </button>
+        {installed !== null && <span className="muted">{installed ? "Installed" : "Not installed"}</span>}
+      </div>
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   DockviewApi,
   DockviewDefaultTab,
@@ -10,10 +10,12 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import {
+  ClaudeSessionSummary,
   createTerminal,
   deleteTerminal,
   getDependencyStatus,
   getTerminalCwd,
+  getWorktreeClaudeSessions,
   getWorktreeLayout,
   listTerminals,
   openInVSCode,
@@ -31,8 +33,10 @@ import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { takePendingFileOpen } from "./pendingFileOpen";
 import { takePendingNewTerminal } from "./pendingNewTerminal";
 import { registerActiveWorktreeActions } from "./activeWorktreeActions";
+import { openShellWithClaudeResume } from "./worktreeShellActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
+import { formatBytes, formatDateTime } from "./format";
 import {
   clampFilesPanelWidth,
   FILES_PANEL_DEFAULT_WIDTH,
@@ -176,12 +180,52 @@ const components = { terminal: TerminalPanel, editor: EditorPanel };
 // at all), so context set up in WorktreeDetailInner's render still reaches
 // this module-scope Watermark component through the portal.
 const DockviewActionsContext = createContext<{
+  repoId: string;
+  worktreeId: string;
   onOpenShell: () => void;
   onOpenClaude: () => void;
 } | null>(null);
 
+// How many past-session cards the welcome screen shows at once — a
+// worktree that's had claude running in it for months could have dozens
+// of transcripts on disk, and this is meant to help someone pick up a
+// *recent* thread, not be a full archive browser (there's no "load more"
+// here; the audit log's raw JSONL is still there for anything older).
+const MAX_WELCOME_SESSIONS = 12;
+
+// The dockview empty-state: quick actions, plus (once fetched) up to
+// MAX_WELCOME_SESSIONS past claude sessions for this exact worktree path
+// as clickable cards — letting someone resume a recent conversation
+// instead of only ever starting fresh. Sourced from
+// ~/.claude/projects/ directly (see internal/claudehook.ListSessionsForCwd),
+// independent of the audit log/DB, so it also surfaces sessions started by
+// hand outside worktree-studio entirely.
 function Watermark() {
   const actions = useContext(DockviewActionsContext);
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<ClaudeSessionSummary[] | null>(null);
+
+  useEffect(() => {
+    if (!actions) return;
+    let cancelled = false;
+    getWorktreeClaudeSessions(actions.repoId, actions.worktreeId)
+      .then((s) => {
+        if (!cancelled) setSessions(s);
+      })
+      .catch(() => {
+        if (!cancelled) setSessions([]); // best-effort — an empty list just means no cards, not an error worth surfacing here
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed on the primitive ids, not the actions object
+    // itself: DockviewActionsContext.Provider's value below is a fresh
+    // object literal every WorktreeDetailInner render (same as
+    // activeWorktreeActions.ts's registration), so depending on `actions`
+    // directly would refetch on every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions?.repoId, actions?.worktreeId]);
+
   return (
     <div className="dockview-watermark">
       <p>Nothing open in this worktree yet.</p>
@@ -193,6 +237,28 @@ function Watermark() {
           <button type="button" onClick={actions.onOpenClaude}>
             Open claude
           </button>
+        </div>
+      )}
+      {actions && sessions && sessions.length > 0 && (
+        <div className="dockview-welcome-sessions">
+          <h3>Past claude sessions</h3>
+          <div className="claude-session-cards">
+            {sessions.slice(0, MAX_WELCOME_SESSIONS).map((s) => (
+              <button
+                key={s.session_id}
+                type="button"
+                className="claude-session-card"
+                title={s.preview || s.session_id}
+                onClick={() => openShellWithClaudeResume(navigate, actions.repoId, actions.worktreeId, s.session_id)}
+              >
+                <span className="claude-session-card-preview">{s.preview || s.session_id}</span>
+                <span className="claude-session-card-meta">
+                  <span>{formatDateTime(s.updated_at)}</span>
+                  <span>{formatBytes(s.size_bytes)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -521,6 +587,25 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     seedPanels(dockviewApi, terminals);
   }, [dockviewApi, savedLayout, terminalsLoaded, terminals]);
 
+  // Switches to an already-open terminal panel by id, doing nothing (and
+  // reporting false) if it isn't there — shared by the deep-link effect
+  // below (a fresh navigation, so its own one-shot ref guard is fine) and
+  // exposed through activeWorktreeActions so worktreeShellActions.ts can
+  // call it directly when the target worktree is already the one on
+  // screen, where the deep link's one-shot-per-mount guard (see that
+  // effect's own comment) would otherwise block a second focus request
+  // for a different terminal without a full remount.
+  const focusTerminalPanel = useCallback(
+    (terminalId: string): boolean => {
+      if (!dockviewApi) return false;
+      const panel = dockviewApi.getPanel(terminalId);
+      if (!panel) return false;
+      panel.api.setActive();
+      return true;
+    },
+    [dockviewApi]
+  );
+
   // Deep link support: a settings-page "Shells" row links to
   // /repo/:repoId/worktree/:worktreeId?terminal=<id>, and landing here
   // should focus that terminal's panel — once, after the initial
@@ -528,12 +613,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   // already-mounted instance doesn't re-run this: see the `key` remount
   // comment above WorktreeDetail).
   useEffect(() => {
-    if (!dockviewApi || !deepLinkTerminalId || deepLinkAppliedRef.current) return;
-    const panel = dockviewApi.getPanel(deepLinkTerminalId);
-    if (!panel) return;
+    if (!deepLinkTerminalId || deepLinkAppliedRef.current) return;
+    if (!focusTerminalPanel(deepLinkTerminalId)) return;
     deepLinkAppliedRef.current = true;
-    panel.api.setActive();
-  }, [dockviewApi, deepLinkTerminalId, terminals]);
+  }, [deepLinkTerminalId, terminals, focusTerminalPanel]);
 
   // Debounced layout save on every layout change, once the initial
   // load/seed above has happened (so restoring the saved layout doesn't
@@ -663,7 +746,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
   // effect above.
   useEffect(() => {
     if (!dockviewApi) return;
-    if (takePendingNewTerminal(worktreeId)) handleNewTerminal("within");
+    const pending = takePendingNewTerminal(worktreeId);
+    if (pending) handleNewTerminal("within", pending.tabLabel, pending.initialCommand);
   }, [dockviewApi, worktreeId]);
 
   // Same "no deps, re-register every render" idiom as the file-opener
@@ -677,9 +761,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
       vscodeAvailable,
       openVSCode: handleOpenInVSCode,
       openLog: () => setLogOpen(true),
-      newTerminal: () => handleNewTerminal("within"),
+      newTerminal: (tabLabel, initialCommand) => handleNewTerminal("within", tabLabel, initialCommand),
       splitRight: () => handleNewTerminal("right"),
       splitDown: () => handleNewTerminal("below"),
+      focusTerminal: focusTerminalPanel,
     });
     return () => registerActiveWorktreeActions(null);
   });
@@ -836,6 +921,8 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
           </div>
           <DockviewActionsContext.Provider
             value={{
+              repoId,
+              worktreeId,
               onOpenShell: () => handleNewTerminal("within"),
               onOpenClaude: () => handleNewTerminal("within", "claude", "claude"),
             }}

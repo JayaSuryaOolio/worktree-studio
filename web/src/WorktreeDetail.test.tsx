@@ -35,6 +35,7 @@ vi.mock("./api", () => ({
   openInVSCode: vi.fn(),
   getTerminalCwd: vi.fn(),
   getWorktreeSummary: vi.fn(),
+  getWorktreeClaudeSessions: vi.fn(),
 }));
 
 // Stubbed rather than wrapped in the real RepoProvider (which would need
@@ -52,6 +53,7 @@ import {
   getDependencyStatus,
   getFileTree,
   getTerminalCwd,
+  getWorktreeClaudeSessions,
   getWorktreeLayout,
   getWorktreeSummary,
   listTerminals,
@@ -59,6 +61,7 @@ import {
 } from "./api";
 import { useRepoContext } from "./RepoContext";
 import { getActiveWorktreeActions } from "./activeWorktreeActions";
+import { formatDateTime } from "./format";
 import {
   FILES_PANEL_DEFAULT_WIDTH,
   FILES_PANEL_MAX_WIDTH,
@@ -92,6 +95,7 @@ beforeEach(() => {
   vi.mocked(saveWorktreeLayout).mockResolvedValue(undefined);
   vi.mocked(getFileTree).mockResolvedValue([]);
   vi.mocked(deleteTerminal).mockResolvedValue(undefined);
+  vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([]);
   // The WorktreeSummary cache is localStorage-backed (prGitCache.ts, 5min
   // TTL), so without this the first test's summary is served to every
   // later one regardless of what getWorktreeSummary is mocked to return.
@@ -413,6 +417,65 @@ describe("WorktreeDetail", () => {
     await waitFor(() =>
       expect(createTerminal).toHaveBeenCalledWith("r1", "w1", undefined, undefined)
     );
+  });
+
+  it("empty-state watermark lists past claude sessions as cards with preview/time/size", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    const updatedAt = "2026-01-15T10:34:00Z";
+    vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([
+      {
+        session_id: "sess-1",
+        preview: "fix the flaky login test",
+        updated_at: updatedAt,
+        size_bytes: 2_400_000,
+      },
+    ]);
+    renderPage();
+
+    await screen.findByText("Past claude sessions");
+    expect(screen.getByText("fix the flaky login test")).toBeInTheDocument();
+    // An absolute date/time, not a relative one ("2 weeks ago" doesn't
+    // help someone telling two same-titled sessions apart) — see
+    // format.ts's formatDateTime, whose exact output is locale/timezone
+    // dependent, hence computing the expectation rather than hardcoding it.
+    expect(screen.getByText(formatDateTime(updatedAt))).toBeInTheDocument();
+    expect(screen.getByText("2.3 MB")).toBeInTheDocument();
+    expect(getWorktreeClaudeSessions).toHaveBeenCalledWith("r1", "w1");
+  });
+
+  it("centers a single past-session card instead of leaving it flush left in the grid", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([
+      { session_id: "sess-1", preview: "only session", updated_at: "2026-01-15T10:34:00Z", size_bytes: 1024 },
+    ]);
+    renderPage();
+
+    const card = await screen.findByText("only session");
+    const cards = card.closest(".claude-session-cards");
+    expect(cards?.children).toHaveLength(1);
+  });
+
+  it("clicking a past-session card resumes that session in a new terminal", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([
+      { session_id: "sess-abc-123", preview: "add pagination", updated_at: new Date().toISOString(), size_bytes: 1024 },
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText("add pagination"));
+    await waitFor(() =>
+      expect(createTerminal).toHaveBeenCalledWith("r1", "w1", "claude (resumed)", "claude --resume sess-abc-123")
+    );
+  });
+
+  it("shows no past-sessions section when there are none", async () => {
+    vi.mocked(listTerminals).mockResolvedValue([]);
+    vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([]);
+    renderPage();
+
+    await screen.findByRole("button", { name: "Open shell" });
+    expect(screen.queryByText("Past claude sessions")).not.toBeInTheDocument();
   });
 
   it("opens a file from the file tree into an editor panel, and reuses it on a second click", async () => {

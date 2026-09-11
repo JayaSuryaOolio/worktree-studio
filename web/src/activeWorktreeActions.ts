@@ -14,9 +14,20 @@ export interface ActiveWorktreeActions {
   vscodeAvailable: boolean;
   openVSCode: () => void;
   openLog: () => void;
-  newTerminal: () => void;
+  // tabLabel/initialCommand let a caller open more than a bare shell (a
+  // fresh `claude`, a `claude --resume <id>`, ...) through the same
+  // dockview instance — see worktreeShellActions.ts, the actual place
+  // these get composed into named use cases callers reach for by name
+  // instead of re-deriving tabLabel/initialCommand strings themselves.
+  newTerminal: (tabLabel?: string, initialCommand?: string) => void;
   splitRight: () => void;
   splitDown: () => void;
+  // Switches to an already-open terminal panel by id (no-op, returns
+  // false, if no such panel exists in this worktree's dockview right now)
+  // — the "it's still running, just bring it to front" half of
+  // worktreeShellActions.ts's focusTerminalTab, used when the target
+  // worktree happens to already be the one on screen.
+  focusTerminal: (terminalId: string) => boolean;
 }
 
 let current: ActiveWorktreeActions | null = null;

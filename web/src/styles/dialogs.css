@@ -74,10 +74,18 @@
   overflow-y: auto;
 }
 
+/* Grid, not flex: the "raw" toggle needs to sit at the row's right edge
+   while collapsed (column 3) but drop to its own full-width row below
+   everything once expanded (spanning all columns) — a flex row can't do
+   that on its own (a flex-shrink:0 sibling just stays pinned to the side,
+   vertically clipped to the header row's own height, however tall a
+   wrapped multi-line summary/title makes that row). The [open] attribute
+   selector below reassigns its grid placement with zero JS state. */
 .audit-log-entry {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: var(--space-2);
   align-items: baseline;
-  gap: var(--space-2);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--rule-soft);
 }
@@ -87,12 +95,14 @@
 }
 
 .audit-log-icon {
-  flex-shrink: 0;
+  grid-column: 1;
+  grid-row: 1;
   color: var(--text-3);
 }
 
 .audit-log-body {
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 
@@ -100,6 +110,13 @@
   font-family: var(--font-mono);
   font-size: var(--fs-2);
   color: var(--text-2);
+}
+
+.audit-log-action {
+  display: inline-block;
+  margin-top: var(--space-1);
+  font-size: var(--fs-1);
+  padding: 0.1rem 0.6rem;
 }
 
 .audit-log-time {
@@ -125,13 +142,25 @@
 }
 
 .audit-log-raw {
-  flex-shrink: 0;
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   font-size: var(--fs-1);
   color: var(--text-3);
 }
 
+/* Expanded: drop out of the header row entirely onto its own full-width
+   row below icon+body, instead of staying pinned to the right edge at a
+   capped width next to (or behind) a long wrapped title. */
+.audit-log-raw[open] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: stretch;
+  margin-top: var(--space-1);
+}
+
 .audit-log-raw pre {
-  max-width: 22rem;
+  max-width: 100%;
   overflow-x: auto;
   font-family: var(--font-mono);
   background: var(--surface-sunk);

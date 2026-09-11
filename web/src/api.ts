@@ -385,6 +385,45 @@ export function getWorktreeAuditLog(
   );
 }
 
+/** One past claude session found for a worktree's own path under
+ * ~/.claude/projects/ — see internal/claudehook.ListSessionsForCwd. */
+export interface ClaudeSessionSummary {
+  session_id: string;
+  /** First real user message, clipped — "" if none was found. */
+  preview: string;
+  /** The transcript file's own last-modified time (RFC3339). */
+  updated_at: string;
+  /** Transcript file size in bytes — see format.ts's formatBytes. */
+  size_bytes: number;
+}
+
+/** Every past claude session for this worktree, newest first — the
+ * dockview watermark's "past sessions" welcome screen. */
+export function getWorktreeClaudeSessions(
+  repoId: string,
+  worktreeId: string
+): Promise<ClaudeSessionSummary[]> {
+  return request<ClaudeSessionSummary[]>(
+    `/api/repos/${repoId}/worktrees/${worktreeId}/claude-sessions`
+  );
+}
+
+/** Whether a repo's shared post-checkout hook (see internal/githook) —
+ * which logs every branch a worktree gets checked out onto to its audit
+ * log — is currently installed. Installed once per repo (worktrees of the
+ * same repo share one .git/hooks/, so there's no per-worktree variant). */
+export function getGitHookStatus(repoId: string): Promise<{ installed: boolean }> {
+  return request<{ installed: boolean }>(`/api/repos/${repoId}/git-hook/`);
+}
+
+export function installGitHook(repoId: string): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/git-hook/install`, { method: "POST" });
+}
+
+export function uninstallGitHook(repoId: string): Promise<void> {
+  return request<void>(`/api/repos/${repoId}/git-hook/uninstall`, { method: "POST" });
+}
+
 export function getSpotlightStatus(
   repoId: string,
   worktreeId: string
