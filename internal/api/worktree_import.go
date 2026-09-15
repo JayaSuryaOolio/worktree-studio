@@ -129,6 +129,116 @@ func (s *Server) handleImportWorktree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, wt)
 }
 
+// handleDiscoverExternalWorktrees is the automatic counterpart to
+// handleImportWorktree: instead of a person picking one candidate off the
+// "other git worktrees" datagrid and clicking Attach, this registers every
+// not-yet-tracked worktree `git worktree list` reports for the repo that
+// also falls under its configured ExternalWorktreesRoot (the repo settings
+// field pointing at another tool's own workspace root, e.g. Conductor's
+// `~/conductor/workspaces/<repo>/`) — the frontend calls this once per repo
+// on page load (see RepoContext.tsx) so worktrees another tool created show
+// up here without anyone remembering to visit the settings page and attach
+// them by hand.
+//
+// A repo with no ExternalWorktreesRoot configured is a deliberate no-op
+// (empty result, 200 OK) rather than an error: most repos never set this,
+// and the frontend calls this unconditionally for every repo on every page
+// load. Any single candidate this finds under the root that can't be
+// imported (detached HEAD, or a DB write failure) is skipped rather than
+// failing the whole batch — one bad entry shouldn't hide the rest.
+func (s *Server) handleDiscoverExternalWorktrees(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+	repo, err := s.Store.GetRepo(repoID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	onboarded := []store.Worktree{}
+	if repo.ExternalWorktreesRoot == "" {
+		writeJSON(w, http.StatusOK, onboarded)
+		return
+	}
+
+	entries, err := gitops.ListWorktrees(repo.Path)
+	if err != nil {
+		s.Log.Error("list worktrees for discovery", "err", err, "repo_id", repo.ID)
+		writeError(w, http.StatusInternalServerError, "failed to inspect this repo's git worktrees")
+		return
+	}
+
+	for _, entry := range entries {
+		if resolveBestEffortEqual(entry.Path, repo.Path) {
+			continue // the primary checkout itself, never a candidate
+		}
+		if !pathUnderRoot(entry.Path, repo.ExternalWorktreesRoot) {
+			continue
+		}
+		branch := strings.TrimPrefix(entry.Branch, "refs/heads/")
+		if branch == "" {
+			continue // detached HEAD — same guard handleImportWorktree enforces, just skipped instead of erroring
+		}
+		exists, err := s.Store.WorktreePathExists(entry.Path)
+		if err != nil {
+			s.Log.Error("check worktree exists", "err", err)
+			writeError(w, http.StatusInternalServerError, "failed to check existing worktrees")
+			return
+		}
+		if exists {
+			continue
+		}
+
+		wt := store.Worktree{
+			ID:        newID(),
+			RepoID:    repo.ID,
+			Name:      "ext_" + filepath.Base(entry.Path),
+			Branch:    branch,
+			Path:      entry.Path,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			Status:    store.WorktreeStatusActive,
+			Source:    store.WorktreeSourceImported,
+		}
+		if err := s.Store.AddWorktree(wt); err != nil {
+			s.Log.Error("save auto-discovered worktree", "err", err, "path", wt.Path)
+			continue
+		}
+
+		s.auditLog(audit.EventWorktreeAutoDiscover, map[string]any{
+			"repo_id":     repo.ID,
+			"worktree_id": wt.ID,
+			"name":        wt.Name,
+			"branch":      wt.Branch,
+			"path":        wt.Path,
+			"root":        repo.ExternalWorktreesRoot,
+		})
+		onboarded = append(onboarded, wt)
+	}
+
+	writeJSON(w, http.StatusOK, onboarded)
+}
+
+// pathUnderRoot reports whether path is root itself or a descendant of it,
+// tolerating the same symlink-normalization divergence resolveBestEffortEqual
+// does (e.g. macOS's /tmp being a symlink to /private/tmp) so a root typed
+// without the resolved prefix still matches.
+func pathUnderRoot(path, root string) bool {
+	rp, errP := filepath.EvalSymlinks(path)
+	rr, errR := filepath.EvalSymlinks(root)
+	if errP != nil || errR != nil {
+		rp, rr = path, root
+	}
+	rel, err := filepath.Rel(rr, rp)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 // findWorktreeEntryByPath finds the entry (if any) whose path refers to the
 // same directory as path — a plain string compare would false-negative on
 // macOS, where a path under /tmp or /var (as a user might type, or as many

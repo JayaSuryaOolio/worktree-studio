@@ -91,6 +91,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate worktrees.pinned: %w", err)
 	}
+	if err := s.migrateAddRepoExternalWorktreesRoot(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate repos.external_worktrees_root: %w", err)
+	}
 	return s, nil
 }
 
@@ -253,6 +257,24 @@ func (s *Store) migrateAddRepoBaseBranch() error {
 	return err
 }
 
+// migrateAddRepoExternalWorktreesRoot adds the repos.external_worktrees_root
+// column: an optional absolute path (typically another tool's own workspace
+// root, e.g. Conductor's `~/conductor/workspaces/<repo>/`) that this repo's
+// worktrees may also live under. Empty string (the default) means "no
+// external root configured" — auto-discovery (see
+// handleDiscoverExternalWorktrees) is a no-op until a repo has one set.
+func (s *Store) migrateAddRepoExternalWorktreesRoot() error {
+	hasColumn, err := s.hasColumn("repos", "external_worktrees_root")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE repos ADD COLUMN external_worktrees_root TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
 // migrateAddWorktreeArchivedAt adds the worktrees.archived_at column for
 // databases created before it existed. Its real archive time is long
 // lost for any row already sitting at status="archived", so rather than
@@ -383,6 +405,11 @@ type Repo struct {
 	// BaseBranch is the branch new worktrees are created from. Empty means
 	// "auto-detect" — see migrateAddRepoBaseBranch's doc comment.
 	BaseBranch string `json:"base_branch"`
+	// ExternalWorktreesRoot is an optional absolute path another tool
+	// creates this repo's worktrees under (e.g. Conductor's own workspace
+	// root). Empty means auto-discovery is disabled for this repo — see
+	// migrateAddRepoExternalWorktreesRoot's doc comment.
+	ExternalWorktreesRoot string `json:"external_worktrees_root"`
 }
 
 // Worktree is a git worktree created under a registered repo.
@@ -424,7 +451,7 @@ func (s *Store) AddRepo(r Repo) error {
 
 // ListRepos returns all registered repos.
 func (s *Store) ListRepos() ([]Repo, error) {
-	rows, err := s.db.Query(`SELECT id, name, path, base_branch FROM repos ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, path, base_branch, external_worktrees_root FROM repos ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +460,7 @@ func (s *Store) ListRepos() ([]Repo, error) {
 	var out []Repo
 	for rows.Next() {
 		var r Repo
-		if err := rows.Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch, &r.ExternalWorktreesRoot); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -444,8 +471,8 @@ func (s *Store) ListRepos() ([]Repo, error) {
 // GetRepo fetches a single repo by id. Returns sql.ErrNoRows if not found.
 func (s *Store) GetRepo(id string) (Repo, error) {
 	var r Repo
-	err := s.db.QueryRow(`SELECT id, name, path, base_branch FROM repos WHERE id = ?`, id).
-		Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch)
+	err := s.db.QueryRow(`SELECT id, name, path, base_branch, external_worktrees_root FROM repos WHERE id = ?`, id).
+		Scan(&r.ID, &r.Name, &r.Path, &r.BaseBranch, &r.ExternalWorktreesRoot)
 	return r, err
 }
 
@@ -453,6 +480,14 @@ func (s *Store) GetRepo(id string) (Repo, error) {
 // this repo. Pass "" to revert to auto-detection.
 func (s *Store) UpdateRepoBaseBranch(id, baseBranch string) error {
 	_, err := s.db.Exec(`UPDATE repos SET base_branch = ? WHERE id = ?`, baseBranch, id)
+	return err
+}
+
+// UpdateRepoExternalWorktreesRoot sets the path another tool's worktrees for
+// this repo live under (see ExternalWorktreesRoot's doc comment). Pass "" to
+// disable auto-discovery for this repo.
+func (s *Store) UpdateRepoExternalWorktreesRoot(id, root string) error {
+	_, err := s.db.Exec(`UPDATE repos SET external_worktrees_root = ? WHERE id = ?`, root, id)
 	return err
 }
 

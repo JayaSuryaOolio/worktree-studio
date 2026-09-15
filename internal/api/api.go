@@ -75,6 +75,7 @@ func (s *Server) Routes(r chi.Router) {
 			r.Get("/", s.handleListWorktrees)
 			r.Post("/", s.handleCreateWorktree)
 			r.Post("/import", s.handleImportWorktree)
+			r.Post("/discover", s.handleDiscoverExternalWorktrees)
 			r.Get("/new-name-suggestion", s.handleNewNameSuggestion)
 			r.Get("/external", s.handleListExternalWorktrees)
 			r.Get("/archived", s.handleListArchivedWorktrees)
@@ -275,17 +276,21 @@ func (s *Server) EnsureRootWorktree(repo store.Repo) {
 }
 
 type updateRepoSettingsRequest struct {
-	BaseBranch string `json:"base_branch"`
+	BaseBranch            string `json:"base_branch"`
+	ExternalWorktreesRoot string `json:"external_worktrees_root"`
 }
 
-// handleUpdateRepoSettings sets repo.BaseBranch, the explicit override for
-// which branch new worktrees are created from (see handleCreateWorktree and
-// gitops.DetectDefaultBranch). Posting "" reverts to auto-detection —
-// deliberately not validated against the repo's actual local/remote
-// branches here: a typo or a branch that doesn't exist yet just surfaces as
-// git's own "invalid reference" error on the next worktree-create attempt,
-// which is a clear enough signal without duplicating git's own branch
-// resolution logic here.
+// handleUpdateRepoSettings sets repo.BaseBranch (the explicit override for
+// which branch new worktrees are created from — see handleCreateWorktree and
+// gitops.DetectDefaultBranch) and repo.ExternalWorktreesRoot (see
+// handleDiscoverExternalWorktrees). Both fields are always written together
+// from the single request body — the settings form saves them as one unit
+// specifically so a save of one never silently blanks out the other via a
+// zero-value field the caller didn't mean to touch. Posting "" for either
+// reverts it to its default (auto-detect / auto-discovery disabled).
+// ExternalWorktreesRoot is deliberately not validated as a real directory
+// here — a typo just means discovery finds nothing under it, which is a
+// harmless no-op rather than something worth a hard error.
 func (s *Server) handleUpdateRepoSettings(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoID")
 
@@ -310,10 +315,19 @@ func (s *Server) handleUpdateRepoSettings(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to update repo settings")
 		return
 	}
+	if err := s.Store.UpdateRepoExternalWorktreesRoot(repoID, req.ExternalWorktreesRoot); err != nil {
+		s.Log.Error("update repo external worktrees root", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to update repo settings")
+		return
+	}
 
 	s.auditLog(audit.EventRepoUpdateBaseBranch, map[string]any{
 		"repo_id":     repoID,
 		"base_branch": req.BaseBranch,
+	})
+	s.auditLog(audit.EventRepoUpdateExternalWorktreesRoot, map[string]any{
+		"repo_id": repoID,
+		"root":    req.ExternalWorktreesRoot,
 	})
 
 	repo, err := s.Store.GetRepo(repoID)

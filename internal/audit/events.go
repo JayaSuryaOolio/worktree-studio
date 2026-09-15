@@ -16,14 +16,21 @@ package audit
 type Event string
 
 const (
-	EventRepoAdd              Event = "repo.add"
-	EventRepoUpdateBaseBranch Event = "repo.update_base_branch"
+	EventRepoAdd                         Event = "repo.add"
+	EventRepoUpdateBaseBranch            Event = "repo.update_base_branch"
+	EventRepoUpdateExternalWorktreesRoot Event = "repo.update_external_worktrees_root"
 
-	EventWorktreeCreate    Event = "worktree.create"
-	EventWorktreeImport    Event = "worktree.import"
-	EventWorktreeRemove    Event = "worktree.remove"
-	EventWorktreeArchive   Event = "worktree.archive"
-	EventWorktreeUnarchive Event = "worktree.unarchive"
+	EventWorktreeCreate Event = "worktree.create"
+	EventWorktreeImport Event = "worktree.import"
+	// EventWorktreeAutoDiscover records the same registry-insert
+	// handleImportWorktree does, but triggered automatically by the
+	// discover-on-page-load flow (see handleDiscoverExternalWorktrees)
+	// against a repo's configured ExternalWorktreesRoot, rather than a
+	// manual "Attach" click.
+	EventWorktreeAutoDiscover Event = "worktree.auto_discover"
+	EventWorktreeRemove       Event = "worktree.remove"
+	EventWorktreeArchive      Event = "worktree.archive"
+	EventWorktreeUnarchive    Event = "worktree.unarchive"
 
 	// Pinning (internal/api/pin.go) is deliberately NOT an audit event:
 	// tried briefly, but per direct feedback it's noise rather than a
