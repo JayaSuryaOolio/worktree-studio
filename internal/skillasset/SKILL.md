@@ -92,13 +92,15 @@ This runs `git worktree add -b amber-ridge <path> [startPoint]` against the regi
 ```bash
 curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
   -H "Content-Type: application/json" \
-  -d '{"base_branch": "develop"}'
+  -d '{"base_branch": "develop", "external_worktrees_root": ""}'
 
 # revert to auto-detect
 curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
   -H "Content-Type: application/json" \
-  -d '{"base_branch": ""}'
+  -d '{"base_branch": "", "external_worktrees_root": ""}'
 ```
+
+This same endpoint also holds `external_worktrees_root` (see "Auto-discovering worktrees from another tool" below) — both fields are always written together from one request body, so a call that means to change only one of them still has to send the other's current value, not omit it (an omitted field decodes to `""` and would silently clear it).
 
 ## Attaching an existing worktree (no git mutation)
 
@@ -111,6 +113,23 @@ curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/import \
 ```
 
 The path must already appear in `git worktree list --porcelain` run from the registered repo's root — anything else is a `400`. A detached-HEAD worktree is also rejected (`400`): most of this app assumes a real branch. Re-importing an already-registered path is a `409`, not a silent no-op. `name` is optional in the request body; when omitted it defaults to `ext_<directory name>` — the `ext_` prefix is deliberate, so an attached worktree is visually distinguishable in the list from one this tool created itself (which is always a bare adjective-noun slug).
+
+## Auto-discovering worktrees from another tool
+
+Attaching one worktree at a time (above) is fine occasionally, but a repo that's actively driven by a second tool creating its own worktrees (e.g. Conductor's `~/conductor/workspaces/<repo>/<name>`) shouldn't need a manual "Attach" click for every single one. Each repo's settings page (gear icon on its sidebar row → General tab) has an **"External worktrees root"** field — an absolute path that other tool's own worktrees for this repo live under. Once set, the frontend calls the discover endpoint for every registered repo right after the repo list loads (`RepoContext.tsx`) — so on every page load, any not-yet-tracked `git worktree` under that path is registered automatically, with no click required.
+
+```bash
+# configure the root (send base_branch too — see above: this PUT always writes both fields together)
+curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
+  -H "Content-Type: application/json" \
+  -d '{"base_branch": "", "external_worktrees_root": "/Users/you/conductor/workspaces/this-repo"}'
+
+# trigger discovery directly (normally the frontend does this on page load)
+curl -X POST http://localhost:8787/api/repos/<repoId>/worktrees/discover
+# -> [] if nothing new (also the response when no root is configured at all — a deliberate no-op, not an error)
+```
+
+Candidates are found the same way `git worktree list` already reports every worktree of a repo regardless of who created it — this only adds a path-prefix filter (so an unrelated stray worktree elsewhere doesn't get silently onboarded) and does the registration automatically rather than waiting for a click. Same rules as manual import: a candidate outside the configured root is left alone (still shows up in the settings page's "Other git worktrees" attach list instead), a detached-HEAD candidate is skipped rather than failing the whole batch, and an already-registered path is never re-imported — re-running discover is a no-op once everything under the root is known. Onboarded worktrees get `source: "imported"` and the same `ext_<dirname>` naming as a manual attach, and log a `worktree.auto_discover` audit event (vs. manual attach's `worktree.import`) so the per-worktree audit log records which path this actually came from.
 
 ## Repairing a worktree whose registered path went stale
 
