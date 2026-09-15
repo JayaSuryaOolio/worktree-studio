@@ -9,6 +9,7 @@ import {
 import { useMatch, useNavigate } from "react-router-dom";
 import {
   clearAttention,
+  discoverExternalWorktrees,
   getSpotlightStatus,
   getWorktreeStatus,
   listRepos,
@@ -222,6 +223,30 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   // (registering a new one, or the initial load finishing).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(refreshWorktrees, [repos]);
+
+  // On page load (and again whenever the repo list changes), check every
+  // repo for worktrees another tool created under its configured
+  // `external_worktrees_root` and register any not already tracked — see
+  // discoverExternalWorktrees()'s doc comment. A no-op per repo unless that
+  // setting is actually configured, so this is safe to run unconditionally
+  // rather than gating it on some registered repo having it set. Re-fetches
+  // the worktree list only if something was actually onboarded, so a
+  // steady-state page load (the common case) doesn't pay for a second
+  // round of per-repo worktree fetches on top of the one above.
+  useEffect(() => {
+    if (repos.length === 0) return;
+    let cancelled = false;
+    Promise.all(repos.map((r) => discoverExternalWorktrees(r.id).catch(() => [] as Worktree[]))).then(
+      (results) => {
+        if (cancelled) return;
+        if (results.some((onboarded) => onboarded.length > 0)) refreshWorktrees();
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repos]);
 
   function refreshSpotlightStatus(worktreeId: string): Promise<void> {
     return spotlightSchedulerRef.current?.refreshNow(worktreeId) ?? Promise.resolve();

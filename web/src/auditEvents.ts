@@ -12,7 +12,9 @@
 // render them.
 export const AUDIT_EVENTS = [
   "repo.add",
+  "repo.update_external_worktrees_root",
   "worktree.create",
+  "worktree.auto_discover",
   "worktree.remove",
   "worktree.archive",
   "worktree.unarchive",

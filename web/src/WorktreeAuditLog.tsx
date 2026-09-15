@@ -23,7 +23,10 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
   // worktree_id, so it can't match this view's filter) — included only so
   // Record<AuditEventType, ...> stays exhaustive against auditEvents.ts.
   "repo.add": { icon: "📁", label: "Repo registered" },
+  // Also never shown here (no worktree_id) — same reason as repo.add.
+  "repo.update_external_worktrees_root": { icon: "🛰️", label: "External worktrees root updated" },
   "worktree.create": { icon: "🌱", label: "Worktree created" },
+  "worktree.auto_discover": { icon: "🛰️", label: "Auto-discovered from external root" },
   "worktree.remove": { icon: "🗑️", label: "Worktree removed" },
   "worktree.archive": { icon: "📦", label: "Worktree archived" },
   "worktree.unarchive": { icon: "📤", label: "Worktree unarchived" },
@@ -56,6 +59,7 @@ function summarize(entry: AuditLogEntry, realTitles: Record<string, string | nul
     case "worktree.create":
     case "worktree.remove":
     case "worktree.branch_change":
+    case "worktree.auto_discover":
       return typeof entry.branch === "string" ? `branch ${entry.branch}` : null;
     case "terminal.create":
     case "terminal.close":

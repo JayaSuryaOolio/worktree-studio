@@ -11,7 +11,7 @@ import {
   Repo,
   TerminalSessionWithWorktree,
   uninstallGitHook,
-  updateRepoBaseBranch,
+  updateRepoSettings,
   Worktree,
 } from "./api";
 import { relativeTime } from "./format";
@@ -103,20 +103,25 @@ export default function RepoSettings() {
 function GeneralTab({ repo }: { repo: Repo }) {
   const { refreshRepos } = useRepoContext();
   const [baseBranch, setBaseBranch] = useState(repo.base_branch);
+  const [externalRoot, setExternalRoot] = useState(repo.external_worktrees_root);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     setBaseBranch(repo.base_branch);
-  }, [repo.base_branch]);
+    setExternalRoot(repo.external_worktrees_root);
+  }, [repo.base_branch, repo.external_worktrees_root]);
 
   async function handleSave() {
     setSaving(true);
     setError(null);
     setSaved(false);
     try {
-      await updateRepoBaseBranch(repo.id, baseBranch.trim());
+      await updateRepoSettings(repo.id, {
+        base_branch: baseBranch.trim(),
+        external_worktrees_root: externalRoot.trim(),
+      });
       refreshRepos();
       setSaved(true);
     } catch (err) {
@@ -140,6 +145,25 @@ function GeneralTab({ repo }: { repo: Repo }) {
           value={baseBranch}
           onChange={(e) => setBaseBranch(e.target.value)}
         />
+      </div>
+
+      <h3 style={{ marginTop: "1.5rem" }}>External worktrees root</h3>
+      <p className="muted">
+        Absolute path another tool (e.g. Conductor) creates this repo's worktrees under. On every page load,
+        worktree-studio checks for git worktrees under this path that it doesn't know about yet and registers them
+        automatically — the same as clicking "Attach" below, just automatic and scoped to this path. Leave blank to
+        disable.
+      </p>
+      <div className="button-with-icon" style={{ gap: "0.5rem" }}>
+        <input
+          type="text"
+          placeholder="e.g. /Users/you/conductor/workspaces/this-repo"
+          value={externalRoot}
+          onChange={(e) => setExternalRoot(e.target.value)}
+        />
+      </div>
+
+      <div className="button-with-icon" style={{ gap: "0.5rem", marginTop: "0.75rem" }}>
         <button type="button" disabled={saving} onClick={handleSave}>
           {saving ? "Saving…" : "Save"}
         </button>

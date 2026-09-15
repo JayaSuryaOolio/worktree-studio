@@ -8,6 +8,10 @@ export interface Repo {
   // default branch, else local main/master, else the main checkout's
   // current HEAD) — see internal/gitops.DetectDefaultBranch.
   base_branch: string;
+  // Absolute path another tool creates this repo's worktrees under (e.g.
+  // Conductor's own workspace root). "" means auto-discovery is disabled —
+  // see discoverExternalWorktrees() below.
+  external_worktrees_root: string;
 }
 
 // Not to be confused with WorktreeStatus below, which is git dirty/ahead-
@@ -153,12 +157,19 @@ export function addRepo(name: string, path: string): Promise<Repo> {
   });
 }
 
-/** Sets the branch new worktrees are created from for this repo. Pass ""
- * to revert to auto-detection — see Repo.base_branch. */
-export function updateRepoBaseBranch(repoId: string, baseBranch: string): Promise<Repo> {
+/** Saves this repo's settings — the base branch new worktrees are created
+ * from, and the external-worktrees-root auto-discovery path. Both fields
+ * are always sent together: the backend writes them as one unit, so a save
+ * that only sent the one being edited would silently blank out the other
+ * (see internal/api.handleUpdateRepoSettings's doc comment). Pass "" for
+ * either to revert it to its default. */
+export function updateRepoSettings(
+  repoId: string,
+  settings: { base_branch: string; external_worktrees_root: string }
+): Promise<Repo> {
   return request<Repo>(`/api/repos/${repoId}/settings`, {
     method: "PUT",
-    body: JSON.stringify({ base_branch: baseBranch }),
+    body: JSON.stringify(settings),
   });
 }
 
@@ -237,6 +248,18 @@ export class ConflictError extends Error {}
  * Import a candidate from here via importWorktree() above. */
 export function listExternalWorktrees(repoId: string): Promise<ExternalWorktreeEntry[]> {
   return request<ExternalWorktreeEntry[]>(`/api/repos/${repoId}/worktrees/external`);
+}
+
+/** Registers every not-yet-tracked git worktree found under this repo's
+ * configured `external_worktrees_root` (see Repo.external_worktrees_root) —
+ * the automatic counterpart to importWorktree() above. A no-op (empty
+ * result) if that setting is blank. RepoContext calls this once per repo
+ * right after repos load, so worktrees another tool created show up without
+ * anyone visiting the settings page. Returns the worktrees it just onboarded. */
+export function discoverExternalWorktrees(repoId: string): Promise<Worktree[]> {
+  return request<Worktree[]>(`/api/repos/${repoId}/worktrees/discover`, {
+    method: "POST",
+  });
 }
 
 /** Every terminal session across every worktree under a repo, joined with
