@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds worktree-studio (frontend + Go binary), installs the built binary
-# to ~/.worktree-studio/bin/worktree-studio, and installs this app's
+# to ~/.worktree-studio/bin/worktree-studio, installs the wtx worktree exec
+# harness (scripts/wtx) alongside it, and installs this app's
 # "hooks" (every Claude Code hook registered in internal/claudehook's
 # registry — currently session-tracking and worktree-context — plus the
 # globally-installed worktree-studio skill) — see cmd/worktree-studio/hooks.go
@@ -16,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$HOME/.worktree-studio/bin"
 BIN_PATH="$INSTALL_DIR/worktree-studio"
+WTX_PATH="$INSTALL_DIR/wtx"
 
 command -v go >/dev/null 2>&1 || fail "go not found on PATH — install Go first (https://go.dev/dl/)"
 command -v bun >/dev/null 2>&1 || fail "bun not found on PATH — install it first (curl -fsSL https://bun.sh/install | bash)"
@@ -33,5 +35,13 @@ mkdir -p "$INSTALL_DIR"
 log "installing hooks (every registered claude hook + worktree-studio skill)"
 "$BIN_PATH" install-hooks
 
+# wtx is a shell script, not part of the Go build, so it's copied rather than
+# built. It lands in the same directory as the binary because it *shells out*
+# to `worktree-studio create-worktree` — whatever PATH makes one of them work
+# should make the other work too. Splitting them across two directories is how
+# you get a wtx that silently falls back to plain git forever. See docs/wtx.md.
+log "installing wtx (worktree exec harness) -> $WTX_PATH"
+install -m 0755 "$REPO_ROOT/scripts/wtx" "$WTX_PATH"
+
 log "done. Run the server with: $BIN_PATH"
-log "(add $INSTALL_DIR to your PATH to just run: worktree-studio)"
+log "(add $INSTALL_DIR to your PATH to just run: worktree-studio, wtx)"
