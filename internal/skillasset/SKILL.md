@@ -102,6 +102,18 @@ curl -X PUT http://localhost:8787/api/repos/<repoId>/settings \
 
 This same endpoint also holds `external_worktrees_root` (see "Auto-discovering worktrees from another tool" below) — both fields are always written together from one request body, so a call that means to change only one of them still has to send the other's current value, not omit it (an omitted field decodes to `""` and would silently clear it).
 
+### Creating a worktree from a shell command (e.g. as Claude, without touching the UI)
+
+`worktree-studio create-worktree <name> [--branch <source-branch>] [path]` creates a worktree *through* worktree-studio's own server (same audit logging, same UI list) instead of requiring the repo's id — the same "resolve from a filesystem path" idiom `open-file`/`spotlight` already use:
+
+```bash
+worktree-studio create-worktree amber-ridge                   # repo = whichever one cwd is inside
+worktree-studio create-worktree amber-ridge /path/to/repo-or-worktree   # or target one by path, from anywhere
+worktree-studio create-worktree amber-ridge --branch develop   # branch off something other than the repo's default
+```
+
+`path` is optional and defaults to the current working directory (same implicit-cwd convention as `open-file`/`spotlight`); when given, it can be the repo's own root checkout *or* any of its existing worktrees — both are resolvable, since every repo's root checkout is itself tracked as a synthetic worktree row (see `EnsureRootWorktree`). This is what lets an agent already working inside one worktree spin up a sibling worktree of the same repo just by running this from where it already is. Same tolerance as `open-file`/`spotlight`: a path outside every repo/worktree `worktree-studio` tracks is a silent no-op (exit 1, nothing happens), not an error.
+
 ## Attaching an existing worktree (no git mutation)
 
 For a worktree created some other way — by hand with `git worktree add`, or by another tool — there's a separate "attach" flow that registers it without running any git command at all. In the UI: the sidebar's per-repo "📂" button (next to the "+" for a new worktree), or "📂 Attach existing worktree in `<repo>`" in the command palette.

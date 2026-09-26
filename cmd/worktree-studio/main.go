@@ -71,6 +71,9 @@ func main() {
 	if runOrphansCommand(os.Args[1:]) {
 		return
 	}
+	if runCreateWorktreeCommand(os.Args[1:]) {
+		return
+	}
 
 	logPath, err := logFilePath()
 	if err != nil {

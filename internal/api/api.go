@@ -126,6 +126,7 @@ func (s *Server) Routes(r chi.Router) {
 
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Post("/api/open-file", s.handleOpenFile)
+	r.Post("/api/worktrees", s.handleCreateWorktreeCLI)
 	r.Route("/api/spotlight", func(r chi.Router) {
 		r.Post("/start", s.handleSpotlightCLIStart)
 		r.Post("/stop", s.handleSpotlightCLIStop)
@@ -440,28 +441,20 @@ type createWorktreeRequest struct {
 	SourceBranch string `json:"source_branch"`
 }
 
-func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
-	repoID := chi.URLParam(r, "repoID")
+// errWorktreeNameRequired is a sentinel so every caller of createWorktree
+// (the repoID-scoped HTTP handler and the path-resolved CLI one) can map it
+// to 400, while every other failure it returns maps to 500 with the error's
+// own message as the body verbatim (those messages already carry all the
+// detail worth showing, including manual-recovery instructions in the worst
+// case — see the rollback branch below).
+var errWorktreeNameRequired = errors.New("name is required")
 
-	repo, err := s.Store.GetRepo(repoID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "repo not found")
-			return
-		}
-		s.Log.Error("get repo", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to look up repo")
-		return
-	}
-
-	var req createWorktreeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
+// createWorktree is handleCreateWorktree's actual logic, extracted so
+// handleCreateWorktreeCLI (resolved from a filesystem path instead of a
+// `repoID` URL param — see handleCreateWorktree's doc) can share it exactly.
+func (s *Server) createWorktree(repo store.Repo, req createWorktreeRequest) (store.Worktree, error) {
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
+		return store.Worktree{}, errWorktreeNameRequired
 	}
 
 	slug := slugify(req.Name)
@@ -469,8 +462,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		s.Log.Error("create worktree parent dir", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to prepare worktree directory")
-		return
+		return store.Worktree{}, errors.New("failed to prepare worktree directory")
 	}
 
 	branch := slug
@@ -492,8 +484,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := gitops.AddWorktree(repo.Path, worktreePath, branch, baseBranch); err != nil {
 		s.Log.Error("git worktree add", "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to create git worktree: "+err.Error())
-		return
+		return store.Worktree{}, fmt.Errorf("failed to create git worktree: %w", err)
 	}
 
 	wt := store.Worktree{
@@ -527,13 +518,11 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		brErr := gitops.DeleteBranch(repo.Path, branch)
 		if rmErr != nil || brErr != nil {
 			s.Log.Error("rollback of orphaned git worktree/branch failed", "worktree_err", rmErr, "branch_err", brErr, "path", worktreePath, "branch", branch)
-			writeError(w, http.StatusInternalServerError,
+			return store.Worktree{}, fmt.Errorf(
 				"failed to save worktree record, AND failed to fully roll back the git worktree/branch it had already created — "+
-					"manual cleanup needed: git worktree remove --force "+worktreePath+" && git -C "+repo.Path+" branch -D "+branch)
-			return
+					"manual cleanup needed: git worktree remove --force %s && git -C %s branch -D %s", worktreePath, repo.Path, branch)
 		}
-		writeError(w, http.StatusInternalServerError, "failed to save worktree record (the git worktree was rolled back, safe to retry): "+err.Error())
-		return
+		return store.Worktree{}, fmt.Errorf("failed to save worktree record (the git worktree was rolled back, safe to retry): %w", err)
 	}
 
 	s.auditLog(audit.EventWorktreeCreate, map[string]any{
@@ -545,7 +534,92 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		"base_branch": baseBranch,
 	})
 
+	return wt, nil
+}
+
+func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+
+	repo, err := s.Store.GetRepo(repoID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "repo not found")
+			return
+		}
+		s.Log.Error("get repo", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	var req createWorktreeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	wt, err := s.createWorktree(repo, req)
+	if err != nil {
+		if errors.Is(err, errWorktreeNameRequired) {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, wt)
+}
+
+type createWorktreeCLIRequest struct {
+	// Path identifies which repo to create the worktree under, resolved the
+	// same way handleSpotlightCLIStart/handleOpenFile resolve a path to a
+	// worktree — via resolveWorktreeByPathForCLI. That also covers "path is
+	// inside the repo's own root checkout", since every repo's root gets a
+	// synthetic worktree row of its own (see main.go's EnsureRootWorktree
+	// backfill) — so a caller sitting anywhere in the repo (root checkout or
+	// any existing worktree) can create a sibling worktree of that same repo
+	// without ever knowing its id.
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	SourceBranch string `json:"source_branch"`
+}
+
+// handleCreateWorktreeCLI backs the `worktree-studio create-worktree <name>
+// [--branch <source-branch>] [path]` CLI subcommand (see
+// cmd/worktree-studio/createworktree.go): unlike handleCreateWorktree, it's
+// given a filesystem path instead of a repoID URL param, since that's all a
+// shell (or another tool/agent, without access to this app's UI) has to
+// identify which repo it means.
+func (s *Server) handleCreateWorktreeCLI(w http.ResponseWriter, r *http.Request) {
+	var req createWorktreeCLIRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	wt, ok := s.resolveWorktreeByPathForCLI(w, req.Path)
+	if !ok {
+		return
+	}
+
+	repo, err := s.Store.GetRepo(wt.RepoID)
+	if err != nil {
+		s.Log.Error("get repo for create-worktree cli", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to look up repo")
+		return
+	}
+
+	newWt, err := s.createWorktree(repo, createWorktreeRequest{Name: req.Name, SourceBranch: req.SourceBranch})
+	if err != nil {
+		if errors.Is(err, errWorktreeNameRequired) {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newWt)
 }
 
 // externalWorktreeEntry is a worktree that `git worktree list` reports for a
