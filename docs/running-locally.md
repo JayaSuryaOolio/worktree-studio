@@ -8,6 +8,15 @@
 - `tmux` on `PATH` (terminal tabs are tmux sessions under the hood — see `docs/session-persistence.md`; `brew install tmux` on macOS).
 - The standalone `spotlight` CLI installed (`github.com/JayaSuryaOolio/spotlight`; installs to `~/.local/bin/spotlight` by default), plus its own `fswatch` dependency (`brew install fswatch` on macOS) — see `docs/spotlight-sync.md`. Optional in the sense that worktree-studio still runs fine without it, but spotlight's REST endpoints will report `{"available": false}` / return `503` until it's installed.
 
+## One-shot install / uninstall
+
+```bash
+./install/install.sh      # builds frontend + binary -> ~/.worktree-studio/bin/worktree-studio, installs claude hooks + skill
+./install/uninstall.sh    # reverses it; leaves ~/.worktree-studio data (db, audit log) alone
+```
+
+`install.sh` detects macOS vs Linux and the package manager (brew, apt, dnf, pacman, apk), and offers to install any missing `git`, `tmux`, `go` or `bun` (`WS_YES=1` skips the prompt; bun uses its own installer). `fswatch` and `spotlight` are optional and only warned about. Other OSes (e.g. native Windows) are rejected — use WSL.
+
 ## Production-style: one binary
 
 Build the frontend first, then the Go binary embeds it via `go:embed`:
