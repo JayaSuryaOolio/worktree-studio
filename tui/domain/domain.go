@@ -1,0 +1,91 @@
+// Package domain holds the TUI's pure model of what the sidebar shows:
+// worktrees, their git state, and which ones have a Claude session waiting.
+// No I/O and no UI imports — the same concepts web/src/api.ts models, so
+// they can later be shared with the browser client.
+package domain
+
+import "fmt"
+
+type (
+	RepoID     string
+	WorktreeID string
+)
+
+type Repo struct {
+	ID   RepoID
+	Name string
+	Path string
+}
+
+type Worktree struct {
+	ID     WorktreeID
+	RepoID RepoID
+	Name   string
+	Branch string
+	Pinned bool
+	Active bool // lifecycle "active" (vs archived/deleted)
+}
+
+type GitStatus struct {
+	Dirty       bool
+	HasUpstream bool
+	Ahead       int
+	Behind      int
+}
+
+// Ticks renders "↑2↓1"; empty when there is no upstream or nothing to sync.
+func (g GitStatus) Ticks() string {
+	if !g.HasUpstream || (g.Ahead == 0 && g.Behind == 0) {
+		return ""
+	}
+	s := ""
+	if g.Ahead > 0 {
+		s += fmt.Sprintf("↑%d", g.Ahead)
+	}
+	if g.Behind > 0 {
+		s += fmt.Sprintf("↓%d", g.Behind)
+	}
+	return s
+}
+
+// SidebarItem is one worktree row: the worktree plus its git status when
+// known (nil if the status lookup failed).
+type SidebarItem struct {
+	Worktree Worktree
+	Git      *GitStatus
+}
+
+// Attention is the set of worktrees whose Claude session needs the user,
+// keyed to the message it is waiting with.
+type Attention map[WorktreeID]string
+
+// AttentionEvent mirrors the /ws/attention protocol: a full snapshot on
+// connect, then one update per change.
+type AttentionEvent struct {
+	Snapshot  bool
+	Pending   Attention // set when Snapshot
+	Worktree  WorktreeID
+	IsPending bool
+	Message   string
+}
+
+// Apply returns the attention set after ev, without mutating the receiver.
+func (a Attention) Apply(ev AttentionEvent) Attention {
+	if ev.Snapshot {
+		next := Attention{}
+		for k, v := range ev.Pending {
+			next[k] = v
+		}
+		return next
+	}
+	next := make(Attention, len(a)+1)
+	for k, v := range a {
+		next[k] = v
+	}
+	if ev.IsPending {
+		next[ev.Worktree] = ev.Message
+	} else {
+		delete(next, ev.Worktree)
+	}
+	return next
+}

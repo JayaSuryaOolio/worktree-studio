@@ -1,0 +1,34 @@
+package domain
+
+import "testing"
+
+func TestTicks(t *testing.T) {
+	cases := []struct {
+		g    GitStatus
+		want string
+	}{
+		{GitStatus{HasUpstream: true, Ahead: 2, Behind: 1}, "↑2↓1"},
+		{GitStatus{HasUpstream: true, Ahead: 3}, "↑3"},
+		{GitStatus{HasUpstream: false, Ahead: 3}, ""},
+		{GitStatus{HasUpstream: true}, ""},
+	}
+	for _, c := range cases {
+		if got := c.g.Ticks(); got != c.want {
+			t.Errorf("%+v: got %q want %q", c.g, got, c.want)
+		}
+	}
+}
+
+func TestAttentionApply(t *testing.T) {
+	a := Attention{}.Apply(AttentionEvent{Snapshot: true, Pending: Attention{"w1": "hi"}})
+	if a["w1"] != "hi" {
+		t.Fatal("snapshot not applied")
+	}
+	b := a.Apply(AttentionEvent{Worktree: "w2", IsPending: true, Message: "x"})
+	if len(b) != 2 || len(a) != 1 {
+		t.Fatal("update must add without mutating the original")
+	}
+	if c := b.Apply(AttentionEvent{Worktree: "w1"}); len(c) != 1 || c["w2"] != "x" {
+		t.Fatal("clear failed")
+	}
+}
