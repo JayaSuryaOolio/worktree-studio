@@ -32,3 +32,14 @@ func TestAttentionApply(t *testing.T) {
 		t.Fatal("clear failed")
 	}
 }
+
+func TestBranchChoicesPrependsMissingDefault(t *testing.T) {
+	b := NewBranchChoices([]string{"dev", "origin/main"}, "main")
+	if b.Branches[0] != "main" || b.DefaultIndex() != 0 || len(b.Branches) != 3 {
+		t.Fatalf("%+v", b)
+	}
+	b = NewBranchChoices([]string{"dev", "main"}, "main")
+	if len(b.Branches) != 2 || b.DefaultIndex() != 1 {
+		t.Fatalf("%+v", b)
+	}
+}

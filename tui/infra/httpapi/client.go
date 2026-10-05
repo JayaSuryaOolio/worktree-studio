@@ -43,11 +43,16 @@ func FromEnv() *Client {
 	return &Client{base: "http://" + host + addr, http: &http.Client{Timeout: 15 * time.Second}}
 }
 
-func (c *Client) do(ctx context.Context, method, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(nil))
+func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	var body []byte
+	if in != nil {
+		body, _ = json.Marshal(in)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("is worktree-studio running at %s? %w", c.base, err)
@@ -66,7 +71,7 @@ func (c *Client) do(ctx context.Context, method, path string, out any) error {
 
 func (c *Client) Repos(ctx context.Context) ([]domain.Repo, error) {
 	var raw []struct{ ID, Name, Path string }
-	if err := c.do(ctx, "GET", "/api/repos/", &raw); err != nil {
+	if err := c.do(ctx, "GET", "/api/repos/", nil, &raw); err != nil {
 		return nil, err
 	}
 	repos := make([]domain.Repo, len(raw))
@@ -81,7 +86,7 @@ func (c *Client) Worktrees(ctx context.Context, repo domain.RepoID) ([]domain.Wo
 		ID, Name, Branch, Status string
 		Pinned                   bool
 	}
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/", repo), &raw); err != nil {
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/", repo), nil, &raw); err != nil {
 		return nil, err
 	}
 	out := make([]domain.Worktree, len(raw))
@@ -101,12 +106,12 @@ func (c *Client) GitStatus(ctx context.Context, repo domain.RepoID, wt domain.Wo
 		Ahead       int  `json:"ahead"`
 		Behind      int  `json:"behind"`
 	}
-	err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/%s/status", repo, wt), &raw)
+	err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/%s/status", repo, wt), nil, &raw)
 	return domain.GitStatus{Dirty: raw.Dirty, HasUpstream: raw.HasUpstream, Ahead: raw.Ahead, Behind: raw.Behind}, err
 }
 
 func (c *Client) ClearAttention(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/%s/attention/clear", repo, wt), nil)
+	return c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/%s/attention/clear", repo, wt), nil, nil)
 }
 
 // Subscribe streams /ws/attention, reconnecting until ctx is cancelled.
@@ -164,4 +169,30 @@ func (c *Client) readAttention(ctx context.Context, url string, out chan<- domai
 			return
 		}
 	}
+}
+
+func (c *Client) NameSuggestion(ctx context.Context, repo domain.RepoID) (string, error) {
+	var r struct{ Name string }
+	err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/new-name-suggestion", repo), nil, &r)
+	return r.Name, err
+}
+
+func (c *Client) Branches(ctx context.Context, repo domain.RepoID) (domain.BranchChoices, error) {
+	var r struct {
+		Branches []string `json:"branches"`
+		Default  string   `json:"default"`
+	}
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/branches", repo), nil, &r); err != nil {
+		return domain.BranchChoices{}, err
+	}
+	return domain.NewBranchChoices(r.Branches, r.Default), nil
+}
+
+func (c *Client) CreateWorktree(ctx context.Context, repo domain.RepoID, name, sourceBranch string) (domain.Worktree, error) {
+	var r struct{ ID, Name, Branch string }
+	in := map[string]string{"name": name, "source_branch": sourceBranch}
+	if err := c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/", repo), in, &r); err != nil {
+		return domain.Worktree{}, err
+	}
+	return domain.Worktree{ID: domain.WorktreeID(r.ID), RepoID: repo, Name: r.Name, Branch: r.Branch, Active: true}, nil
 }

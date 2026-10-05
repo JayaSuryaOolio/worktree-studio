@@ -89,3 +89,39 @@ func (a Attention) Apply(ev AttentionEvent) Attention {
 	}
 	return next
 }
+
+// BranchChoices are the branches a new worktree can start from, plus the
+// one the server would use if the user picked nothing.
+type BranchChoices struct {
+	Branches []string
+	Default  string
+}
+
+// NewBranchChoices guarantees Default is selectable: the server may resolve
+// it to a bare name with no matching listed ref (see NewWorktreeDialog.tsx),
+// so it is prepended when missing.
+func NewBranchChoices(branches []string, def string) BranchChoices {
+	if def != "" && !contains(branches, def) {
+		branches = append([]string{def}, branches...)
+	}
+	return BranchChoices{Branches: branches, Default: def}
+}
+
+// DefaultIndex is the position of Default in Branches (0 if unset).
+func (b BranchChoices) DefaultIndex() int {
+	for i, br := range b.Branches {
+		if br == b.Default {
+			return i
+		}
+	}
+	return 0
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}

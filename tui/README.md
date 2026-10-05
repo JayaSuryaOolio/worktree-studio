@@ -9,7 +9,8 @@ go run ./cmd/worktree-studio          # server (or already running)
 go run ./tui/cmd/wts-tui              # honours WORKTREE_STUDIO_ADDR
 ```
 
-Keys: `j`/`k` move, `[`/`]` switch repo, `enter` mark attention seen, `r` refresh, `q` quit.
+Keys: `j`/`k` move, `[`/`]` switch repo, `n` new worktree, `enter` mark attention seen, `r` refresh, `q` quit.
+New-worktree dialog: type a name, `tab` to the branch picker, `←`/`→` to cycle, `enter` create, `esc` cancel.
 
 ## Layout (DDD, dependencies point inward)
 
@@ -21,4 +22,4 @@ ui/               Bubble Tea presentation. Depends on app/domain only.
 cmd/wts-tui/      composition root.
 ```
 
-Not yet: spotlight badge, expandable row actions, hover summary, dialogs, terminals/editor.
+Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.

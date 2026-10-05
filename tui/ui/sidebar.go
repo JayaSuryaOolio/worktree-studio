@@ -39,6 +39,8 @@ type (
 type SidebarModel struct {
 	ctx       context.Context
 	uc        *app.Sidebar
+	nw        *app.NewWorktree
+	dialog    *newWorktreeDialog
 	feed      <-chan domain.AttentionEvent
 	repos     []domain.Repo
 	repoIdx   int
@@ -50,8 +52,8 @@ type SidebarModel struct {
 	height    int
 }
 
-func NewSidebar(ctx context.Context, uc *app.Sidebar, feed app.AttentionFeed) SidebarModel {
-	return SidebarModel{ctx: ctx, uc: uc, feed: feed.Subscribe(ctx), attention: domain.Attention{}}
+func NewSidebar(ctx context.Context, uc *app.Sidebar, nw *app.NewWorktree, feed app.AttentionFeed) SidebarModel {
+	return SidebarModel{ctx: ctx, uc: uc, nw: nw, feed: feed.Subscribe(ctx), attention: domain.Attention{}}
 }
 
 func (m SidebarModel) Init() tea.Cmd {
@@ -93,6 +95,22 @@ func (m SidebarModel) waitAttention() tea.Cmd {
 }
 
 func (m SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.dialog != nil {
+		switch msg.(type) {
+		case tea.KeyMsg, draftMsg, createdMsg:
+			if k, ok := msg.(tea.KeyMsg); ok && k.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			cmd, done, created := m.dialog.update(msg)
+			if done {
+				m.dialog = nil
+			}
+			if created {
+				cmd = tea.Batch(cmd, m.loadItems())
+			}
+			return m, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -126,6 +144,12 @@ func (m SidebarModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = max(m.cursor-1, 0)
 	case "r":
 		return m, m.loadItems()
+	case "n":
+		if len(m.repos) > 0 {
+			var cmd tea.Cmd
+			m.dialog, cmd = openNewWorktree(m.ctx, m.nw, m.repos[m.repoIdx].ID)
+			return m, cmd
+		}
 	case "]", "[":
 		if n := len(m.repos); n > 1 {
 			d := 1
@@ -150,6 +174,9 @@ func (m SidebarModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m SidebarModel) View() string {
+	if m.dialog != nil {
+		return lipgloss.Place(max(m.width, 1), max(m.height, 1), lipgloss.Center, lipgloss.Center, m.dialog.view())
+	}
 	var b strings.Builder
 	switch {
 	case len(m.repos) == 0 && m.err == nil:
@@ -181,7 +208,7 @@ func (m SidebarModel) View() string {
 	if m.err != nil {
 		b.WriteString("\n" + errStyle.Render(m.err.Error()) + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  enter mark seen  r refresh  q quit"))
+	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  n new  enter mark seen  r refresh  q quit"))
 	return b.String()
 }
 
