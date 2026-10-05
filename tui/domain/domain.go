@@ -4,7 +4,10 @@
 // they can later be shared with the browser client.
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type (
 	RepoID     string
@@ -115,6 +118,21 @@ func (b BranchChoices) DefaultIndex() int {
 		}
 	}
 	return 0
+}
+
+// Filter returns the branches containing q (case-insensitive), in order.
+func (b BranchChoices) Filter(q string) []string {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return b.Branches
+	}
+	var out []string
+	for _, br := range b.Branches {
+		if strings.Contains(strings.ToLower(br), q) {
+			out = append(out, br)
+		}
+	}
+	return out
 }
 
 func contains(xs []string, x string) bool {

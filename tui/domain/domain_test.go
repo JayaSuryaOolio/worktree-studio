@@ -43,3 +43,13 @@ func TestBranchChoicesPrependsMissingDefault(t *testing.T) {
 		t.Fatalf("%+v", b)
 	}
 }
+
+func TestBranchFilter(t *testing.T) {
+	b := NewBranchChoices([]string{"main", "origin/Feat-X", "dev"}, "main")
+	if got := b.Filter("feat"); len(got) != 1 || got[0] != "origin/Feat-X" {
+		t.Fatalf("%v", got)
+	}
+	if len(b.Filter(" ")) != 3 || len(b.Filter("zzz")) != 0 {
+		t.Fatal("blank returns all, miss returns none")
+	}
+}

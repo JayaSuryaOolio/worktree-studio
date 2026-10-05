@@ -41,6 +41,7 @@ type newWorktreeDialog struct {
 	uc         *app.NewWorktree
 	repo       domain.RepoID
 	name       textinput.Model
+	filter     textinput.Model
 	branches   domain.BranchChoices
 	branchIdx  int
 	focus      int
@@ -56,7 +57,10 @@ func openNewWorktree(ctx context.Context, uc *app.NewWorktree, repo domain.RepoI
 	in.Placeholder = "generating suggestion…"
 	in.CharLimit = 100
 	in.Focus()
-	d := &newWorktreeDialog{ctx: ctx, uc: uc, repo: repo, name: in, loading: true}
+	f := textinput.New()
+	f.Prompt = "/ "
+	f.Placeholder = "type to filter branches"
+	d := &newWorktreeDialog{ctx: ctx, uc: uc, repo: repo, name: in, filter: f, loading: true}
 	load := func() tea.Msg {
 		draft, err := uc.Prepare(ctx, repo)
 		return draftMsg{repo, draft, err}
@@ -101,39 +105,52 @@ func (d *newWorktreeDialog) onKey(k tea.KeyMsg) (tea.Cmd, bool, bool) {
 	case "tab", "shift+tab":
 		d.focus = (d.focus + 1) % fieldCount
 		if d.focus == fieldName {
+			d.filter.Blur()
 			return d.name.Focus(), false, false
 		}
 		d.name.Blur()
-		return nil, false, false
+		return d.filter.Focus(), false, false
 	case "enter":
-		if d.loading || len(d.branches.Branches) == 0 {
+		shown := d.shown()
+		if d.loading || len(shown) == 0 {
 			return nil, false, false
 		}
 		d.submitting, d.err = true, nil
-		name, src := d.name.Value(), d.branches.Branches[d.branchIdx]
+		name, src := d.name.Value(), shown[d.branchIdx]
 		return func() tea.Msg {
 			_, err := d.uc.Create(d.ctx, d.repo, name, src)
 			return createdMsg{err}
 		}, false, false
 	}
 	if d.focus == fieldBranch {
-		n := len(d.branches.Branches)
+		n := len(d.shown())
 		switch k.String() {
-		case "left", "up", "k", "h":
+		case "left", "up", "ctrl+p":
 			if n > 0 {
 				d.branchIdx = (d.branchIdx + n - 1) % n
 			}
-		case "right", "down", "j", "l":
+			return nil, false, false
+		case "right", "down", "ctrl+n":
 			if n > 0 {
 				d.branchIdx = (d.branchIdx + 1) % n
 			}
+			return nil, false, false
 		}
-		return nil, false, false
+		before := d.filter.Value()
+		var cmd tea.Cmd
+		d.filter, cmd = d.filter.Update(k)
+		if d.filter.Value() != before {
+			d.branchIdx = 0 // best (first) match
+		}
+		return cmd, false, false
 	}
 	var cmd tea.Cmd
 	d.name, cmd = d.name.Update(k)
 	return cmd, false, false
 }
+
+// shown is the branch list after applying the filter.
+func (d *newWorktreeDialog) shown() []string { return d.branches.Filter(d.filter.Value()) }
 
 func (d *newWorktreeDialog) view() string {
 	label := func(f int, s string) string {
@@ -143,20 +160,23 @@ func (d *newWorktreeDialog) view() string {
 		return labelStyle.Render(s)
 	}
 	branch := "loading branches…"
-	if n := len(d.branches.Branches); n > 0 {
-		branch = "‹ " + d.branches.Branches[d.branchIdx] + " ›" + labelStyle.Render(" "+strconv.Itoa(d.branchIdx+1)+"/"+strconv.Itoa(n))
+	if !d.loading {
+		branch = dimStyle.Render("no matching branch")
+		if shown := d.shown(); len(shown) > 0 {
+			branch = "‹ " + shown[d.branchIdx] + " ›" + labelStyle.Render(" "+strconv.Itoa(d.branchIdx+1)+"/"+strconv.Itoa(len(shown)))
+		}
 	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("New worktree") + "\n\n")
 	b.WriteString(label(fieldName, "Name (branch + directory)") + "\n" + d.name.View() + "\n\n")
-	b.WriteString(label(fieldBranch, "Create from") + "\n" + branch + "\n\n")
+	b.WriteString(label(fieldBranch, "Create from") + "\n" + d.filter.View() + "\n" + branch + "\n\n")
 	switch {
 	case d.submitting:
 		b.WriteString(dimStyle.Render("Creating…"))
 	case d.err != nil:
 		b.WriteString(errStyle.Render(d.err.Error()))
 	default:
-		b.WriteString(dimStyle.Render("tab switch  ←/→ branch  enter create  esc cancel"))
+		b.WriteString(dimStyle.Render("tab switch  ←/→ pick branch  enter create  esc cancel"))
 	}
 	return boxStyle.Render(b.String())
 }
