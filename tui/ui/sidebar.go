@@ -24,6 +24,8 @@ var (
 )
 
 type (
+	// openMsg asks the root to attach this worktree's terminal.
+	openMsg  struct{ wt domain.Worktree }
 	reposMsg []domain.Repo
 	itemsMsg struct {
 		repo  domain.RepoID
@@ -94,7 +96,7 @@ func (m SidebarModel) waitAttention() tea.Cmd {
 	}
 }
 
-func (m SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m SidebarModel) Update(msg tea.Msg) (SidebarModel, tea.Cmd) {
 	if m.dialog != nil {
 		switch msg.(type) {
 		case tea.KeyMsg, draftMsg, createdMsg:
@@ -134,7 +136,7 @@ func (m SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m SidebarModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m SidebarModel) onKey(k tea.KeyMsg) (SidebarModel, tea.Cmd) {
 	switch k.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -162,21 +164,28 @@ func (m SidebarModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.items) > 0 {
 			wt := m.items[m.cursor].Worktree
-			return m, func() tea.Msg {
+			markSeen := func() tea.Msg {
 				if err := m.uc.MarkSeen(m.ctx, wt); err != nil {
 					return errMsg{err}
 				}
 				return nil
 			}
+			return m, tea.Batch(markSeen, func() tea.Msg { return openMsg{wt} })
 		}
 	}
 	return m, nil
 }
 
-func (m SidebarModel) View() string {
-	if m.dialog != nil {
-		return lipgloss.Place(max(m.width, 1), max(m.height, 1), lipgloss.Center, lipgloss.Center, m.dialog.view())
+// DialogView is the open modal's box, or "" — the root centres it over the
+// whole screen, since it is wider than the sidebar column.
+func (m SidebarModel) DialogView() string {
+	if m.dialog == nil {
+		return ""
 	}
+	return m.dialog.view()
+}
+
+func (m SidebarModel) View() string {
 	var b strings.Builder
 	switch {
 	case len(m.repos) == 0 && m.err == nil:
@@ -208,7 +217,7 @@ func (m SidebarModel) View() string {
 	if m.err != nil {
 		b.WriteString("\n" + errStyle.Render(m.err.Error()) + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  n new  enter mark seen  r refresh  q quit"))
+	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  n new  enter open  r refresh  q quit"))
 	return b.String()
 }
 

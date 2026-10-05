@@ -196,3 +196,32 @@ func (c *Client) CreateWorktree(ctx context.Context, repo domain.RepoID, name, s
 	}
 	return domain.Worktree{ID: domain.WorktreeID(r.ID), RepoID: repo, Name: r.Name, Branch: r.Branch, Active: true}, nil
 }
+
+type terminalJSON struct {
+	ID              string `json:"id"`
+	WorktreeID      string `json:"worktree_id"`
+	TmuxSessionName string `json:"tmux_session_name"`
+	TabLabel        string `json:"tab_label"`
+}
+
+func (t terminalJSON) domain() domain.TerminalSession {
+	return domain.TerminalSession{ID: t.ID, Worktree: domain.WorktreeID(t.WorktreeID), TmuxName: t.TmuxSessionName, Label: t.TabLabel}
+}
+
+func (c *Client) Sessions(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID) ([]domain.TerminalSession, error) {
+	var raw []terminalJSON
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/%s/terminals/", repo, wt), nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]domain.TerminalSession, len(raw))
+	for i, t := range raw {
+		out[i] = t.domain()
+	}
+	return out, nil
+}
+
+func (c *Client) Create(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID, label string) (domain.TerminalSession, error) {
+	var t terminalJSON
+	err := c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/%s/terminals/", repo, wt), map[string]string{"tab_label": label}, &t)
+	return t.domain(), err
+}
