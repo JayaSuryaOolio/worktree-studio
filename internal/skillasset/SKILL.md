@@ -43,6 +43,8 @@ Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or
 cp worktree-studio ~/.local/bin/    # or wherever's already on your PATH — check with `echo $PATH`
 ```
 
+`install/install.sh` does all of the above in one step (frontend build, Go build into `~/.worktree-studio/bin/`, hook/skill install) and additionally installs `scripts/wtx` — the worktree exec harness, see "`wtx`" below — next to the binary. `install/uninstall.sh` reverses it. Add `~/.worktree-studio/bin` to `PATH` and both commands resolve; `wtx` shells out to `worktree-studio`, so installing one without the other on `PATH` leaves `wtx` permanently falling back to plain git.
+
 Rebuild-and-recopy after any change to `cmd/worktree-studio/` (this binary also embeds `web/dist`, so also recopy after a frontend rebuild if you want the CLI's copy serving the latest UI too, though for the pure-CLI subcommands below only the Go code matters).
 
 Once the server is running, check dependency status (tmux, spotlight, this skill globally, the claude hook) via the settings modal (gear icon in the sidebar) or `curl http://localhost:8787/api/settings/dependencies` — see "Global settings" and "Claude Code session-tracking hook" below for the two dependencies that are actionable (install/uninstall) directly from there. There's still no automatic report at server startup or a standalone `doctor` CLI — checking is on-demand via that endpoint/UI, not push-notified.
@@ -113,6 +115,30 @@ worktree-studio create-worktree amber-ridge --branch develop   # branch off some
 ```
 
 `path` is optional and defaults to the current working directory (same implicit-cwd convention as `open-file`/`spotlight`); when given, it can be the repo's own root checkout *or* any of its existing worktrees — both are resolvable, since every repo's root checkout is itself tracked as a synthetic worktree row (see `EnsureRootWorktree`). This is what lets an agent already working inside one worktree spin up a sibling worktree of the same repo just by running this from where it already is. Same tolerance as `open-file`/`spotlight`: a path outside every repo/worktree `worktree-studio` tracks is a silent no-op (exit 1, nothing happens), not an error.
+
+**Do not trust this command's exit code on its own.** It treats any 2xx response it can't parse as success, so an older server that doesn't have the `/api/worktrees` route — which answers that POST with the SPA's HTML at 200 — makes it print HTML and exit 0 having created nothing. After calling it, confirm with `git -C <repo> worktree list --porcelain` that a worktree for the branch actually exists.
+
+### `wtx` — create a worktree AND launch claude inside it
+
+`scripts/wtx` (installed to `~/.worktree-studio/bin/wtx` by `install/install.sh`) wraps `create-worktree` into the one command you usually want:
+
+```bash
+wtx <repo> <name> [options] [-- <claude args>...]
+```
+
+It creates (or reuses) the worktree and then `exec`s `claude` with that worktree as cwd — which is the only way the repo's own `CLAUDE.md` and `.claude/` actually load. `<name>` is slugified into both the branch name and the directory name: one task, one worktree, one branch.
+
+Use it instead of `create-worktree` whenever the next step is "start a claude session in there". Use `create-worktree` directly when you only want the worktree.
+
+Three behaviours worth knowing before you call it:
+
+- **It always branches from a remote-tracking ref** (`origin/main`, `origin/master`, ...), resolved by `wtx` and passed explicitly, never from a local branch and never from the main checkout's current HEAD. This matters because `gitops.DetectDefaultBranch` strips the `origin/` prefix, so a repo with no `base_branch` override would otherwise branch from a local `main` that may be far behind. Override with `--base <ref>`; a bare name is pinned to `origin/<name>` when that exists.
+- **It falls back to plain `git worktree add`** (under `~/.wtx/worktrees/`) when the server is down, `worktree-studio` isn't on `PATH`, the repo isn't registered, the branch already exists, or `create-worktree` claims success but git shows no worktree. Every fallback prints a banner saying so — a worktree created that way is invisible to the dashboard and the audit log.
+- **Reuse is resolved by asking git**, not the worktree-studio DB, so a worktree created by the fallback while the server was down is still found and reused once it's back.
+
+`--print-path` prints the worktree path and skips the launch (all logging goes to stderr, so `cd "$(wtx backoffice thing --print-path)"` is safe). `--list` shows the repo allowlist, which is overridable with `WTX_REPOS="alias=/abs/path ..."`. Non-zero exit always means it refused: `2` usage/unknown repo, `3` worktree conflict, `4` creation failed, `5` a safety assertion tripped, `6` missing dependency. There is no path through it that ends with claude running in the main checkout.
+
+Full contract — every fallback trigger, the safety assertions, `--require-clean`/`--force-git`/`--host-home` — is in `docs/wtx.md`.
 
 ## Attaching an existing worktree (no git mutation)
 

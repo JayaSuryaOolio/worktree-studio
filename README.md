@@ -32,3 +32,15 @@ See `docs/running-locally.md` for more detail and `docs/architecture.md` for how
 go build -o worktree-studio ./cmd/worktree-studio
 cp worktree-studio ~/.local/bin/     # or wherever's already on your PATH
 ```
+
+## `wtx` — the worktree exec harness
+
+`scripts/wtx` wraps `create-worktree` into one command that creates (or reuses) a worktree for a task and then launches `claude` with that worktree as its cwd, so the repo's own `CLAUDE.md` and `.claude/` load without anyone having to remember to `cd` first:
+
+```bash
+wtx <repo> <name> [options] [-- <claude args>...]
+```
+
+`<name>` becomes both the branch name and the worktree directory name — one task, one worktree, one branch. Worktrees are always branched from a remote-tracking `origin/<base>` rather than a local branch, so two tasks started at the same time start from the same commit. When the server isn't running (or the repo isn't registered, or the branch already exists), it falls back to plain `git worktree add` and says so loudly. `install/install.sh` installs it alongside the binary.
+
+See `docs/wtx.md` for the full contract: base-ref resolution, every fallback trigger, the safety assertions, and the exit codes.
