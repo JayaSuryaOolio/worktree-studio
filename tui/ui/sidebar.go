@@ -287,6 +287,17 @@ func (m SidebarModel) NewWorktree() (SidebarModel, tea.Cmd) {
 	return m, cmd
 }
 
+// Click puts the cursor on the row drawn at screen line y (below the
+// filter line and its gap); false if no row is there.
+func (m SidebarModel) Click(y int) (SidebarModel, bool) {
+	start, end := m.window(len(m.rows()))
+	if i := start + y - 2; y >= 2 && i < end {
+		m.cursor = i
+		return m, true
+	}
+	return m, false
+}
+
 // Selected is the worktree under the cursor.
 func (m SidebarModel) Selected() (domain.Worktree, bool) {
 	row, ok := m.current()

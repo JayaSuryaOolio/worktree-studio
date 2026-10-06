@@ -21,6 +21,9 @@ const (
 	actClosePane
 	actZoom
 	actPick
+	actResize // direction is the key's arrow; shift+ without alt is a big step
+	actResizeMode
+	actDone
 	actQuit
 	actUp
 	actDown
@@ -52,6 +55,7 @@ func altDigits() []string {
 // alt combos and ctrl+space, which shells and Claude leave alone.
 var globalKeys = []binding{
 	{[]string{"alt+left", "alt+right", "alt+up", "alt+down"}, "alt+arrows", "move", actMove},
+	{[]string{"alt+shift+left", "alt+shift+right", "alt+shift+up", "alt+shift+down"}, "alt+shift+arrows", "resize", actResize},
 	{altDigits(), "alt+1-9", "tab", actTab},
 	{[]string{"ctrl+@"}, "ctrl+space", "menu", actLeader}, // ctrl+space sends NUL
 }
@@ -63,6 +67,7 @@ var leaderKeys = []binding{
 	{[]string{"right", "down"}, "→ ↓", "split right / down", actSplit},
 	{[]string{"x"}, "x", "close pane (session keeps running)", actClosePane},
 	{[]string{"z"}, "z", "zoom pane (toggle)", actZoom},
+	{[]string{"r"}, "r", "resize mode", actResizeMode},
 	{[]string{"n"}, "n", "new worktree", actNewWorktree},
 	{[]string{"q"}, "q", "quit (sessions keep running)", actQuit},
 	{[]string{"esc", "ctrl+@"}, "esc", "close menu", actCancel},
@@ -80,6 +85,13 @@ var sidebarKeys = []binding{
 	{[]string{"esc"}, "", "", actClearFilter},
 	{[]string{"backspace"}, "", "", actBackspace},
 	{[]string{"ctrl+c"}, "", "", actQuit},
+}
+
+// resizeKeys are the whole keymap while resize mode is on.
+var resizeKeys = []binding{
+	{[]string{"left", "right", "up", "down"}, "arrows", "resize", actResize},
+	{[]string{"shift+left", "shift+right", "shift+up", "shift+down"}, "shift", "bigger", actResize},
+	{[]string{"esc", "enter"}, "esc", "done", actDone},
 }
 
 // pickKeys drive the "what runs here?" list in an empty pane.

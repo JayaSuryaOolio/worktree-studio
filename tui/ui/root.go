@@ -63,6 +63,9 @@ type Root struct {
 	pick      int  // cursor in the empty pane's "what runs here?" list
 	focus     focus
 	leader    bool // ctrl+space menu is open
+	resizing  bool // resize mode: arrows move the focused pane's divider
+	drag      domain.Path
+	dragging  bool // a divider is being dragged with the mouse
 	width     int
 	height    int
 	status    string
@@ -219,13 +222,21 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 			return r, r.sidebar.Refresh()
 		}
 	case actTab:
-		n := int(key[len(key)-1] - '0')
-		if !r.ready() || n > len(r.bench.Tabs) {
+		return r.selectTab(int(key[len(key)-1] - '1'))
+	case actResize:
+		if !r.ready() {
 			return r, nil
 		}
-		r.bench.Active, r.bench.Zoom, r.pick = n-1, false, 0
-		r = r.setFocus(focusTerminal)
+		n := 2
+		if strings.HasPrefix(key, "shift+") {
+			n = 8
+		}
+		r.bench = r.bench.Resize(arrow(key), n, r.area())
 		return r.sync()
+	case actResizeMode:
+		r.resizing = r.ready()
+	case actDone:
+		r.resizing = false
 	case actLeader:
 		r.leader = true
 	case actNewClaude, actNewShell:
@@ -305,11 +316,26 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 	return r, nil
 }
 
+func (r Root) selectTab(i int) (Root, tea.Cmd) {
+	if !r.ready() || i < 0 || i >= len(r.bench.Tabs) {
+		return r, nil
+	}
+	r.bench.Active, r.bench.Zoom, r.pick = i, false, 0
+	r = r.setFocus(focusTerminal)
+	return r.sync()
+}
+
 func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	key := k.String()
 	if r.leader {
 		r.leader = false
 		if act, ok := lookup(leaderKeys, key); ok {
+			return r.do(act, key)
+		}
+		return r, nil
+	}
+	if r.resizing {
+		if act, ok := lookup(resizeKeys, key); ok {
 			return r.do(act, key)
 		}
 		return r, nil
@@ -408,10 +434,69 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if r.sidebar.dialog == nil {
 			return r.onKey(msg)
 		}
+	case tea.MouseMsg:
+		if r.sidebar.dialog == nil {
+			return r.onMouse(msg)
+		}
+		return r, nil
 	}
 	var cmd tea.Cmd
 	r.sidebar, cmd = r.sidebar.Update(msg)
 	return r, cmd
+}
+
+// onMouse: click focuses (sidebar row, tab, pane), dragging a divider
+// resizes, and the wheel goes to the pane under the pointer.
+func (r Root) onMouse(m tea.MouseMsg) (Root, tea.Cmd) {
+	r.leader = false
+	area := r.area()
+	px, py := m.X-sidebarWidth-1, m.Y-1 // in the pane area
+	switch {
+	case m.Action == tea.MouseActionRelease:
+		if r.dragging {
+			r.dragging = false
+			return r.sync() // resize the terminals once, at the end
+		}
+	case m.Action == tea.MouseActionMotion:
+		if r.dragging {
+			r.bench = r.bench.Drag(r.drag, area, px, py)
+		}
+	case m.Button == tea.MouseButtonWheelUp || m.Button == tea.MouseButtonWheelDown:
+		if id, rect, ok := r.paneAt(px, py); ok && r.screens[id] != nil {
+			r.screens[id].Scroll(px-rect.X, max(py-rect.Y-1, 0), m.Button == tea.MouseButtonWheelUp)
+		}
+	case m.Button != tea.MouseButtonLeft || m.Action != tea.MouseActionPress:
+	case m.X < sidebarWidth:
+		var ok bool
+		if r.sidebar, ok = r.sidebar.Click(m.Y); ok {
+			return r.setFocus(focusSidebar).do(actOpen, "")
+		}
+	case m.Y == 0:
+		x := 0
+		for i, l := range r.tabLabels() {
+			if x += lipgloss.Width(l); px < x {
+				return r.selectTab(i)
+			}
+		}
+	case r.ready():
+		if path, ok := r.bench.Tab().Root.DividerAt(area, px, py); ok && !r.bench.Zoom {
+			r.drag, r.dragging = path, true
+		}
+		if id, _, ok := r.paneAt(px, py); ok {
+			r.bench = r.bench.Show(id)
+			return r.setFocus(focusTerminal), nil
+		}
+	}
+	return r, nil
+}
+
+func (r Root) paneAt(x, y int) (string, domain.Rect, bool) {
+	for id, rect := range r.visible() {
+		if x >= rect.X && x < rect.X+rect.W && y >= rect.Y && y < rect.Y+rect.H {
+			return id, rect, true
+		}
+	}
+	return "", domain.Rect{}, false
 }
 
 // waitFrame blocks until the screen has new output, then waits one frame so
@@ -520,25 +605,33 @@ func (r Root) picker() string {
 	return strings.Join(lines, "\n")
 }
 
-func (r Root) tabBar() string {
-	if r.wt == nil {
-		return ""
-	}
-	var b strings.Builder
+func (r Root) tabLabels() []string {
+	var out []string
 	for i, t := range r.bench.Tabs {
 		var names []string
 		for _, id := range t.Root.Leaves() {
 			names = append(names, r.label(id))
 		}
 		label := " " + strconv.Itoa(i+1) + " " + strings.Join(names, "+") + " "
-		if i != r.bench.Active {
-			b.WriteString(mutedStyle.Render(label))
-			continue
-		}
-		if r.bench.Zoom {
+		if i == r.bench.Active && r.bench.Zoom {
 			label += "[zoom] "
 		}
-		b.WriteString(selectedStyle.Render(label))
+		out = append(out, label)
+	}
+	return out
+}
+
+func (r Root) tabBar() string {
+	if !r.ready() {
+		return ""
+	}
+	var b strings.Builder
+	for i, l := range r.tabLabels() {
+		if i == r.bench.Active {
+			b.WriteString(selectedStyle.Render(l))
+		} else {
+			b.WriteString(mutedStyle.Render(l))
+		}
 	}
 	return b.String()
 }
@@ -558,6 +651,8 @@ func (r Root) mode() (string, string) {
 	switch {
 	case r.leader:
 		return "MENU", dimStyle.Render("press a key from the menu")
+	case r.resizing:
+		return "RESIZE", hints(resizeKeys)
 	case r.focus == focusTerminal && r.bench.Tab().Focus == "":
 		return "NEW PANE", hints(pickKeys) + "  " + hints(globalKeys)
 	case r.focus == focusTerminal:

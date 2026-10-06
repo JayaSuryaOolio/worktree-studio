@@ -312,3 +312,133 @@ func (w Workbench) Hidden(sessions []TerminalSession) []TerminalSession {
 	}
 	return out
 }
+
+// Path addresses an inner node from the root: false = First, true = Second.
+type Path []bool
+
+func (p *Pane) node(path Path, r Rect) (*Pane, Rect) {
+	for _, second := range path {
+		a, b := p.Halves(r)
+		if second {
+			p, r = p.Second, b
+		} else {
+			p, r = p.First, a
+		}
+	}
+	return p, r
+}
+
+// withRatio sets one split's ratio, kept between 10% and 90%.
+func (p *Pane) withRatio(path Path, ratio float64) *Pane {
+	q := *p
+	switch {
+	case len(path) == 0:
+		q.Ratio = min(max(ratio, 0.1), 0.9)
+	case path[0]:
+		q.Second = p.Second.withRatio(path[1:], ratio)
+	default:
+		q.First = p.First.withRatio(path[1:], ratio)
+	}
+	return &q
+}
+
+// DividerAt finds the split whose divider is at (x, y): the column between
+// side-by-side panes, or the header line of a lower pane.
+func (p *Pane) DividerAt(r Rect, x, y int) (Path, bool) {
+	var path Path
+	for !p.IsLeaf() {
+		a, b := p.Halves(r)
+		if p.Dir == Right && x == a.X+a.W && y >= r.Y && y < r.Y+r.H ||
+			p.Dir == Down && y == b.Y && x >= r.X && x < r.X+r.W {
+			return path, true
+		}
+		second := x >= b.X && y >= b.Y
+		path = append(path, second)
+		if second {
+			p, r = p.Second, b
+		} else {
+			p, r = p.First, a
+		}
+	}
+	return nil, false
+}
+
+// DragTo moves the divider at path to (x, y).
+func (p *Pane) DragTo(path Path, r Rect, x, y int) *Pane {
+	n, nr := p.node(path, r)
+	if n.IsLeaf() {
+		return p
+	}
+	ratio := float64(y-nr.Y) / float64(max(nr.H, 1))
+	if n.Dir == Right {
+		ratio = float64(x-nr.X) / float64(max(nr.W-1, 1))
+	}
+	return p.withRatio(path, ratio)
+}
+
+// Resize moves a divider beside target n cells toward d. It prefers the
+// nearest divider that grows target that way; at the screen edge it moves
+// the nearest divider on that axis instead (so target shrinks).
+func (p *Pane) Resize(target string, d Dir, n int, r Rect) *Pane {
+	horiz, toward := d == Left || d == Right, d == Right || d == Down
+	var ancestors []Path
+	var inFirst []bool
+	cur, path := p, Path{}
+	for !cur.IsLeaf() {
+		first := contains(cur.First.Leaves(), target)
+		if !first && !contains(cur.Second.Leaves(), target) {
+			return p
+		}
+		ancestors, inFirst = append(ancestors, append(Path(nil), path...)), append(inFirst, first)
+		path = append(path, !first)
+		if first {
+			cur = cur.First
+		} else {
+			cur = cur.Second
+		}
+	}
+	pick := -1
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		if node, _ := p.node(ancestors[i], r); (node.Dir == Right) != horiz {
+			continue
+		}
+		if pick < 0 {
+			pick = i
+		}
+		if inFirst[i] == toward {
+			pick = i
+			break
+		}
+	}
+	if pick < 0 {
+		return p
+	}
+	node, nr := p.node(ancestors[pick], r)
+	size := nr.H
+	if node.Dir == Right {
+		size = nr.W - 1
+	}
+	delta := float64(n) / float64(max(size, 1))
+	if !toward {
+		delta = -delta
+	}
+	return p.withRatio(ancestors[pick], node.Ratio+delta)
+}
+
+// Resize nudges the focused pane's divider (see Pane.Resize).
+func (w Workbench) Resize(d Dir, n int, area Rect) Workbench {
+	t := w.Tab()
+	if w.Zoom || len(w.Tabs) == 0 {
+		return w
+	}
+	return w.withTab(Tab{t.Root.Resize(t.Focus, d, n, area), t.Focus})
+}
+
+// Drag moves the active tab's divider at path to (x, y).
+func (w Workbench) Drag(path Path, area Rect, x, y int) Workbench {
+	if len(w.Tabs) == 0 {
+		return w
+	}
+	t := w.Tab()
+	return w.withTab(Tab{t.Root.DragTo(path, area, x, y), t.Focus})
+}

@@ -19,6 +19,10 @@ type Screen interface {
 	Write(p []byte) error
 	Render() string
 	Resize(w, h int)
+	// Scroll passes a mouse-wheel tick at (x, y) to the session; it does
+	// nothing unless the program inside asked for mouse input (tmux does
+	// with `mouse on`).
+	Scroll(x, y int, up bool)
 	Updates() <-chan struct{}
 	Close()
 }

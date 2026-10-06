@@ -14,8 +14,9 @@ Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare
 | Key | Where | Action |
 |---|---|---|
 | `alt+←→↑↓` | anywhere | move to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar, `alt+→` from the sidebar back |
+| `alt+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it) |
 | `alt+1`–`alt+9` | anywhere | go to tab N |
-| `ctrl+space` | anywhere | menu: `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `z` zoom pane, `n` new worktree, `q` quit |
+| `ctrl+space` | anywhere | menu: `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
 | `↑`/`↓`, `enter`, `esc` | empty pane | pick what runs there: new Claude, new shell, or a running session that isn't shown; `esc` closes the pane |
 | `↑`/`↓` | sidebar | move |
 | `→` / `←` | sidebar | expand / collapse a repo; `→` on a worktree opens its terminals, `←` jumps to its repo |
@@ -38,4 +39,6 @@ ui/               Bubble Tea presentation. Depends on app/domain only.
 cmd/wts-tui/      composition root.
 ```
 
-Terminal limits: no resizing splits, mouse or scrollback yet (DESIGN.md build steps 4–5). Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.
+Mouse: click a sidebar row, tab or pane to focus it; drag a divider (the `│` between panes, or a lower pane's header) to resize; the wheel goes to the pane under the pointer, which scrolls only if that tmux session has `mouse on`. Hold `shift` (`fn` in Terminal.app) to select text.
+
+Not yet: command palette and saved layouts (DESIGN.md build step 5). Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.

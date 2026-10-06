@@ -107,6 +107,7 @@ type fakeScreen struct {
 func (f *fakeScreen) Write(p []byte) error     { f.typed = append(f.typed, p...); return nil }
 func (f *fakeScreen) Render() string           { return "" }
 func (f *fakeScreen) Resize(int, int)          {}
+func (f *fakeScreen) Scroll(int, int, bool)    {}
 func (f *fakeScreen) Updates() <-chan struct{} { return nil }
 func (f *fakeScreen) Close()                   { f.closed = true }
 
@@ -138,6 +139,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyDown}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "shift+right":
+		return tea.KeyMsg{Type: tea.KeyShiftRight}
+	case "alt+shift+left":
+		return tea.KeyMsg{Type: tea.KeyShiftLeft, Alt: true}
 	case "alt+left":
 		return tea.KeyMsg{Type: tea.KeyLeft, Alt: true}
 	case "alt+right":
@@ -204,5 +211,44 @@ func TestPanesKeysSplitsAndFocus(t *testing.T) {
 	}
 	if r.screens["s3"] == nil {
 		t.Fatal("the remaining pane is attached again after unzoom")
+	}
+}
+
+func TestResizeByKeyAndMouse(t *testing.T) {
+	dir := &fakeDir{sessions: []domain.TerminalSession{{ID: "s1", Label: "shell"}}}
+	r := NewRoot(context.Background(), SidebarModel{}, app.NewTerminals(dir, fakeAttacher{}))
+	press := func(keys ...string) {
+		for _, k := range keys {
+			r = drive(r, key(k))
+		}
+	}
+	click := func(x, y int, a tea.MouseAction) {
+		r = drive(r, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: a})
+	}
+	r = drive(r, tea.WindowSizeMsg{Width: 120, Height: 30})
+	r = drive(r, openMsg{domain.Worktree{ID: "w", RepoID: "r"}})
+	press("ctrl+space", "right", "down", "enter") // s1 | new shell s2
+	w0 := r.visible()["s2"].W
+
+	press("alt+shift+left")
+	if r.visible()["s2"].W <= w0 {
+		t.Fatal("alt+shift+← grows the right pane leftward")
+	}
+	press("ctrl+space", "r", "shift+right", "esc")
+	if r.resizing || r.visible()["s2"].W >= w0 {
+		t.Fatalf("resize mode: shift+→ shrinks it by a big step (w=%d, was %d)", r.visible()["s2"].W, w0)
+	}
+
+	x0 := sidebarWidth + 1 // where the pane area starts
+	click(x0+2, 5, tea.MouseActionPress)
+	if r.bench.Tab().Focus != "s1" {
+		t.Fatal("clicking a pane focuses it")
+	}
+	div := x0 + r.visible()["s1"].W
+	click(div, 5, tea.MouseActionPress)
+	click(div-10, 5, tea.MouseActionMotion)
+	click(div-10, 5, tea.MouseActionRelease)
+	if got := x0 + r.visible()["s1"].W; got != div-10 || r.dragging {
+		t.Fatalf("dragging the divider moves it: %d, want %d", got, div-10)
 	}
 }

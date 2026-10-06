@@ -23,7 +23,7 @@ func main() {
 	client := httpapi.FromEnv()
 	sidebar := ui.NewSidebar(ctx, app.NewSidebar(client), app.NewNewWorktree(client), client)
 	model := ui.NewRoot(ctx, sidebar, app.NewTerminals(client, ptyterm.Attacher{}))
-	if _, err := tea.NewProgram(model, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wts-tui:", err)
 		os.Exit(1)
 	}

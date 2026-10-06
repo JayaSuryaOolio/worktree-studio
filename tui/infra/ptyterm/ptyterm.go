@@ -95,6 +95,14 @@ func (s *screen) Render() string {
 }
 func (s *screen) Updates() <-chan struct{} { return s.updates }
 
+func (s *screen) Scroll(x, y int, up bool) {
+	b := uv.MouseWheelDown
+	if up {
+		b = uv.MouseWheelUp
+	}
+	s.emu.SendMouse(uv.MouseWheelEvent{X: x, Y: y, Button: b})
+}
+
 func (s *screen) Resize(w, h int) {
 	s.emu.Resize(w, h)
 	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(w), Rows: uint16(h)})

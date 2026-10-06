@@ -1,7 +1,7 @@
 # wts-tui design system
 
-Status: build steps 1–3 done (keymap, theme, status bar, sidebar tree,
-splits); resizing and the palette are next. See *Build order*.
+Status: build steps 1–4 done (keymap, theme, status bar, sidebar tree,
+splits, resizing, mouse); the palette and saved layouts are next. See *Build order*.
 
 ## The problem it solves
 
@@ -109,10 +109,10 @@ never as backgrounds, so they can't be mistaken for focus.
 | Key | Action |
 |---|---|
 | `alt+←` `alt+→` `alt+↑` `alt+↓` | move focus to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar |
-| `alt+shift+arrows` | grow the focused pane in that direction |
+| `alt+shift+arrows` | grow the focused pane in that direction (at the screen edge, its nearest divider on that axis moves instead, shrinking it) |
 | `alt+1` … `alt+9` | go to tab N |
 | `ctrl+space` | leader menu (below) |
-| mouse | click a tab, pane or sidebar row to focus it; drag a divider to resize; scroll wheel goes to the pane |
+| mouse | click a tab, pane or sidebar row to focus it; drag a divider to resize; scroll wheel goes to the pane (scrolls if the tmux session has `mouse on`) |
 
 ### Leader menu (`ctrl+space`, then one key; the menu appears at the bottom right)
 
@@ -184,7 +184,7 @@ keys, so they can't drift from what the keys actually do.
 
 | Layer | New |
 |---|---|
-| `domain` | `layout.go`: `Pane`, an immutable split tree (`Split`, `Close`, `Replace`, `Rects`, `Neighbor`; `Resize` in step 4), and `Workbench`, one worktree's tabs reconciled against the server's session list (`Reconcile`, `Split`, `Place`, `ClosePane`, `Move`, `Zoom`, `Hidden`). This holds all the geometry logic and is fully unit-tested with no UI. |
+| `domain` | `layout.go`: `Pane`, an immutable split tree (`Split`, `Close`, `Replace`, `Rects`, `Neighbor`; `Resize`, `DividerAt`, `DragTo`), and `Workbench`, one worktree's tabs reconciled against the server's session list (`Reconcile`, `Split`, `Place`, `ClosePane`, `Move`, `Zoom`, `Hidden`). This holds all the geometry logic and is fully unit-tested with no UI. |
 | `app` | `Terminals` (list/create/attach sessions); a `LayoutStore` port arrives with persistence in step 5. |
 | `infra` | `layoutfile` adapter (JSON); `ptyterm` unchanged (one attach per visible pane). |
 | `ui` | `theme.go` (the tokens above, the only place colors exist), `keymap.go` (one table that drives dispatch, status-bar hints and the leader menu), `panes.go`, `tabbar.go`, `statusbar.go`, `palette.go`; the sidebar becomes a tree. |

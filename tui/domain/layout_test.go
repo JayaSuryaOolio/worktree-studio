@@ -76,3 +76,35 @@ func TestWorkbenchReconcileSplitPlaceClose(t *testing.T) {
 		t.Fatalf("last close: %+v", w.Tabs)
 	}
 }
+
+func TestResizeAndDrag(t *testing.T) {
+	area := Rect{0, 0, 81, 20}
+	root := Leaf("a").Split("a", Right, "b").Split("b", Right, "c") // a | (b | c)
+	width := func(p *Pane, id string) int { return p.Rects(area)[id].W }
+
+	// b grows left by moving the outer divider (b is the inner split's First,
+	// so only the outer one can grow it leftward)
+	if got := root.Resize("b", Left, 8, area); width(got, "b") <= width(root, "b") || width(got, "a") >= width(root, "a") {
+		t.Fatalf("b left: %v", got.Rects(area))
+	}
+	// c is at the right edge: right moves its nearest divider, shrinking it
+	if got := root.Resize("c", Right, 8, area); width(got, "c") >= width(root, "c") {
+		t.Fatalf("c right: %v", got.Rects(area))
+	}
+	// no stacked split: up/down do nothing
+	if root.Resize("a", Down, 8, area) != root {
+		t.Fatal("no divider on that axis")
+	}
+
+	div := root.Rects(area)["a"].W // the outer divider's column
+	path, ok := root.DividerAt(area, div, 5)
+	if !ok || len(path) != 0 {
+		t.Fatalf("outer divider at x=%d: %v %v", div, path, ok)
+	}
+	if got := root.DragTo(path, area, 20, 5); got.Rects(area)["a"].W != 20 {
+		t.Fatalf("drag: %v", got.Rects(area))
+	}
+	if _, ok := root.DividerAt(area, 5, 5); ok {
+		t.Fatal("inside a pane is not a divider")
+	}
+}
