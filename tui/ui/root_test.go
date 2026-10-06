@@ -137,6 +137,10 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyRight}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
@@ -186,7 +190,7 @@ func TestPanesKeysSplitsAndFocus(t *testing.T) {
 		t.Fatal("alt+2 shows tab 2 and detaches tab 1")
 	}
 
-	press("ctrl+space", "right")
+	press("ctrl+space", "|")
 	if r.bench.Tab().Focus != "" || !strings.Contains(r.View(), "what runs here?") {
 		t.Fatalf("split focuses an empty pane with a picker:\n%s", r.View())
 	}
@@ -229,7 +233,7 @@ func TestResizeByKeyAndMouse(t *testing.T) {
 	}
 	r = drive(r, tea.WindowSizeMsg{Width: 120, Height: 30})
 	r = drive(r, openMsg{domain.Worktree{ID: "w", RepoID: "r"}})
-	press("ctrl+space", "right", "down", "enter") // s1 | new shell s2
+	press("ctrl+space", "|", "down", "enter") // s1 | new shell s2
 	w0 := r.visible()["s2"].W
 
 	press("alt+shift+left")
@@ -341,4 +345,46 @@ type countingAttacher struct{ n *int }
 func (c countingAttacher) Attach(domain.TerminalSession, int, int) (app.Screen, error) {
 	*c.n++
 	return &fakeScreen{}, nil
+}
+
+// Everything works without Option sent as Meta: the ctrl+space menu moves
+// between panes, tabs and the sidebar, and option+digit's typed glyph still
+// picks a tab.
+func TestNavigateWithoutAlt(t *testing.T) {
+	dir := &fakeDir{sessions: []domain.TerminalSession{{ID: "s1", Label: "claude"}, {ID: "s2", Label: "shell"}}}
+	att := fakeAttacher{}
+	r := NewRoot(context.Background(), SidebarModel{}, app.NewTerminals(dir, att))
+	press := func(keys ...string) {
+		for _, k := range keys {
+			r = drive(r, key(k))
+		}
+	}
+	r = drive(r, tea.WindowSizeMsg{Width: 120, Height: 30})
+	r = drive(r, openMsg{domain.Worktree{ID: "w", RepoID: "r"}})
+
+	press("™") // option+2 on a Mac without Meta
+	if r.bench.Active != 1 || len(att["s1"].typed) != 0 {
+		t.Fatal("option+2's glyph goes to tab 2, not the terminal")
+	}
+	press("ctrl+space", "1")
+	if r.bench.Active != 0 {
+		t.Fatal("ctrl+space 1 goes to tab 1")
+	}
+	press("ctrl+space", "tab")
+	if r.bench.Active != 1 {
+		t.Fatal("ctrl+space tab goes to the next tab")
+	}
+	press("ctrl+space", "-", "enter") // s2 over a new Claude
+	press("ctrl+space", "up")
+	if r.bench.Tab().Focus != "s2" {
+		t.Fatalf("ctrl+space ↑ moves to the pane above: %q", r.bench.Tab().Focus)
+	}
+	press("ctrl+space", "s")
+	if r.focus != focusSidebar {
+		t.Fatal("ctrl+space s goes to the sidebar")
+	}
+	press("ctrl+space", "s")
+	if r.focus != focusTerminal {
+		t.Fatal("and back")
+	}
 }

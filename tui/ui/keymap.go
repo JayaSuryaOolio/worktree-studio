@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"runtime"
 	"strings"
 
 	"worktree-studio/tui/domain"
@@ -13,6 +14,8 @@ const (
 	actMove action = iota + 1 // direction is the key's arrow
 	actTab                    // tab number is the key's last digit
 	actLeader
+	actSidebar
+	actNextTab
 	actPalette
 	actCancel
 	actNewClaude
@@ -45,6 +48,22 @@ type binding struct {
 	act   action
 }
 
+// mod is what the alt key is called on this keyboard: Option on a Mac.
+var mod = map[bool]string{true: "option", false: "alt"}[runtime.GOOS == "darwin"]
+
+// optionGlyphs are what option+1…9 type on a US Mac layout when the
+// terminal doesn't send Option as Meta (the default in Terminal.app, iTerm2
+// and Warp); onKey reads them as alt+1…9.
+var optionGlyphs = map[string]string{"¡": "1", "™": "2", "£": "3", "¢": "4", "∞": "5", "§": "6", "¶": "7", "•": "8", "ª": "9"}
+
+func digits(prefix string) []string {
+	var ks []string
+	for d := '1'; d <= '9'; d++ {
+		ks = append(ks, prefix+string(d))
+	}
+	return ks
+}
+
 func altDigits() []string {
 	var ks []string
 	for d := '1'; d <= '9'; d++ {
@@ -54,20 +73,25 @@ func altDigits() []string {
 }
 
 // globalKeys work in every mode, including while typing into Claude: only
-// alt combos and ctrl+space, which shells and Claude leave alone.
+// ctrl+space and alt combos, which shells and Claude leave alone. ctrl+space
+// works in every terminal; alt arrows need Option sent as Meta on a Mac.
 var globalKeys = []binding{
-	{[]string{"alt+left", "alt+right", "alt+up", "alt+down"}, "alt+arrows", "move", actMove},
-	{[]string{"alt+shift+left", "alt+shift+right", "alt+shift+up", "alt+shift+down"}, "alt+shift+arrows", "resize", actResize},
-	{altDigits(), "alt+1-9", "tab", actTab},
 	{[]string{"ctrl+@"}, "ctrl+space", "menu", actLeader}, // ctrl+space sends NUL
+	{[]string{"alt+left", "alt+right", "alt+up", "alt+down"}, mod + "+arrows", "move", actMove},
+	{[]string{"alt+shift+left", "alt+shift+right", "alt+shift+up", "alt+shift+down"}, mod + "+shift+arrows", "resize", actResize},
+	{altDigits(), mod + "+1-9", "tab", actTab},
 }
 
 // leaderKeys follow ctrl+space; the menu lists them, so they're never memorised.
 var leaderKeys = []binding{
 	{[]string{" "}, "space", "command palette", actPalette},
+	{[]string{"left", "right", "up", "down"}, "←→↑↓", "move between panes", actMove},
+	{[]string{"s"}, "s", "sidebar ↔ panes", actSidebar},
+	{digits(""), "1-9", "go to tab", actTab},
+	{[]string{"tab"}, "tab", "next tab", actNextTab},
 	{[]string{"c"}, "c", "new Claude tab", actNewClaude},
 	{[]string{"t"}, "t", "new shell tab", actNewShell},
-	{[]string{"right", "down"}, "→ ↓", "split right / down", actSplit},
+	{[]string{"|", "-"}, "| -", "split right / down", actSplit},
 	{[]string{"x"}, "x", "close pane (session keeps running)", actClosePane},
 	{[]string{"w"}, "w", "close tab (sessions keep running)", actCloseTab},
 	{[]string{"z"}, "z", "zoom pane (toggle)", actZoom},

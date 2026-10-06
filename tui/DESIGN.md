@@ -29,7 +29,7 @@ same contract.
  ▸ Accounts             │                                       ├─ shell ───────────────────────
  ▸ Backoffice         ● │                                       │ $
  ▸ POS                  │                                       │
- TERMINAL  alt+arrows move  alt+1-9 tab  ctrl+space menu                        server :8787 ✓
+ TERMINAL  ctrl+space menu  option+arrows move  option+1-9 tab                  server :8787 ✓
 ```
 
 Four regions, always in the same place:
@@ -97,8 +97,11 @@ never as backgrounds, so they can't be mistaken for focus.
 1. **Never steal from a terminal.** No bare letters, no `ctrl+letter`
    (that would break readline, Claude's own keys and the tmux prefix
    `ctrl+b`).
-2. **The app owns `alt` and one leader key, `ctrl+space`.** Both reach the
-   TUI from inside Claude.
+2. **The app owns one leader key, `ctrl+space`, plus `alt` shortcuts.** The
+   leader reaches the TUI from inside Claude in every terminal, so everything
+   is reachable through it. `alt` (Option on a Mac, and the legends say
+   `option` there) only gives shortcuts, because macOS terminals don't send
+   Option as Meta by default.
 3. **Arrows mean space.** Moving focus and resizing both use arrows, so
    there are no `h`/`j`/`k`/`l` or brackets to learn.
 4. **The leader shows a menu.** You never have to memorize what comes
@@ -108,24 +111,29 @@ never as backgrounds, so they can't be mistaken for focus.
 
 | Key | Action |
 |---|---|
-| `alt+←` `alt+→` `alt+↑` `alt+↓` | move focus to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar |
-| `alt+shift+arrows` | grow the focused pane in that direction (at the screen edge, its nearest divider on that axis moves instead, shrinking it) |
-| `alt+1` … `alt+9` | go to tab N |
 | `ctrl+space` | leader menu (below) |
+| `alt+←` `alt+→` `alt+↑` `alt+↓` | shortcut for the leader's arrows: move focus to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar |
+| `alt+shift+arrows` | grow the focused pane in that direction (at the screen edge, its nearest divider on that axis moves instead, shrinking it) |
+| `alt+1` … `alt+9` | go to tab N. Without Meta, a Mac types `¡™£¢∞§¶•ª` for option+1…9, and the TUI reads those as `alt+N` too |
 | mouse | click a tab, pane or sidebar row to focus it; drag a divider to resize; scroll wheel goes to the pane (scrolls if the tmux session has `mouse on`) |
 
 ### Leader menu (`ctrl+space`, then one key; the menu appears at the bottom right)
 
 ```
 ╭ ctrl+space ──────────────────╮
+│  space  command palette       │
+│  ←→↑↓   move between panes    │
+│  s      sidebar ↔ panes       │
+│  1-9    go to tab             │
+│  tab    next tab              │
 │  c      new Claude tab        │
 │  t      new shell tab         │
-│  →  ↓   split right / down    │
+│  | -    split right / down    │
 │  x      close pane            │
+│  w      close tab             │
 │  z      zoom pane (toggle)    │
 │  r      resize mode           │
 │  n      new worktree          │
-│  space  command palette       │
 │  q      quit (sessions keep running) │
 ╰───────────────────────────────╯
 ```
@@ -157,9 +165,9 @@ from repos the sidebar has loaded.
 ## Status bar
 
 ```
- TERMINAL  alt+arrows move  alt+1-9 tab  ctrl+space menu            ● 2 need you   server :8787 ✓
+ TERMINAL  ctrl+space menu  option+arrows move  option+1-9 tab      ● 2 need you   server :8787 ✓
  SIDEBAR   type filter  ↑↓ move  →← open/close  enter open  ctrl+space menu
- LEADER    c claude  t shell  →↓ split  x close  z zoom  r resize  space palette
+ LEADER    ←→↑↓ move  s sidebar  1-9 tab  | - split  x close  space palette
  RESIZE    arrows resize  shift bigger  esc done
  NEW PANE  ↑↓ choose  enter open  esc close pane
 ```
@@ -171,8 +179,9 @@ keys, so they can't drift from what the keys actually do.
 ## Platform notes
 
 - **`alt` on macOS** needs Option to send Meta: Ghostty `macos-option-as-alt = true`,
-  iTerm2 Profile → Keys → Option = Esc+, or Terminal.app "Use Option as
-  Meta key". Without it, the leader menu and the mouse still do everything.
+  iTerm2 Profile → Keys → Option = Esc+, Terminal.app "Use Option as
+  Meta key", or Warp "Left Option key is Meta". Without it, the leader menu
+  and the mouse still do everything (and option+digit still picks a tab).
 - **Known trade-off:** `alt+←`/`alt+→` are word-jump keys in some shells.
   We take them for pane focus, the same choice zellij makes. Word-jump still
   works with `ctrl+←`/`ctrl+→` or `esc b`/`esc f`.

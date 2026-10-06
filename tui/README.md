@@ -9,21 +9,21 @@ go run ./cmd/worktree-studio          # server (or already running)
 go run ./tui/cmd/wts-tui              # honours WORKTREE_STUDIO_ADDR
 ```
 
-Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare keys and `ctrl+letter` always go to whatever has focus (so typing into Claude never triggers the app); the app only owns `alt` combos and `ctrl+space`. The bottom status bar shows the current mode and the keys that work in it; amber marks where your keys are going.
+Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare keys and `ctrl+letter` always go to whatever has focus (so typing into Claude never triggers the app); the app only owns `ctrl+space` (works in every terminal) and `alt`/Option combos (shortcuts that need Option sent as Meta; legends say `option` on a Mac). The bottom status bar shows the current mode and the keys that work in it; amber marks where your keys are going.
 
 | Key | Where | Action |
 |---|---|---|
-| `alt+←→↑↓` | anywhere | move to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar, `alt+→` from the sidebar back |
-| `alt+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it) |
-| `alt+1`–`alt+9` | anywhere | go to tab N |
-| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `w` close tab (sessions keep running), `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
+| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `←→↑↓` move between panes (`←` past the left edge: sidebar), `s` sidebar ↔ panes, `1`–`9` go to tab, `tab` next tab, `c` new Claude tab, `t` new shell tab, `|`/`-` split right/down, `x` close pane, `w` close tab (sessions keep running), `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
+| `option+←→↑↓` | anywhere | shortcut for `ctrl+space` + arrow |
+| `option+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it) |
+| `option+1`–`option+9` | anywhere | go to tab N (works even without Meta: the typed `¡™£…` is read as option+digit) |
 | `↑`/`↓`, `enter`, `esc` | empty pane | pick what runs there: new Claude, new shell, or a running session that isn't shown; `esc` closes the pane |
 | `↑`/`↓` | sidebar | move |
 | `→` / `←` | sidebar | expand / collapse a repo; `→` on a worktree opens its terminals, `←` jumps to its repo |
 | `enter` | sidebar | open worktree's terminals (toggles on a repo) |
 | type letters | sidebar | filter worktrees across all repos by branch or name; `backspace` edits, `esc` clears |
 
-On macOS, `alt` needs Option to send Meta (Ghostty `macos-option-as-alt = true`, iTerm2 Option key = Esc+, Terminal.app "Use Option as Meta key"); `ctrl+space` works without it.
+Option arrows need Option to send Meta (Ghostty `macos-option-as-alt = true`, iTerm2 Profile → Keys → Left Option = Esc+, Terminal.app "Use Option as Meta key", Warp Settings → Keyboard → "Left Option key is Meta"). Without it, use the `ctrl+space` menu: everything is there.
 
 Tabs are the worktree's terminal sessions (the same tmux sessions the browser shows; a shell is created if there are none). Closing wts-tui only detaches; sessions keep running. A tab is a split layout and each pane one session. Splitting opens an empty pane that asks what to run. Closing a pane only hides its session (pick it back into any empty pane); killing sessions is still done in the browser. Each worktree keeps its own tabs while wts-tui runs (not saved yet).
 New-worktree dialog: type a name, `tab` to the branch picker, `←`/`→` to cycle, `enter` create, `esc` cancel.

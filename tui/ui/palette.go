@@ -27,8 +27,10 @@ var paletteActions = []struct {
 }{
 	{"new Claude tab", actNewClaude, ""},
 	{"new shell tab", actNewShell, ""},
-	{"split right", actSplit, "right"},
-	{"split down", actSplit, "down"},
+	{"split right", actSplit, "|"},
+	{"split down", actSplit, "-"},
+	{"next tab", actNextTab, ""},
+	{"sidebar ↔ panes", actSidebar, ""},
 	{"close pane", actClosePane, ""},
 	{"close tab", actCloseTab, ""},
 	{"zoom pane", actZoom, ""},

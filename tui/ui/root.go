@@ -265,6 +265,16 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 		}
 	case actTab:
 		return r.selectTab(int(key[len(key)-1] - '1'))
+	case actNextTab:
+		if r.ready() {
+			return r.selectTab((r.bench.Active + 1) % len(r.bench.Tabs))
+		}
+	case actSidebar:
+		if r.focus == focusSidebar {
+			return r.setFocus(focusTerminal), nil
+		}
+		r = r.setFocus(focusSidebar)
+		return r, r.sidebar.Refresh()
 	case actResize:
 		if !r.ready() {
 			return r, nil
@@ -300,7 +310,11 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 		}
 		switch act {
 		case actSplit:
-			r.bench, r.pick = r.bench.Split(arrow(key)), 0
+			d := domain.Down
+			if key == "|" {
+				d = domain.Right
+			}
+			r.bench, r.pick = r.bench.Split(d), 0
 		case actClosePane:
 			r.bench = r.bench.ClosePane()
 		case actCloseTab:
@@ -374,6 +388,9 @@ func (r Root) selectTab(i int) (Root, tea.Cmd) {
 
 func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	key := k.String()
+	if d, ok := optionGlyphs[key]; ok {
+		key = "alt+" + d // option+digit without Meta
+	}
 	if r.palette != nil {
 		return r.onPaletteKey(k)
 	}
@@ -746,7 +763,7 @@ func (r Root) leaderMenu() string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(accentStyle.Render(padRight(k.label, 5)) + textStyle.Render(k.help))
+		b.WriteString(accentStyle.Render(padRight(k.label, 6)) + textStyle.Render(k.help))
 	}
 	return menuStyle.Render(dimStyle.Render("ctrl+space") + "\n" + b.String())
 }
