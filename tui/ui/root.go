@@ -36,6 +36,8 @@ type (
 	closedMsg struct{ screen app.Screen }
 )
 
+var accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
+
 type focus int
 
 const (
@@ -254,7 +256,12 @@ func (r Root) tabBar() string {
 		}
 		out += label
 	}
-	return out
+	// Say where keys go: while the pane has focus even c/s/j/k are typed
+	// into the terminal, so the way out must always be on screen.
+	if r.focus == focusTerminal && r.screen != nil {
+		return out + accentStyle.Render("  ● typing into terminal · "+escapeKey+" for sidebar keys")
+	}
+	return out + dimStyle.Render("  sidebar has keys · 1-9 to type in a tab")
 }
 
 func repeatLine(s string, n int) string {
