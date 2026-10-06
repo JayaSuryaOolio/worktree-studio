@@ -13,10 +13,9 @@ Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare
 
 | Key | Where | Action |
 |---|---|---|
-| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `←→↑↓` move between panes (`←` past the left edge: sidebar), `s` sidebar ↔ panes, `1`–`9` go to tab, `tab` next tab, `c` new Claude tab, `t` new shell tab, `|`/`-` split right/down, `x` close pane, `w` close tab (sessions keep running), `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
-| `option+←→↑↓` | anywhere | shortcut for `ctrl+space` + arrow |
-| `option+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it) |
-| `option+1`–`option+9` | anywhere | go to tab N (works even without Meta: the typed `¡™£…` is read as option+digit) |
+| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `←→↑↓` move between panes (`←` past the left edge: sidebar; the menu stays open so you can keep pressing arrows, and any other key closes it and goes to the pane), `s` sidebar ↔ panes, `1`–`9` go to tab, `tab` next tab, `c` new Claude tab, `t` new shell tab, `|`/`-` split right/down, `x` close pane, `w` close tab (sessions keep running), `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
+| `option+<menu key>` | anywhere | the same as `ctrl+space` then that key, in one press: `option+s` sidebar, `option+1` tab 1, `option+c` new Claude, `option+space` palette… Works without Meta too: the symbol Option types (`ß`, `¡`, `ç`…) is read as the shortcut, so those symbols can't be typed inside wts-tui. Not `option+n` (a dead key on Mac); `option+arrows` need Meta |
+| `option+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it); needs Meta |
 | `↑`/`↓`, `enter`, `esc` | empty pane | pick what runs there: new Claude, new shell, or a running session that isn't shown; `esc` closes the pane |
 | `↑`/`↓` | sidebar | move |
 | `→` / `←` | sidebar | expand / collapse a repo; `→` on a worktree opens its terminals, `←` jumps to its repo |

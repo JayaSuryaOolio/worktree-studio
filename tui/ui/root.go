@@ -64,6 +64,7 @@ type Root struct {
 	pick      int               // cursor in the empty pane's "what runs here?" list
 	focus     focus
 	leader    bool     // ctrl+space menu is open
+	moving    bool     // the menu stays open while arrows move focus
 	palette   *palette // ctrl+space space command palette is open
 	store     app.LayoutStore
 	resizing  bool // resize mode: arrows move the focused pane's divider
@@ -290,7 +291,7 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 	case actDone:
 		r.resizing = false
 	case actLeader:
-		r.leader = true
+		r.leader, r.moving = true, false
 	case actPalette:
 		r.palette = &palette{}
 	case actNewClaude, actNewShell:
@@ -389,17 +390,25 @@ func (r Root) selectTab(i int) (Root, tea.Cmd) {
 func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	key := k.String()
 	if d, ok := optionGlyphs[key]; ok {
-		key = "alt+" + d // option+digit without Meta
+		key = "alt+" + d // option+key without Meta
 	}
 	if r.palette != nil {
 		return r.onPaletteKey(k)
 	}
 	if r.leader {
-		r.leader = false
+		moving := r.moving
+		r.leader, r.moving = false, false
 		if act, ok := lookup(leaderKeys, key); ok {
-			return r.do(act, key)
+			r, cmd := r.do(act, key)
+			if act == actMove { // keep moving with more arrows
+				r.leader, r.moving = true, true
+			}
+			return r, cmd
 		}
-		return r, nil
+		if !moving {
+			return r, nil // a stray key after ctrl+space never leaks
+		}
+		// done moving: the key goes wherever focus now is
 	}
 	if r.resizing {
 		if act, ok := lookup(resizeKeys, key); ok {
@@ -409,6 +418,11 @@ func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	}
 	if act, ok := lookup(globalKeys, key); ok {
 		return r.do(act, key)
+	}
+	if k, ok := strings.CutPrefix(key, "alt+"); ok { // option+<menu key>
+		if act, ok := lookup(leaderKeys, k); ok && act != actCancel {
+			return r.do(act, k)
+		}
 	}
 	if r.focus == focusTerminal {
 		id := r.bench.Tab().Focus
@@ -731,6 +745,9 @@ func (r Root) mode() (string, string) {
 	case r.palette != nil:
 		return "PALETTE", dimStyle.Render("type to search  ↑↓ choose  enter run  esc close")
 	case r.leader:
+		if r.moving {
+			return "MENU", dimStyle.Render("arrows keep moving  ·  any other key closes")
+		}
 		return "MENU", dimStyle.Render("press a key from the menu")
 	case r.resizing:
 		return "RESIZE", hints(resizeKeys)
@@ -765,7 +782,7 @@ func (r Root) leaderMenu() string {
 		}
 		b.WriteString(accentStyle.Render(padRight(k.label, 6)) + textStyle.Render(k.help))
 	}
-	return menuStyle.Render(dimStyle.Render("ctrl+space") + "\n" + b.String())
+	return menuStyle.Render(dimStyle.Render("ctrl+space, or "+mod+"+key") + "\n" + b.String())
 }
 
 // overlay draws box over base with its top-left corner at x, y, keeping

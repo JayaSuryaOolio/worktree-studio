@@ -379,12 +379,29 @@ func TestNavigateWithoutAlt(t *testing.T) {
 	if r.bench.Tab().Focus != "s2" {
 		t.Fatalf("ctrl+space ↑ moves to the pane above: %q", r.bench.Tab().Focus)
 	}
-	press("ctrl+space", "s")
-	if r.focus != focusSidebar {
-		t.Fatal("ctrl+space s goes to the sidebar")
+	press("down", "up") // the menu stays open while arrows move
+	if !r.leader || r.bench.Tab().Focus != "s2" {
+		t.Fatal("arrows keep moving with the menu open")
 	}
-	press("ctrl+space", "s")
+	press("s")
+	if r.leader || r.focus != focusSidebar {
+		t.Fatal("s goes to the sidebar and closes the menu")
+	}
+	press("ß") // option+s without Meta
 	if r.focus != focusTerminal {
-		t.Fatal("and back")
+		t.Fatal("option+s goes back")
+	}
+
+	press("ctrl+space", "down", "a") // any other key ends moving and goes to the pane
+	if r.leader || string(att["s3"].typed) != "a" {
+		t.Fatalf("after moving, a non-menu key types: %q", att["s3"].typed)
+	}
+	press("ç") // option+c: new Claude tab
+	if len(r.bench.Tabs) != 3 {
+		t.Fatalf("option+c opens a Claude tab: %d tabs", len(r.bench.Tabs))
+	}
+	press("alt+1") // Meta on: alt+<menu key> too
+	if r.bench.Active != 0 {
+		t.Fatal("alt+1 goes to tab 1")
 	}
 }

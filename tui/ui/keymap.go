@@ -51,10 +51,14 @@ type binding struct {
 // mod is what the alt key is called on this keyboard: Option on a Mac.
 var mod = map[bool]string{true: "option", false: "alt"}[runtime.GOOS == "darwin"]
 
-// optionGlyphs are what option+1…9 type on a US Mac layout when the
+// optionGlyphs are what option+key types on a US Mac layout when the
 // terminal doesn't send Option as Meta (the default in Terminal.app, iTerm2
-// and Warp); onKey reads them as alt+1…9.
-var optionGlyphs = map[string]string{"¡": "1", "™": "2", "£": "3", "¢": "4", "∞": "5", "§": "6", "¶": "7", "•": "8", "ª": "9"}
+// and Warp); onKey reads them as alt+key, so option+<menu key> works either
+// way. option+n is a dead key on that layout, so new worktree has no glyph.
+var optionGlyphs = map[string]string{
+	"¡": "1", "™": "2", "£": "3", "¢": "4", "∞": "5", "§": "6", "¶": "7", "•": "8", "ª": "9",
+	"\u00a0": " ", "ß": "s", "ç": "c", "†": "t", "–": "-", "»": "|", "≈": "x", "∑": "w", "Ω": "z", "®": "r", "œ": "q",
+}
 
 func digits(prefix string) []string {
 	var ks []string
@@ -64,22 +68,13 @@ func digits(prefix string) []string {
 	return ks
 }
 
-func altDigits() []string {
-	var ks []string
-	for d := '1'; d <= '9'; d++ {
-		ks = append(ks, "alt+"+string(d))
-	}
-	return ks
-}
-
 // globalKeys work in every mode, including while typing into Claude: only
 // ctrl+space and alt combos, which shells and Claude leave alone. ctrl+space
 // works in every terminal; alt arrows need Option sent as Meta on a Mac.
 var globalKeys = []binding{
-	{[]string{"ctrl+@"}, "ctrl+space", "menu", actLeader}, // ctrl+space sends NUL
-	{[]string{"alt+left", "alt+right", "alt+up", "alt+down"}, mod + "+arrows", "move", actMove},
+	{[]string{"ctrl+@"}, "ctrl+space", "menu", actLeader},   // ctrl+space sends NUL
+	{nil, mod + "+<menu key>", "the same, in one press", 0}, // onKey: alt+ any leaderKeys key
 	{[]string{"alt+shift+left", "alt+shift+right", "alt+shift+up", "alt+shift+down"}, mod + "+shift+arrows", "resize", actResize},
-	{altDigits(), mod + "+1-9", "tab", actTab},
 }
 
 // leaderKeys follow ctrl+space; the menu lists them, so they're never memorised.
@@ -98,7 +93,7 @@ var leaderKeys = []binding{
 	{[]string{"r"}, "r", "resize mode", actResizeMode},
 	{[]string{"n"}, "n", "new worktree", actNewWorktree},
 	{[]string{"q"}, "q", "quit (sessions keep running)", actQuit},
-	{[]string{"esc", "ctrl+@"}, "esc", "close menu", actCancel},
+	{[]string{"esc", "enter", "ctrl+@"}, "esc", "close menu", actCancel},
 }
 
 // sidebarKeys: any other printable key types into the filter (Root's

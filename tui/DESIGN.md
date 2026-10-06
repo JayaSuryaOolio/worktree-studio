@@ -112,9 +112,8 @@ never as backgrounds, so they can't be mistaken for focus.
 | Key | Action |
 |---|---|
 | `ctrl+space` | leader menu (below) |
-| `alt+←` `alt+→` `alt+↑` `alt+↓` | shortcut for the leader's arrows: move focus to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar |
+| `alt+<menu key>` | any leader key in one press (`alt+s` sidebar, `alt+1` tab 1, `alt+←` move…). Without Meta a Mac types a symbol instead (`ß`, `¡`, `ç`…) and the TUI reads it as the shortcut; arrows and `option+n` (a dead key) need Meta |
 | `alt+shift+arrows` | grow the focused pane in that direction (at the screen edge, its nearest divider on that axis moves instead, shrinking it) |
-| `alt+1` … `alt+9` | go to tab N. Without Meta, a Mac types `¡™£¢∞§¶•ª` for option+1…9, and the TUI reads those as `alt+N` too |
 | mouse | click a tab, pane or sidebar row to focus it; drag a divider to resize; scroll wheel goes to the pane (scrolls if the tmux session has `mouse on`) |
 
 ### Leader menu (`ctrl+space`, then one key; the menu appears at the bottom right)
@@ -137,6 +136,10 @@ never as backgrounds, so they can't be mistaken for focus.
 │  q      quit (sessions keep running) │
 ╰───────────────────────────────╯
 ```
+
+After an arrow the menu **stays open**, so `ctrl+space ← ← ↓` walks across
+panes; any key that isn't in the menu closes it and goes to the newly focused
+pane.
 
 `r` enters **resize mode**: arrows resize, `shift+arrows` resize in bigger
 steps, and `esc` or `enter` leaves. The status bar chip reads `RESIZE` the
