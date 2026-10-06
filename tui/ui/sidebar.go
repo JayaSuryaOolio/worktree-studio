@@ -4,7 +4,7 @@ package ui
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,28 +26,66 @@ type (
 	errMsg       struct{ err error }
 )
 
-// SidebarModel is the worktree sidebar: repo header, worktree rows with
-// git/attention badges. It is a prototype of the browser Sidebar.tsx, minus
-// spotlight and the expandable row actions. Keys arrive from Root's keymap.
+// sidebarRow is one visible line of the tree: a repo, or one of its
+// worktrees (item != nil).
+type sidebarRow struct {
+	repo domain.Repo
+	item *domain.SidebarItem
+}
+
+// sidebarRows flattens repos → worktrees. Without a filter, only expanded
+// repos show their worktrees. With one, every repo that has a matching
+// worktree is shown open with just the matches, and the rest are hidden.
+func sidebarRows(repos []domain.Repo, items map[domain.RepoID][]domain.SidebarItem, expanded map[domain.RepoID]bool, filter string) []sidebarRow {
+	q := strings.ToLower(filter)
+	var rows []sidebarRow
+	for _, r := range repos {
+		var kids []sidebarRow
+		for i := range items[r.ID] {
+			it := &items[r.ID][i]
+			hay := strings.ToLower(it.Worktree.Branch + " " + it.Worktree.Name)
+			if q == "" || strings.Contains(hay, q) {
+				kids = append(kids, sidebarRow{repo: r, item: it})
+			}
+		}
+		if q != "" && len(kids) == 0 {
+			continue
+		}
+		rows = append(rows, sidebarRow{repo: r})
+		if q != "" || expanded[r.ID] {
+			rows = append(rows, kids...)
+		}
+	}
+	return rows
+}
+
+// SidebarModel is the repo → worktree tree with git/attention badges. It is
+// a prototype of the browser Sidebar.tsx, minus spotlight and the
+// expandable row actions. Keys arrive from Root's keymap.
 type SidebarModel struct {
-	ctx       context.Context
-	uc        *app.Sidebar
-	nw        *app.NewWorktree
-	dialog    *newWorktreeDialog
-	feed      <-chan domain.AttentionEvent
-	repos     []domain.Repo
-	repoIdx   int
-	items     []domain.SidebarItem
-	cursor    int
-	focused   bool
-	attention domain.Attention
-	err       error
-	width     int
-	height    int
+	ctx        context.Context
+	uc         *app.Sidebar
+	nw         *app.NewWorktree
+	dialog     *newWorktreeDialog
+	dialogRepo domain.RepoID
+	feed       <-chan domain.AttentionEvent
+	repos      []domain.Repo
+	items      map[domain.RepoID][]domain.SidebarItem
+	expanded   map[domain.RepoID]bool
+	filter     string
+	cursor     int
+	focused    bool
+	attention  domain.Attention
+	err        error
+	width      int
+	height     int
 }
 
 func NewSidebar(ctx context.Context, uc *app.Sidebar, nw *app.NewWorktree, feed app.AttentionFeed) SidebarModel {
-	return SidebarModel{ctx: ctx, uc: uc, nw: nw, feed: feed.Subscribe(ctx), attention: domain.Attention{}}
+	return SidebarModel{
+		ctx: ctx, uc: uc, nw: nw, feed: feed.Subscribe(ctx), attention: domain.Attention{},
+		items: map[domain.RepoID][]domain.SidebarItem{}, expanded: map[domain.RepoID]bool{},
+	}
 }
 
 func (m SidebarModel) Init() tea.Cmd {
@@ -64,13 +102,15 @@ func (m SidebarModel) loadRepos() tea.Cmd {
 	}
 }
 
-func (m SidebarModel) loadItems() tea.Cmd {
-	if len(m.repos) == 0 {
-		return nil
-	}
-	repo := m.repos[m.repoIdx].ID
+// loadItems fetches a repo's worktrees; withGit adds the per-row git status,
+// which is only worth paying for once the repo is expanded.
+func (m SidebarModel) loadItems(repo domain.RepoID, withGit bool) tea.Cmd {
 	return func() tea.Msg {
-		items, err := m.uc.Load(m.ctx, repo)
+		load := m.uc.Active
+		if withGit {
+			load = m.uc.Load
+		}
+		items, err := load(m.ctx, repo)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -100,7 +140,7 @@ func (m SidebarModel) Update(msg tea.Msg) (SidebarModel, tea.Cmd) {
 				m.dialog = nil
 			}
 			if created {
-				cmd = tea.Batch(cmd, m.loadItems())
+				cmd = tea.Batch(cmd, m.loadItems(m.dialogRepo, true))
 			}
 			return m, cmd
 		}
@@ -110,13 +150,14 @@ func (m SidebarModel) Update(msg tea.Msg) (SidebarModel, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case reposMsg:
 		m.repos, m.err = msg, nil
-		return m, m.loadItems()
-	case itemsMsg:
-		if len(m.repos) == 0 || msg.repo != m.repos[m.repoIdx].ID {
-			return m, nil // stale response after switching repos
+		cmds := make([]tea.Cmd, len(m.repos))
+		for i, r := range m.repos {
+			cmds[i] = m.loadItems(r.ID, false)
 		}
-		m.items, m.err = msg.items, nil
-		m.cursor = min(m.cursor, max(len(m.items)-1, 0))
+		return m, tea.Batch(cmds...)
+	case itemsMsg:
+		m.items[msg.repo], m.err = msg.items, nil
+		m.cursor = min(m.cursor, max(len(m.rows())-1, 0))
 	case attentionMsg:
 		m.attention = m.attention.Apply(domain.AttentionEvent(msg))
 		return m, m.waitAttention()
@@ -126,57 +167,137 @@ func (m SidebarModel) Update(msg tea.Msg) (SidebarModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m SidebarModel) rows() []sidebarRow {
+	return sidebarRows(m.repos, m.items, m.expanded, m.filter)
+}
+
+func (m SidebarModel) current() (sidebarRow, bool) {
+	rows := m.rows()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return sidebarRow{}, false
+	}
+	return rows[m.cursor], true
+}
+
 func (m SidebarModel) Move(d int) SidebarModel {
-	m.cursor = min(max(m.cursor+d, 0), max(len(m.items)-1, 0))
+	m.cursor = min(max(m.cursor+d, 0), max(len(m.rows())-1, 0))
 	return m
 }
 
-func (m SidebarModel) SwitchRepo(d int) (SidebarModel, tea.Cmd) {
-	n := len(m.repos)
-	if n < 2 {
-		return m, nil
+// Expand opens the repo under the cursor (loading its git status), or steps
+// into its first worktree if it's already open. It reports false when the
+// cursor is on a worktree, so Root can treat → as "go to the terminal".
+func (m SidebarModel) Expand() (SidebarModel, tea.Cmd, bool) {
+	row, ok := m.current()
+	if !ok || row.item != nil {
+		return m, nil, false
 	}
-	m.repoIdx, m.cursor, m.items = (m.repoIdx+d+n)%n, 0, nil
-	return m, m.loadItems()
+	if !m.expanded[row.repo.ID] {
+		m.expanded[row.repo.ID] = true
+		return m, m.loadItems(row.repo.ID, true), true
+	}
+	return m.Move(1), nil, true
 }
 
-// Refresh reloads the current repo's rows (git ticks change under us).
-func (m SidebarModel) Refresh() tea.Cmd { return m.loadItems() }
-
-// Open marks the selected worktree seen and asks Root to show its tabs.
-func (m SidebarModel) Open() tea.Cmd {
-	wt, ok := m.Selected()
+// Collapse closes the repo under the cursor, or jumps from a worktree to
+// its repo row.
+func (m SidebarModel) Collapse() SidebarModel {
+	row, ok := m.current()
 	if !ok {
-		return nil
+		return m
 	}
+	if row.item == nil {
+		delete(m.expanded, row.repo.ID)
+		return m
+	}
+	for i, r := range m.rows() {
+		if r.item == nil && r.repo.ID == row.repo.ID {
+			m.cursor = i
+		}
+	}
+	return m
+}
+
+// Type appends to the filter; "" with backspace=true drops the last rune.
+func (m SidebarModel) Type(s string, backspace bool) SidebarModel {
+	if backspace {
+		r := []rune(m.filter)
+		if len(r) > 0 {
+			m.filter = string(r[:len(r)-1])
+		}
+	} else {
+		m.filter += s
+	}
+	m.cursor = 0
+	for i, r := range m.rows() {
+		if r.item != nil { // land on the first match, not its repo header
+			m.cursor = i
+			break
+		}
+	}
+	return m
+}
+
+func (m SidebarModel) ClearFilter() SidebarModel {
+	m.filter, m.cursor = "", 0
+	return m
+}
+
+// Refresh reloads git status for every expanded repo.
+func (m SidebarModel) Refresh() tea.Cmd {
+	var cmds []tea.Cmd
+	for id := range m.expanded {
+		cmds = append(cmds, m.loadItems(id, true))
+	}
+	return tea.Batch(cmds...)
+}
+
+// Open marks the selected worktree seen and asks Root to show its tabs; on
+// a repo row it toggles the repo instead.
+func (m SidebarModel) Open() (SidebarModel, tea.Cmd) {
+	row, ok := m.current()
+	if !ok {
+		return m, nil
+	}
+	if row.item == nil {
+		if m.expanded[row.repo.ID] {
+			return m.Collapse(), nil
+		}
+		m, cmd, _ := m.Expand()
+		return m, cmd
+	}
+	wt := row.item.Worktree
 	markSeen := func() tea.Msg {
 		if err := m.uc.MarkSeen(m.ctx, wt); err != nil {
 			return errMsg{err}
 		}
 		return nil
 	}
-	return tea.Batch(markSeen, func() tea.Msg { return openMsg{wt} })
+	return m, tea.Batch(markSeen, func() tea.Msg { return openMsg{wt} })
 }
 
 func (m SidebarModel) NewWorktree() (SidebarModel, tea.Cmd) {
-	if len(m.repos) == 0 {
+	row, ok := m.current()
+	if !ok {
 		return m, nil
 	}
 	var cmd tea.Cmd
-	m.dialog, cmd = openNewWorktree(m.ctx, m.nw, m.repos[m.repoIdx].ID)
+	m.dialogRepo = row.repo.ID
+	m.dialog, cmd = openNewWorktree(m.ctx, m.nw, row.repo.ID)
 	return m, cmd
+}
+
+// Selected is the worktree under the cursor.
+func (m SidebarModel) Selected() (domain.Worktree, bool) {
+	row, ok := m.current()
+	if !ok || row.item == nil {
+		return domain.Worktree{}, false
+	}
+	return row.item.Worktree, true
 }
 
 // NeedYou counts worktrees whose Claude is waiting on the user.
 func (m SidebarModel) NeedYou() int { return len(m.attention) }
-
-// Selected is the worktree under the cursor.
-func (m SidebarModel) Selected() (domain.Worktree, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.items) {
-		return domain.Worktree{}, false
-	}
-	return m.items[m.cursor].Worktree, true
-}
 
 // DialogView is the open modal's box, or "" — the root centres it over the
 // whole screen, since it is wider than the sidebar column.
@@ -188,22 +309,26 @@ func (m SidebarModel) DialogView() string {
 }
 
 func (m SidebarModel) View() string {
-	var b strings.Builder
 	switch {
 	case len(m.repos) == 0 && m.err == nil:
-		return dimStyle.Render("loading…")
+		return dimStyle.Render(" loading…")
 	case len(m.repos) == 0:
 		return errStyle.Render(m.err.Error()) + "\n"
 	}
-	repo := m.repos[m.repoIdx]
-	b.WriteString(titleStyle.Render(fmt.Sprintf("%s (%d/%d)", repo.Name, m.repoIdx+1, len(m.repos))) + "\n\n")
 	w := m.width
 	if w <= 0 {
 		w = 40
 	}
-	start, end := m.window()
+	var b strings.Builder
+	if m.filter != "" {
+		b.WriteString(" " + mutedStyle.Render("filter ") + textStyle.Render(m.filter) + accentStyle.Render("▏") + "\n\n")
+	} else {
+		b.WriteString(dimStyle.Render(" type to filter") + "\n\n")
+	}
+	rows := m.rows()
+	start, end := m.window(len(rows))
 	for i := start; i < end; i++ {
-		line, bar := m.row(m.items[i], w-1), " "
+		line, bar := m.row(rows[i], w-1), " "
 		if i == m.cursor {
 			line = selectedStyle.Width(w - 1).Render(line)
 			if m.focused {
@@ -212,12 +337,8 @@ func (m SidebarModel) View() string {
 		}
 		b.WriteString(bar + line + "\n")
 	}
-	if len(m.items) == 0 {
-		hint := "no active worktrees"
-		if len(m.repos) > 1 {
-			hint += " — ←→ other repos"
-		}
-		b.WriteString(dimStyle.Render(hint) + "\n")
+	if len(rows) == 0 {
+		b.WriteString(dimStyle.Render(" no worktree matches") + "\n")
 	}
 	if m.err != nil {
 		b.WriteString("\n" + errStyle.Render(m.err.Error()) + "\n")
@@ -225,9 +346,35 @@ func (m SidebarModel) View() string {
 	return b.String()
 }
 
-// row renders "<pin><branch…>   ↑1↓2 ● *", with the branch middle-truncated
-// so the distinguishing tail survives (same idea as branchLabel.ts).
-func (m SidebarModel) row(it domain.SidebarItem, w int) string {
+func (m SidebarModel) row(r sidebarRow, w int) string {
+	if r.item == nil {
+		return m.repoRow(r.repo, w)
+	}
+	return m.worktreeRow(*r.item, w)
+}
+
+// repoRow renders "▾ name   3 ●": the count of active worktrees, and a dot
+// if any of them needs you (so collapsed repos still surface attention).
+func (m SidebarModel) repoRow(r domain.Repo, w int) string {
+	arrow := "▸ "
+	if m.expanded[r.ID] || m.filter != "" {
+		arrow = "▾ "
+	}
+	items := m.items[r.ID]
+	meta := dimStyle.Render(strconv.Itoa(len(items)))
+	for _, it := range items {
+		if _, ok := m.attention[it.Worktree.ID]; ok {
+			meta += " " + attnStyle.Render("●")
+			break
+		}
+	}
+	room := w - 2 - lipgloss.Width(meta) - 1
+	return mutedStyle.Render(arrow) + titleStyle.Render(padRight(midTruncate(r.Name, room), room)) + " " + meta
+}
+
+// worktreeRow renders "  <pin><branch…>   ↑1↓2 * ●", with the branch
+// middle-truncated so the distinguishing tail survives (as branchLabel.ts).
+func (m SidebarModel) worktreeRow(it domain.SidebarItem, w int) string {
 	var badges []string
 	if it.Git != nil {
 		if t := it.Git.Ticks(); t != "" {
@@ -241,23 +388,23 @@ func (m SidebarModel) row(it domain.SidebarItem, w int) string {
 		badges = append(badges, attnStyle.Render("●"))
 	}
 	meta := strings.Join(badges, " ")
-	prefix := " "
+	prefix := "  "
 	if it.Worktree.Pinned {
-		prefix = "⚑ "
+		prefix = " ⚑"
 	}
-	room := w - lipgloss.Width(prefix) - lipgloss.Width(meta) - 1
-	return prefix + padRight(midTruncate(it.Worktree.Branch, room), room) + " " + meta
+	room := w - 4 - lipgloss.Width(meta)
+	return prefix + " " + padRight(midTruncate(it.Worktree.Branch, room), room) + " " + meta
 }
 
-// window returns the slice of rows that fits the terminal (header and
-// its blank line take 2), scrolled to keep the cursor visible.
-func (m SidebarModel) window() (int, int) {
+// window returns the slice of n rows that fits under the filter line,
+// scrolled to keep the cursor visible.
+func (m SidebarModel) window(n int) (int, int) {
 	room := m.height - 2
-	if m.height <= 0 || room >= len(m.items) {
-		return 0, len(m.items)
+	if m.height <= 0 || room >= n {
+		return 0, n
 	}
 	room = max(room, 1)
-	start := min(max(m.cursor-room/2, 0), len(m.items)-room)
+	start := min(max(m.cursor-room/2, 0), n-room)
 	return start, start + room
 }
 

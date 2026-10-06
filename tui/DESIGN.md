@@ -1,7 +1,7 @@
 # wts-tui design system
 
-Status: **proposal**, not built yet. It replaces the prototype's keymap and
-layout. The current build has `j`/`k`/`[`/`]`, one pane, and `ctrl+]`.
+Status: build steps 1–2 done (keymap, theme, status bar, sidebar tree);
+splits, resizing and the palette are next. See *Build order*.
 
 ## The problem it solves
 
@@ -156,7 +156,7 @@ jump to a worktree in another repo.
 
 ```
  TERMINAL  alt+arrows move  alt+1-9 tab  ctrl+space menu            ● 2 need you   server :8787 ✓
- SIDEBAR   type to filter  ↑↓ move  → open  ctrl+space menu
+ SIDEBAR   type filter  ↑↓ move  →← open/close  enter open  ctrl+space menu
  LEADER    c claude  t shell  →↓ split  x close  z zoom  r resize  space palette
  RESIZE    arrows resize  shift bigger  esc done
 ```

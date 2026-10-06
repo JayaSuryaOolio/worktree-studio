@@ -28,10 +28,9 @@ type Sidebar struct{ ws Workspace }
 
 func NewSidebar(ws Workspace) *Sidebar { return &Sidebar{ws: ws} }
 
-// Load returns the active worktrees of repo in the server's order (pinned
-// first), each with its git status fetched concurrently. A failed status
-// lookup leaves that row's Git nil rather than failing the whole sidebar.
-func (s *Sidebar) Load(ctx context.Context, repo domain.RepoID) ([]domain.SidebarItem, error) {
+// Active returns the active worktrees of repo in the server's order (pinned
+// first), without git status — cheap enough to do for every repo up front.
+func (s *Sidebar) Active(ctx context.Context, repo domain.RepoID) ([]domain.SidebarItem, error) {
 	all, err := s.ws.Worktrees(ctx, repo)
 	if err != nil {
 		return nil, err
@@ -41,6 +40,16 @@ func (s *Sidebar) Load(ctx context.Context, repo domain.RepoID) ([]domain.Sideba
 		if wt.Active {
 			items = append(items, domain.SidebarItem{Worktree: wt})
 		}
+	}
+	return items, nil
+}
+
+// Load is Active plus each row's git status, fetched concurrently. A failed
+// status lookup leaves that row's Git nil rather than failing the sidebar.
+func (s *Sidebar) Load(ctx context.Context, repo domain.RepoID) ([]domain.SidebarItem, error) {
+	items, err := s.Active(ctx, repo)
+	if err != nil {
+		return nil, err
 	}
 	var wg sync.WaitGroup
 	for i := range items {

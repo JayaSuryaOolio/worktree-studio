@@ -163,19 +163,26 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 			d = -1
 		}
 		r.sidebar = r.sidebar.Move(d)
-	case actPrevRepo, actNextRepo:
-		d := 1
-		if act == actPrevRepo {
-			d = -1
-		}
+	case actExpand:
 		var cmd tea.Cmd
-		r.sidebar, cmd = r.sidebar.SwitchRepo(d)
-		return r, cmd
+		var handled bool
+		if r.sidebar, cmd, handled = r.sidebar.Expand(); handled {
+			return r, cmd
+		}
+		return r.do(actOpen, key) // → on a worktree goes to its terminal
+	case actCollapse:
+		r.sidebar = r.sidebar.Collapse()
+	case actClearFilter:
+		r.sidebar = r.sidebar.ClearFilter()
+	case actBackspace:
+		r.sidebar = r.sidebar.Type("", true)
 	case actOpen:
 		if wt, ok := r.sidebar.Selected(); ok && r.wt != nil && r.wt.ID == wt.ID && r.screen != nil {
 			return r.setFocus(focusTerminal), nil // already on screen
 		}
-		return r, r.sidebar.Open()
+		var cmd tea.Cmd
+		r.sidebar, cmd = r.sidebar.Open()
+		return r, cmd
 	}
 	return r, nil
 }
@@ -200,6 +207,9 @@ func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	}
 	if act, ok := lookup(sidebarKeys, key); ok {
 		return r.do(act, key)
+	}
+	if (k.Type == tea.KeyRunes || k.Type == tea.KeySpace) && !k.Alt {
+		r.sidebar = r.sidebar.Type(string(k.Runes), false)
 	}
 	return r, nil
 }

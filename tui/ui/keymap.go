@@ -18,8 +18,10 @@ const (
 	actUp
 	actDown
 	actOpen
-	actPrevRepo
-	actNextRepo
+	actExpand
+	actCollapse
+	actClearFilter
+	actBackspace
 )
 
 // binding is one key (or key family) the app owns. Each table below both
@@ -57,12 +59,17 @@ var leaderKeys = []binding{
 	{[]string{"esc", "ctrl+@"}, "esc", "close menu", actCancel},
 }
 
+// sidebarKeys: any other printable key types into the filter (Root's
+// fallthrough), so the hint for it lives here as a label-only row.
 var sidebarKeys = []binding{
+	{nil, "type", "filter", 0},
 	{[]string{"up"}, "↑↓", "move", actUp},
 	{[]string{"down"}, "", "", actDown},
+	{[]string{"right"}, "→←", "open/close", actExpand},
+	{[]string{"left"}, "", "", actCollapse},
 	{[]string{"enter"}, "enter", "open", actOpen},
-	{[]string{"left"}, "←→", "repo", actPrevRepo},
-	{[]string{"right"}, "", "", actNextRepo},
+	{[]string{"esc"}, "", "", actClearFilter},
+	{[]string{"backspace"}, "", "", actBackspace},
 	{[]string{"ctrl+c"}, "", "", actQuit},
 }
 
