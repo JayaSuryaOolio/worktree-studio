@@ -51,7 +51,7 @@ Four regions, always in the same place:
 - The layout (which sessions are in which tab, and the split ratios) is
   TUI-local state in `~/.config/wts-tui/layouts.json`. The server only
   knows the session list, so the browser is unaffected.
-- **Closing a pane** removes it from the layout. **Killing** the tmux
+- **Closing a pane** (`x`) or a whole tab (`w`) removes it from the layout. **Killing** the tmux
   session is a separate action that asks for confirmation.
 - **A new empty split asks what to run:** claude, shell, or any of this
   worktree's sessions not currently shown. That is also how you bring back

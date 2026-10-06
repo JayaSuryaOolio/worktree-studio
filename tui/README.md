@@ -16,7 +16,7 @@ Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare
 | `alt+←→↑↓` | anywhere | move to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar, `alt+→` from the sidebar back |
 | `alt+shift+←→↑↓` | anywhere | resize: grow the focused pane that way (at the screen edge, shrink it) |
 | `alt+1`–`alt+9` | anywhere | go to tab N |
-| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
+| `ctrl+space` | anywhere | menu: `space` command palette (type to search tabs, worktrees and actions; `enter` runs), `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `w` close tab (sessions keep running), `z` zoom pane, `r` resize mode (arrows, `shift`+arrows bigger, `esc` done), `n` new worktree, `q` quit |
 | `↑`/`↓`, `enter`, `esc` | empty pane | pick what runs there: new Claude, new shell, or a running session that isn't shown; `esc` closes the pane |
 | `↑`/`↓` | sidebar | move |
 | `→` / `←` | sidebar | expand / collapse a repo; `→` on a worktree opens its terminals, `←` jumps to its repo |
@@ -40,6 +40,8 @@ cmd/wts-tui/      composition root.
 ```
 
 Mouse: click a sidebar row, tab or pane to focus it; drag a divider (the `│` between panes, or a lower pane's header) to resize; the wheel goes to the pane under the pointer, which scrolls only if that tmux session has `mouse on`. Hold `shift` (`fn` in Terminal.app) to select text.
+
+When a pane's session exits (or attaching fails) the pane says why and waits: `enter` reattaches, `ctrl+space x` closes it.
 
 Pane layouts (tabs, splits, ratios) are saved per worktree in `~/.config/wts-tui/layouts.json` (or under `$XDG_CONFIG_HOME`) and come back after a restart; sessions that ended are dropped.
 

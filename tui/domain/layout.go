@@ -267,6 +267,12 @@ func (w Workbench) ClosePane() Workbench {
 	if root := t.Root.Close(t.Focus); root != nil {
 		return w.withTab(Tab{root, root.Leaves()[0]})
 	}
+	return w.CloseTab()
+}
+
+// CloseTab drops the active tab; its sessions stay running, hidden.
+func (w Workbench) CloseTab() Workbench {
+	w.Zoom = false
 	w.Tabs = append(append([]Tab(nil), w.Tabs[:w.Active]...), w.Tabs[w.Active+1:]...)
 	if len(w.Tabs) == 0 {
 		w.Tabs = []Tab{{Leaf(""), ""}}

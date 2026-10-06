@@ -255,7 +255,9 @@ func TestResizeByKeyAndMouse(t *testing.T) {
 	}
 }
 
-type memStore struct{ saved map[domain.WorktreeID]domain.Workbench }
+type memStore struct {
+	saved map[domain.WorktreeID]domain.Workbench
+}
 
 func (m *memStore) Load() (map[domain.WorktreeID]domain.Workbench, error) { return m.saved, nil }
 func (m *memStore) Save(b map[domain.WorktreeID]domain.Workbench) error {
@@ -304,4 +306,39 @@ func TestPaletteAndSavedLayouts(t *testing.T) {
 	if r = start(); strings.Join(r.bench.Tab().Root.Leaves(), ",") != "s2,s3" {
 		t.Fatalf("layout restored after restart: %v", r.bench.Tabs)
 	}
+}
+
+// A pane whose attach ends (the shell exited, or tmux failed) must not be
+// reattached in a loop: it waits for enter. ctrl+space w closes the tab.
+func TestDetachedPaneWaitsAndCloseTab(t *testing.T) {
+	dir := &fakeDir{sessions: []domain.TerminalSession{{ID: "s1", Label: "shell"}, {ID: "s2", Label: "shell"}}}
+	attaches := 0
+	att := countingAttacher{n: &attaches}
+	r := NewRoot(context.Background(), SidebarModel{}, app.NewTerminals(dir, att))
+	r = drive(r, tea.WindowSizeMsg{Width: 120, Height: 30})
+	r = drive(r, openMsg{domain.Worktree{ID: "w", RepoID: "r"}})
+	if attaches != 1 {
+		t.Fatalf("attaches: %d", attaches)
+	}
+	r = drive(r, closedMsg{r.screens["s1"]}) // reload still lists s1
+	if attaches != 1 || !strings.Contains(r.View(), "enter reattaches") {
+		t.Fatalf("detached pane was reattached on its own: %d", attaches)
+	}
+	r = drive(r, key("enter"))
+	if attaches != 2 {
+		t.Fatalf("enter reattaches: %d", attaches)
+	}
+
+	r = drive(r, key("ctrl+space"))
+	r = drive(r, key("w"))
+	if len(r.bench.Tabs) != 1 || r.bench.Tab().Focus != "s2" {
+		t.Fatalf("close tab: %+v", r.bench.Tabs)
+	}
+}
+
+type countingAttacher struct{ n *int }
+
+func (c countingAttacher) Attach(domain.TerminalSession, int, int) (app.Screen, error) {
+	*c.n++
+	return &fakeScreen{}, nil
 }

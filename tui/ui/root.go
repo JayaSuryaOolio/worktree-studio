@@ -60,7 +60,8 @@ type Root struct {
 	benches   map[domain.WorktreeID]domain.Workbench // other worktrees' layouts, restored on return
 	screens   map[string]app.Screen                  // by session ID, visible panes only
 	attaching map[string]bool
-	pick      int // cursor in the empty pane's "what runs here?" list
+	detached  map[string]string // session → why its attach ended; not retried until enter
+	pick      int               // cursor in the empty pane's "what runs here?" list
 	focus     focus
 	leader    bool     // ctrl+space menu is open
 	palette   *palette // ctrl+space space command palette is open
@@ -77,7 +78,7 @@ func NewRoot(ctx context.Context, sidebar SidebarModel, terminals *app.Terminals
 	sidebar.focused = true
 	return Root{
 		ctx: ctx, sidebar: sidebar, terminals: terminals,
-		benches: map[domain.WorktreeID]domain.Workbench{}, screens: map[string]app.Screen{}, attaching: map[string]bool{},
+		benches: map[domain.WorktreeID]domain.Workbench{}, screens: map[string]app.Screen{}, attaching: map[string]bool{}, detached: map[string]string{},
 	}
 }
 
@@ -162,7 +163,7 @@ func (r Root) sync() (Root, tea.Cmd) {
 	var cmds []tea.Cmd
 	for id, rect := range vis {
 		sess, ok := r.session(id)
-		if !ok || r.screens[id] != nil || r.attaching[id] {
+		if _, gone := r.detached[id]; !ok || gone || r.screens[id] != nil || r.attaching[id] {
 			continue
 		}
 		r.attaching[id] = true
@@ -293,7 +294,7 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 		}
 		r.status = "creating…"
 		return r, r.loadTabs(wt, &kind, false)
-	case actSplit, actClosePane, actZoom:
+	case actSplit, actClosePane, actCloseTab, actZoom:
 		if !r.ready() {
 			return r, nil
 		}
@@ -302,6 +303,8 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 			r.bench, r.pick = r.bench.Split(arrow(key)), 0
 		case actClosePane:
 			r.bench = r.bench.ClosePane()
+		case actCloseTab:
+			r.bench = r.bench.CloseTab()
 		case actZoom:
 			r.bench.Zoom = !r.bench.Zoom
 		}
@@ -318,6 +321,7 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 			return r, r.loadTabs(*r.wt, c.kind, true)
 		}
 		r.bench = r.bench.Place(c.session.ID)
+		delete(r.detached, c.session.ID) // picking it again is asking to reattach
 		return r.sync()
 	case actNewWorktree:
 		var cmd tea.Cmd
@@ -397,6 +401,10 @@ func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 			}
 			return r, nil
 		}
+		if _, gone := r.detached[id]; gone && key == "enter" {
+			delete(r.detached, id)
+			return r.sync()
+		}
 		if s := r.screens[id]; s != nil {
 			if b := keyBytes(k); b != nil {
 				_ = s.Write(b)
@@ -451,7 +459,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screenMsg:
 		delete(r.attaching, msg.session.ID)
 		if msg.err != nil {
-			r.status = msg.err.Error()
+			r.detached[msg.session.ID] = msg.err.Error()
 			return r, nil
 		}
 		if _, ok := r.visible()[msg.session.ID]; !ok || r.screens[msg.session.ID] != nil {
@@ -472,6 +480,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for id, s := range r.screens {
 			if s == msg.screen {
 				delete(r.screens, id)
+				r.detached[id] = "detached"
 				return r, r.reload() // the session ended: reconcile drops its pane
 			}
 		}
@@ -616,6 +625,8 @@ func (r Root) pane(id string, rect domain.Rect) string {
 		body = r.picker()
 	case s != nil:
 		body = s.Render()
+	case r.detached[id] != "":
+		body = dimStyle.Render(r.detached[id] + "\n\nenter reattaches  ·  ctrl+space x closes the pane")
 	case r.status != "":
 		body = dimStyle.Render(r.status)
 	default:

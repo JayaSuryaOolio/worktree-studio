@@ -20,6 +20,7 @@ const (
 	actNewWorktree
 	actSplit // direction is the key's arrow
 	actClosePane
+	actCloseTab
 	actZoom
 	actPick
 	actResize // direction is the key's arrow; shift+ without alt is a big step
@@ -68,6 +69,7 @@ var leaderKeys = []binding{
 	{[]string{"t"}, "t", "new shell tab", actNewShell},
 	{[]string{"right", "down"}, "→ ↓", "split right / down", actSplit},
 	{[]string{"x"}, "x", "close pane (session keeps running)", actClosePane},
+	{[]string{"w"}, "w", "close tab (sessions keep running)", actCloseTab},
 	{[]string{"z"}, "z", "zoom pane (toggle)", actZoom},
 	{[]string{"r"}, "r", "resize mode", actResizeMode},
 	{[]string{"n"}, "n", "new worktree", actNewWorktree},

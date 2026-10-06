@@ -30,6 +30,7 @@ var paletteActions = []struct {
 	{"split right", actSplit, "right"},
 	{"split down", actSplit, "down"},
 	{"close pane", actClosePane, ""},
+	{"close tab", actCloseTab, ""},
 	{"zoom pane", actZoom, ""},
 	{"resize mode", actResizeMode, ""},
 	{"new worktree", actNewWorktree, ""},

@@ -52,6 +52,7 @@ type screen struct {
 // (cursor-position reports, etc.) back to the pty.
 func (s *screen) pump() {
 	defer close(s.updates)
+	defer s.Close()           // the attach exited: release the pty, or they run out system-wide
 	go io.Copy(s.ptmx, s.emu) // ends when the emulator or pty closes
 	buf := make([]byte, 32*1024)
 	for {
