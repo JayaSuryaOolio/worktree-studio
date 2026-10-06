@@ -66,22 +66,56 @@ func TestRootOpensTerminalBesideSidebar(t *testing.T) {
 	}
 	t.Log("\n" + m.View())
 
-	step(tea.KeyMsg{Type: tea.KeyCtrlCloseBracket})
+	step(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
 	if m.(Root).focus != focusSidebar {
-		t.Fatal("escape key must return focus to the sidebar")
+		t.Fatal("alt+left must return focus to the sidebar")
 	}
 	m.(Root).screen.Close()
 }
 
-func TestTabKeysCycleAndSelect(t *testing.T) {
+type fakeScreen struct{ typed []byte }
+
+func (f *fakeScreen) Write(p []byte) error     { f.typed = append(f.typed, p...); return nil }
+func (f *fakeScreen) Render() string           { return "" }
+func (f *fakeScreen) Resize(int, int)          {}
+func (f *fakeScreen) Updates() <-chan struct{} { return nil }
+func (f *fakeScreen) Close()                   {}
+
+func key(s string) tea.KeyMsg {
+	if strings.HasPrefix(s, "alt+") {
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s[4:]), Alt: true}
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+// The design's core rule: bare keys go to the focused terminal, only alt
+// combos and ctrl+space are the app's.
+func TestTerminalGetsBareKeysAppGetsAltAndLeader(t *testing.T) {
+	scr := &fakeScreen{}
 	r := NewRoot(context.Background(), SidebarModel{}, app.NewTerminals(nil, nil))
-	r.tabs = []domain.TerminalSession{{ID: "a", Label: "shell"}, {ID: "b", Label: "claude"}, {ID: "c", Label: "claude"}}
-	for key, want := range map[string]int{"tab": 1, "shift+tab": 2, "3": 2, "1": 0} {
-		r.active = 0
-		got, _, ok := r.command(key)
-		if !ok || got.active != want {
-			t.Fatalf("%s: active=%d ok=%v want %d", key, got.active, ok, want)
-		}
+	r.tabs = []domain.TerminalSession{{ID: "a", Label: "shell"}, {ID: "b", Label: "claude"}}
+	r.screen = scr
+	r = r.setFocus(focusTerminal)
+
+	for _, k := range []string{"c", "t", "q", "1"} {
+		r, _ = r.onKey(key(k))
+	}
+	if string(scr.typed) != "ctq1" || r.leader {
+		t.Fatalf("bare keys must reach the terminal, got %q", scr.typed)
+	}
+
+	r, _ = r.onKey(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	if !r.leader {
+		t.Fatal("ctrl+space must open the menu")
+	}
+	r, _ = r.onKey(key("x")) // unknown key just closes the menu
+	if r.leader || string(scr.typed) != "ctq1" {
+		t.Fatal("a key after ctrl+space must not leak into the terminal")
+	}
+
+	r, cmd := r.onKey(key("alt+2"))
+	if r.active != 1 || cmd == nil {
+		t.Fatalf("alt+2 must switch to tab 2 (active=%d)", r.active)
 	}
 	if bar := r.tabBar(); !strings.Contains(bar, "2 claude") {
 		t.Fatalf("tab bar: %q", bar)

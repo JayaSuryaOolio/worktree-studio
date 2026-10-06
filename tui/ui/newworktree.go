@@ -7,16 +7,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"worktree-studio/tui/app"
 	"worktree-studio/tui/domain"
-)
-
-var (
-	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("111")).Padding(1, 2)
-	labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	focusLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("111")).Bold(true)
 )
 
 type (
@@ -155,15 +148,15 @@ func (d *newWorktreeDialog) shown() []string { return d.branches.Filter(d.filter
 func (d *newWorktreeDialog) view() string {
 	label := func(f int, s string) string {
 		if d.focus == f {
-			return focusLabel.Render(s)
+			return accentStyle.Render(s)
 		}
-		return labelStyle.Render(s)
+		return mutedStyle.Render(s)
 	}
 	branch := "loading branches…"
 	if !d.loading {
 		branch = dimStyle.Render("no matching branch")
 		if shown := d.shown(); len(shown) > 0 {
-			branch = "‹ " + shown[d.branchIdx] + " ›" + labelStyle.Render(" "+strconv.Itoa(d.branchIdx+1)+"/"+strconv.Itoa(len(shown)))
+			branch = "‹ " + shown[d.branchIdx] + " ›" + mutedStyle.Render(" "+strconv.Itoa(d.branchIdx+1)+"/"+strconv.Itoa(len(shown)))
 		}
 	}
 	var b strings.Builder

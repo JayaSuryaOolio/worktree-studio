@@ -1,7 +1,7 @@
 # tui — terminal frontend (prototype)
 
 A Bubble Tea client for a running worktree-studio server, alongside the browser UI in `web/`.
-Currently only the **sidebar**: repos, active worktrees (pinned first), ↑/↓ ahead/behind, dirty `*`,
+Sidebar + tabbed terminal pane: repos, active worktrees (pinned first), ↑/↓ ahead/behind, dirty `*`,
 live "Claude needs you" `●` from `/ws/attention`.
 
 ```bash
@@ -9,11 +9,18 @@ go run ./cmd/worktree-studio          # server (or already running)
 go run ./tui/cmd/wts-tui              # honours WORKTREE_STUDIO_ADDR
 ```
 
-**Tabs:** a one-row tab bar above the pane lists the worktree's terminal sessions (the same ones the browser shows). `c` starts a new terminal running `claude`, `s` a plain shell; tab keys work from the sidebar (`ctrl+]` first). Closing tabs isn't supported yet — close them in the browser.
+Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare keys and `ctrl+letter` always go to whatever has focus (so typing into Claude never triggers the app); the app only owns `alt` combos and `ctrl+space`. The bottom status bar shows the current mode and the keys that work in it; amber marks where your keys are going.
 
-**Main window:** `enter` on a worktree attaches its terminal session (the same tmux session the browser shows; one is created if the worktree has none) in the right-hand pane and moves focus there — everything you type goes to the shell/Claude. `ctrl+]` returns focus to the sidebar. Closing wts-tui only detaches; the session keeps running.
+| Key | Where | Action |
+|---|---|---|
+| `alt+←` / `alt+→` | anywhere | focus sidebar / terminal |
+| `alt+1`–`alt+9` | anywhere | go to tab N |
+| `ctrl+space` | anywhere | menu: `c` new Claude tab, `t` new shell tab, `n` new worktree, `q` quit |
+| `↑`/`↓`, `enter`, `←`/`→` | sidebar | move, open worktree's terminals, switch repo |
 
-Sidebar keys: `j`/`k` move, `[`/`]` switch repo, `n` new worktree, `enter` open worktree (also marks attention seen), `c` new Claude terminal tab, `s` new shell tab, `tab`/`shift+tab`/`1`–`9` switch tabs, `r` refresh, `q` quit.
+On macOS, `alt` needs Option to send Meta (Ghostty `macos-option-as-alt = true`, iTerm2 Option key = Esc+, Terminal.app "Use Option as Meta key"); `ctrl+space` works without it.
+
+Tabs are the worktree's terminal sessions (the same tmux sessions the browser shows; a shell is created if there are none). Closing wts-tui only detaches; sessions keep running. Closing tabs isn't supported yet — close them in the browser.
 New-worktree dialog: type a name, `tab` to the branch picker, `←`/`→` to cycle, `enter` create, `esc` cancel.
 
 ## Layout (DDD, dependencies point inward)
@@ -27,4 +34,4 @@ ui/               Bubble Tea presentation. Depends on app/domain only.
 cmd/wts-tui/      composition root.
 ```
 
-Terminal limits: one session per worktree (the first), no mouse or scrollback, no `new terminal`/split. Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.
+Terminal limits: one visible session at a time, no mouse or scrollback, no splits yet (DESIGN.md build steps 2–5). Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.

@@ -17,7 +17,7 @@ func TestMidTruncateKeepsTail(t *testing.T) {
 }
 
 func TestWindowKeepsCursorVisible(t *testing.T) {
-	m := SidebarModel{height: 15, items: make([]domain.SidebarItem, 30), cursor: 25}
+	m := SidebarModel{height: 12, items: make([]domain.SidebarItem, 30), cursor: 25}
 	s, e := m.window()
 	if e-s != 10 || m.cursor < s || m.cursor >= e || e > 30 {
 		t.Fatalf("window %d-%d", s, e)
