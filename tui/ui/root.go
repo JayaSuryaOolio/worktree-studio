@@ -60,9 +60,11 @@ type Root struct {
 	benches   map[domain.WorktreeID]domain.Workbench // other worktrees' layouts, restored on return
 	screens   map[string]app.Screen                  // by session ID, visible panes only
 	attaching map[string]bool
-	pick      int  // cursor in the empty pane's "what runs here?" list
+	pick      int // cursor in the empty pane's "what runs here?" list
 	focus     focus
-	leader    bool // ctrl+space menu is open
+	leader    bool     // ctrl+space menu is open
+	palette   *palette // ctrl+space space command palette is open
+	store     app.LayoutStore
 	resizing  bool // resize mode: arrows move the focused pane's divider
 	drag      domain.Path
 	dragging  bool // a divider is being dragged with the mouse
@@ -78,6 +80,44 @@ func NewRoot(ctx context.Context, sidebar SidebarModel, terminals *app.Terminals
 		benches: map[domain.WorktreeID]domain.Workbench{}, screens: map[string]app.Screen{}, attaching: map[string]bool{},
 	}
 }
+
+// WithLayouts restores saved pane layouts from s and saves them back as
+// they change.
+func (r Root) WithLayouts(s app.LayoutStore) Root {
+	r.store = s
+	saved, err := s.Load()
+	if err != nil {
+		r.status = "saved layouts: " + err.Error()
+		return r
+	}
+	for id, b := range saved {
+		r.benches[id] = b
+	}
+	return r
+}
+
+// save writes every worktree's layout, this one included.
+func (r Root) save() Root {
+	if r.store == nil {
+		return r
+	}
+	all := map[domain.WorktreeID]domain.Workbench{}
+	for id, b := range r.benches {
+		if len(b.Tabs) > 0 {
+			all[id] = b
+		}
+	}
+	if r.ready() {
+		all[r.wt.ID] = r.bench
+	}
+	if err := r.store.Save(all); err != nil {
+		r.status = "saving layouts: " + err.Error()
+	}
+	return r
+}
+
+// modal is true while a menu holds the accent and the keys.
+func (r Root) modal() bool { return r.leader || r.palette != nil }
 
 func (r Root) Init() tea.Cmd { return r.sidebar.Init() }
 
@@ -109,6 +149,7 @@ func (r Root) visible() map[string]domain.Rect {
 // sync makes the live screens match the visible panes: detach the hidden,
 // resize the moved, attach the new.
 func (r Root) sync() (Root, tea.Cmd) {
+	r = r.save()
 	vis := r.visible()
 	for id, s := range r.screens {
 		if rect, ok := vis[id]; ok {
@@ -239,6 +280,8 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 		r.resizing = false
 	case actLeader:
 		r.leader = true
+	case actPalette:
+		r.palette = &palette{}
 	case actNewClaude, actNewShell:
 		wt, ok := r.target()
 		if !ok {
@@ -327,6 +370,9 @@ func (r Root) selectTab(i int) (Root, tea.Cmd) {
 
 func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 	key := k.String()
+	if r.palette != nil {
+		return r.onPaletteKey(k)
+	}
 	if r.leader {
 		r.leader = false
 		if act, ok := lookup(leaderKeys, key); ok {
@@ -448,7 +494,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // onMouse: click focuses (sidebar row, tab, pane), dragging a divider
 // resizes, and the wheel goes to the pane under the pointer.
 func (r Root) onMouse(m tea.MouseMsg) (Root, tea.Cmd) {
-	r.leader = false
+	r.leader, r.palette = false, nil
 	area := r.area()
 	px, py := m.X-sidebarWidth-1, m.Y-1 // in the pane area
 	switch {
@@ -518,7 +564,7 @@ func (r Root) View() string {
 	if d := r.sidebar.DialogView(); d != "" {
 		return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, d)
 	}
-	if r.leader {
+	if r.modal() {
 		r.sidebar.focused = false // the menu holds the accent while open
 	}
 	area := r.area()
@@ -538,7 +584,12 @@ func (r Root) View() string {
 		panes = r.render(r.bench.Tab().Root, area)
 	}
 	if r.leader {
-		panes = overlayBottomRight(panes, r.leaderMenu(), area.W, area.H)
+		box := r.leaderMenu()
+		panes = overlay(panes, box, area.W-lipgloss.Width(box)-1, area.H-lipgloss.Height(box)-1)
+	}
+	if r.palette != nil {
+		w := min(area.W-4, 72)
+		panes = overlay(panes, r.paletteView(w), (area.W-w)/2, 1)
 	}
 	column := lipgloss.NewStyle().MaxWidth(area.W).Render(r.tabBar()) + "\n" + panes
 	body := lipgloss.JoinHorizontal(lipgloss.Top, side, sep, column)
@@ -587,7 +638,7 @@ func (r Root) label(id string) string {
 // picker is the empty pane's "what runs here?" list.
 func (r Root) picker() string {
 	lines := []string{mutedStyle.Render(" what runs here?"), ""}
-	focused := r.focus == focusTerminal && !r.leader
+	focused := r.focus == focusTerminal && !r.modal()
 	for i, c := range r.choices() {
 		name, note := c.session.Label, "running, not shown"
 		if c.kind != nil {
@@ -641,7 +692,7 @@ func (r Root) tabBar() string {
 func (r Root) paneHeader(id string, w int) string {
 	title := " " + r.label(id) + " "
 	fill := max(w-lipgloss.Width(title)-1, 0)
-	if r.focus == focusTerminal && !r.leader && id == r.bench.Tab().Focus {
+	if r.focus == focusTerminal && !r.modal() && id == r.bench.Tab().Focus {
 		return ansi.Truncate(accentStyle.Render("━"+title+strings.Repeat("━", fill)), w, "")
 	}
 	return ansi.Truncate(ruleStyle.Render("─")+mutedStyle.Render(title)+ruleStyle.Render(strings.Repeat("─", fill)), w, "")
@@ -649,6 +700,8 @@ func (r Root) paneHeader(id string, w int) string {
 
 func (r Root) mode() (string, string) {
 	switch {
+	case r.palette != nil:
+		return "PALETTE", dimStyle.Render("type to search  ↑↓ choose  enter run  esc close")
 	case r.leader:
 		return "MENU", dimStyle.Render("press a key from the menu")
 	case r.resizing:
@@ -687,13 +740,13 @@ func (r Root) leaderMenu() string {
 	return menuStyle.Render(dimStyle.Render("ctrl+space") + "\n" + b.String())
 }
 
-// overlayBottomRight draws box over the bottom-right corner of base (w×h),
-// keeping base's styling on both sides of it.
-func overlayBottomRight(base, box string, w, h int) string {
+// overlay draws box over base with its top-left corner at x, y, keeping
+// base's styling on both sides of it.
+func overlay(base, box string, x, y int) string {
 	lines := strings.Split(base, "\n")
 	boxLines := strings.Split(box, "\n")
 	bw := lipgloss.Width(box)
-	x, y := max(w-bw-1, 0), max(h-len(boxLines)-1, 0)
+	x, y = max(x, 0), max(y, 0)
 	for i, bl := range boxLines {
 		if y+i >= len(lines) {
 			break

@@ -11,8 +11,9 @@ type action int
 
 const (
 	actMove action = iota + 1 // direction is the key's arrow
-	actTab // tab number is the key's last digit
+	actTab                    // tab number is the key's last digit
 	actLeader
+	actPalette
 	actCancel
 	actNewClaude
 	actNewShell
@@ -62,6 +63,7 @@ var globalKeys = []binding{
 
 // leaderKeys follow ctrl+space; the menu lists them, so they're never memorised.
 var leaderKeys = []binding{
+	{[]string{" "}, "space", "command palette", actPalette},
 	{[]string{"c"}, "c", "new Claude tab", actNewClaude},
 	{[]string{"t"}, "t", "new shell tab", actNewShell},
 	{[]string{"right", "down"}, "→ ↓", "split right / down", actSplit},

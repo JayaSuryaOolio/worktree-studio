@@ -12,6 +12,7 @@ import (
 
 	"worktree-studio/tui/app"
 	"worktree-studio/tui/infra/httpapi"
+	"worktree-studio/tui/infra/layoutfile"
 	"worktree-studio/tui/infra/ptyterm"
 	"worktree-studio/tui/ui"
 )
@@ -22,7 +23,7 @@ func main() {
 
 	client := httpapi.FromEnv()
 	sidebar := ui.NewSidebar(ctx, app.NewSidebar(client), app.NewNewWorktree(client), client)
-	model := ui.NewRoot(ctx, sidebar, app.NewTerminals(client, ptyterm.Attacher{}))
+	model := ui.NewRoot(ctx, sidebar, app.NewTerminals(client, ptyterm.Attacher{})).WithLayouts(layoutfile.Default())
 	if _, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wts-tui:", err)
 		os.Exit(1)

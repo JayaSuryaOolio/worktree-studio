@@ -266,14 +266,18 @@ func (m SidebarModel) Open() (SidebarModel, tea.Cmd) {
 		m, cmd, _ := m.Expand()
 		return m, cmd
 	}
-	wt := row.item.Worktree
+	return m, m.OpenWorktree(row.item.Worktree)
+}
+
+// OpenWorktree marks wt seen and asks Root to show its tabs.
+func (m SidebarModel) OpenWorktree(wt domain.Worktree) tea.Cmd {
 	markSeen := func() tea.Msg {
 		if err := m.uc.MarkSeen(m.ctx, wt); err != nil {
 			return errMsg{err}
 		}
 		return nil
 	}
-	return m, tea.Batch(markSeen, func() tea.Msg { return openMsg{wt} })
+	return tea.Batch(markSeen, func() tea.Msg { return openMsg{wt} })
 }
 
 func (m SidebarModel) NewWorktree() (SidebarModel, tea.Cmd) {

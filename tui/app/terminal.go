@@ -32,6 +32,12 @@ type Attacher interface {
 	Attach(s domain.TerminalSession, w, h int) (Screen, error)
 }
 
+// LayoutStore keeps each worktree's tabs and splits between runs.
+type LayoutStore interface {
+	Load() (map[domain.WorktreeID]domain.Workbench, error)
+	Save(map[domain.WorktreeID]domain.Workbench) error
+}
+
 type Terminals struct {
 	dir TerminalDirectory
 	att Attacher

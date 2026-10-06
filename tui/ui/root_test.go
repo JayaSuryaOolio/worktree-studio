@@ -141,6 +141,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	case "shift+right":
 		return tea.KeyMsg{Type: tea.KeyShiftRight}
 	case "alt+shift+left":
@@ -250,5 +252,56 @@ func TestResizeByKeyAndMouse(t *testing.T) {
 	click(div-10, 5, tea.MouseActionRelease)
 	if got := x0 + r.visible()["s1"].W; got != div-10 || r.dragging {
 		t.Fatalf("dragging the divider moves it: %d, want %d", got, div-10)
+	}
+}
+
+type memStore struct{ saved map[domain.WorktreeID]domain.Workbench }
+
+func (m *memStore) Load() (map[domain.WorktreeID]domain.Workbench, error) { return m.saved, nil }
+func (m *memStore) Save(b map[domain.WorktreeID]domain.Workbench) error {
+	m.saved = b
+	return nil
+}
+
+// The palette finds tabs and actions by typing; a split layout survives a
+// restart through the layout store.
+func TestPaletteAndSavedLayouts(t *testing.T) {
+	sessions := []domain.TerminalSession{{ID: "s1", Label: "claude"}, {ID: "s2", Label: "shell"}}
+	store := &memStore{}
+	start := func() Root {
+		dir := &fakeDir{sessions: sessions}
+		r := NewRoot(context.Background(), SidebarModel{}, app.NewTerminals(dir, fakeAttacher{})).WithLayouts(store)
+		r = drive(r, tea.WindowSizeMsg{Width: 120, Height: 30})
+		return drive(r, openMsg{domain.Worktree{ID: "w", RepoID: "r"}})
+	}
+	r := start()
+	press := func(keys ...string) {
+		for _, k := range keys {
+			r = drive(r, key(k))
+		}
+	}
+
+	press("ctrl+space", "space", "s", "h", "e", "l")
+	if hits := r.palette.matches(r.paletteItems()); len(hits) != 2 || hits[0].label != "2 shell" || hits[1].label != "new shell tab" {
+		t.Fatalf("substring hits, tabs first: %+v", hits)
+	}
+	if !strings.Contains(r.View(), "PALETTE") {
+		t.Fatal("status bar says the palette has the keys")
+	}
+	press("enter")
+	if r.palette != nil || r.bench.Active != 1 {
+		t.Fatalf("enter runs the tab item: active=%d", r.bench.Active)
+	}
+	if got := (palette{query: "spd"}).matches(r.paletteItems()); len(got) != 1 || got[0].label != "split down" {
+		t.Fatalf("letters in order match: %+v", got)
+	}
+
+	press("ctrl+space", "space", "s", "p", "l", "i", "t", " ", "r", "enter", "enter") // split right, then a shell in it
+	if got := strings.Join(r.bench.Tab().Root.Leaves(), ","); got != "s2,s3" {
+		t.Fatalf("split from the palette: %s", got)
+	}
+	sessions = append(sessions, domain.TerminalSession{ID: "s3", Label: "shell"})
+	if r = start(); strings.Join(r.bench.Tab().Root.Leaves(), ",") != "s2,s3" {
+		t.Fatalf("layout restored after restart: %v", r.bench.Tabs)
 	}
 }

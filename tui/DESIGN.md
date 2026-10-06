@@ -1,7 +1,7 @@
 # wts-tui design system
 
-Status: build steps 1–4 done (keymap, theme, status bar, sidebar tree,
-splits, resizing, mouse); the palette and saved layouts are next. See *Build order*.
+Status: build steps 1–5 done (keymap, theme, status bar, sidebar tree,
+splits, resizing, mouse, command palette, saved layouts). See *Build order*.
 
 ## The problem it solves
 
@@ -150,7 +150,9 @@ text wherever focus is.
 
 A fuzzy list of every worktree, session and action, matching the browser's
 Cmd+K. It's the fallback when you've forgotten a key, and the fastest way to
-jump to a worktree in another repo.
+jump to a worktree in another repo. Substring matches come first, then the ones
+whose letters appear in order (`spd` finds "split down"). Worktrees are listed
+from repos the sidebar has loaded.
 
 ## Status bar
 
