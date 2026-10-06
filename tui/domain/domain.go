@@ -151,3 +151,12 @@ type TerminalSession struct {
 	TmuxName string
 	Label    string
 }
+
+// TerminalKind is what a new terminal tab runs. Command is typed into the
+// fresh shell by the server (empty = a plain shell); Label names the tab.
+type TerminalKind struct{ Label, Command string }
+
+var (
+	ShellTerminal  = TerminalKind{Label: "shell"}
+	ClaudeTerminal = TerminalKind{Label: "claude", Command: "claude"}
+)

@@ -176,6 +176,14 @@ func (m SidebarModel) onKey(k tea.KeyMsg) (SidebarModel, tea.Cmd) {
 	return m, nil
 }
 
+// Selected is the worktree under the cursor.
+func (m SidebarModel) Selected() (domain.Worktree, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return domain.Worktree{}, false
+	}
+	return m.items[m.cursor].Worktree, true
+}
+
 // DialogView is the open modal's box, or "" — the root centres it over the
 // whole screen, since it is wider than the sidebar column.
 func (m SidebarModel) DialogView() string {
@@ -217,7 +225,7 @@ func (m SidebarModel) View() string {
 	if m.err != nil {
 		b.WriteString("\n" + errStyle.Render(m.err.Error()) + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  n new  enter open  r refresh  q quit"))
+	b.WriteString("\n" + dimStyle.Render("j/k move  [/] repo  n new  enter open  c claude  s shell  tab next-tab  r refresh  q quit"))
 	return b.String()
 }
 

@@ -220,8 +220,9 @@ func (c *Client) Sessions(ctx context.Context, repo domain.RepoID, wt domain.Wor
 	return out, nil
 }
 
-func (c *Client) Create(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID, label string) (domain.TerminalSession, error) {
+func (c *Client) Create(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID, kind domain.TerminalKind) (domain.TerminalSession, error) {
 	var t terminalJSON
-	err := c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/%s/terminals/", repo, wt), map[string]string{"tab_label": label}, &t)
+	in := map[string]string{"tab_label": kind.Label, "initial_command": kind.Command}
+	err := c.do(ctx, "POST", fmt.Sprintf("/api/repos/%s/worktrees/%s/terminals/", repo, wt), in, &t)
 	return t.domain(), err
 }
