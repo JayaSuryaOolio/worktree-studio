@@ -20,12 +20,16 @@ const (
 )
 
 type (
-	// tabsMsg carries a worktree's terminal sessions and which one to show.
+	// tabsMsg carries a worktree's terminal sessions. created is a session
+	// the user just made: into puts it in the focused empty pane instead of
+	// a tab of its own. quiet reloads leave focus where it is.
 	tabsMsg struct {
-		wt     domain.Worktree
-		tabs   []domain.TerminalSession
-		active int
-		err    error
+		wt       domain.Worktree
+		sessions []domain.TerminalSession
+		created  string
+		into     bool
+		quiet    bool
+		err      error
 	}
 	screenMsg struct {
 		session domain.TerminalSession
@@ -43,17 +47,20 @@ const (
 	focusTerminal
 )
 
-// Root composes sidebar, tab bar, pane and status bar, and owns the keymap
+// Root composes sidebar, tab bar, panes and status bar, and owns the keymap
 // (tui/DESIGN.md): alt combos and ctrl+space are the app's; every other key
-// goes to whatever has focus.
+// goes to whatever has focus. Each visible pane is its own tmux attach.
 type Root struct {
 	ctx       context.Context
 	sidebar   SidebarModel
 	terminals *app.Terminals
-	screen    app.Screen
 	wt        *domain.Worktree // worktree whose tabs are shown
-	tabs      []domain.TerminalSession
-	active    int
+	sessions  []domain.TerminalSession
+	bench     domain.Workbench
+	benches   map[domain.WorktreeID]domain.Workbench // other worktrees' layouts, restored on return
+	screens   map[string]app.Screen                  // by session ID, visible panes only
+	attaching map[string]bool
+	pick      int  // cursor in the empty pane's "what runs here?" list
 	focus     focus
 	leader    bool // ctrl+space menu is open
 	width     int
@@ -63,19 +70,22 @@ type Root struct {
 
 func NewRoot(ctx context.Context, sidebar SidebarModel, terminals *app.Terminals) Root {
 	sidebar.focused = true
-	return Root{ctx: ctx, sidebar: sidebar, terminals: terminals}
+	return Root{
+		ctx: ctx, sidebar: sidebar, terminals: terminals,
+		benches: map[domain.WorktreeID]domain.Workbench{}, screens: map[string]app.Screen{}, attaching: map[string]bool{},
+	}
 }
 
 func (r Root) Init() tea.Cmd { return r.sidebar.Init() }
 
-// paneSize is the terminal's size: the main column minus the tab bar, the
-// pane header and the status bar.
-func (r Root) paneSize() (int, int) {
-	return max(r.width-sidebarWidth-1, 10), max(r.height-3, 1)
+// area is where panes go: the main column minus the tab bar and status bar.
+// Every pane spends its first line on a header.
+func (r Root) area() domain.Rect {
+	return domain.Rect{W: max(r.width-sidebarWidth-1, 10), H: max(r.height-2, 2)}
 }
 
 func (r Root) setFocus(f focus) Root {
-	if f == focusTerminal && r.screen == nil {
+	if f == focusTerminal && r.wt == nil {
 		return r
 	}
 	r.focus = f
@@ -83,32 +93,86 @@ func (r Root) setFocus(f focus) Root {
 	return r
 }
 
-// show attaches the active tab, dropping any live screen first.
-func (r Root) show() (Root, tea.Cmd) {
-	if r.screen != nil {
-		r.screen.Close()
-		r.screen = nil
+// ready is true once the shown worktree's tabs have loaded.
+func (r Root) ready() bool { return r.wt != nil && len(r.bench.Tabs) > 0 }
+
+func (r Root) visible() map[string]domain.Rect {
+	if !r.ready() {
+		return nil
 	}
-	if r.active >= len(r.tabs) {
-		return r, nil
+	return r.bench.Visible(r.area())
+}
+
+// sync makes the live screens match the visible panes: detach the hidden,
+// resize the moved, attach the new.
+func (r Root) sync() (Root, tea.Cmd) {
+	vis := r.visible()
+	for id, s := range r.screens {
+		if rect, ok := vis[id]; ok {
+			s.Resize(rect.W, rect.H-1)
+		} else {
+			s.Close()
+			delete(r.screens, id)
+		}
 	}
-	r.status = "attaching…"
-	w, h := r.paneSize()
-	sess := r.tabs[r.active]
-	return r, func() tea.Msg {
-		s, err := r.terminals.Attach(sess, w, h)
-		return screenMsg{sess, s, err}
+	var cmds []tea.Cmd
+	for id, rect := range vis {
+		sess, ok := r.session(id)
+		if !ok || r.screens[id] != nil || r.attaching[id] {
+			continue
+		}
+		r.attaching[id] = true
+		cmds = append(cmds, func() tea.Msg {
+			s, err := r.terminals.Attach(sess, rect.W, rect.H-1)
+			return screenMsg{sess, s, err}
+		})
+	}
+	return r, tea.Batch(cmds...)
+}
+
+func (r Root) session(id string) (domain.TerminalSession, bool) {
+	for _, s := range r.sessions {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return domain.TerminalSession{}, false
+}
+
+// switchTo shows wt's tabs, parking the current worktree's layout.
+func (r Root) switchTo(wt domain.Worktree) Root {
+	if r.wt != nil {
+		r.benches[r.wt.ID] = r.bench
+	}
+	r.wt, r.bench, r.sessions = &wt, r.benches[wt.ID], nil
+	r, _ = r.sync() // nothing is attachable yet: this only detaches
+	return r
+}
+
+func (r Root) loadTabs(wt domain.Worktree, kind *domain.TerminalKind, into bool) tea.Cmd {
+	return func() tea.Msg {
+		if kind == nil {
+			s, err := r.terminals.Tabs(r.ctx, wt)
+			return tabsMsg{wt: wt, sessions: s, err: err}
+		}
+		s, i, err := r.terminals.Add(r.ctx, wt, *kind)
+		if err != nil {
+			return tabsMsg{wt: wt, err: err}
+		}
+		return tabsMsg{wt: wt, sessions: s, created: s[i].ID, into: into}
 	}
 }
 
-func (r Root) loadTabs(wt domain.Worktree, kind *domain.TerminalKind) tea.Cmd {
+// reload re-reads the session list without moving focus, e.g. after a
+// session ended.
+func (r Root) reload() tea.Cmd {
+	if r.wt == nil {
+		return nil
+	}
+	wt := *r.wt
 	return func() tea.Msg {
-		if kind == nil {
-			tabs, err := r.terminals.Tabs(r.ctx, wt)
-			return tabsMsg{wt, tabs, 0, err}
-		}
-		tabs, i, err := r.terminals.Add(r.ctx, wt, *kind)
-		return tabsMsg{wt, tabs, i, err}
+		s, err := r.terminals.Tabs(r.ctx, wt)
+		return tabsMsg{wt: wt, sessions: s, quiet: true, err: err}
 	}
 }
 
@@ -121,23 +185,47 @@ func (r Root) target() (domain.Worktree, bool) {
 	return r.sidebar.Selected()
 }
 
+// choice is one line of the empty pane's "what runs here?" list: a new
+// session of some kind, or an existing one that isn't shown anywhere.
+type choice struct {
+	kind    *domain.TerminalKind
+	session domain.TerminalSession
+}
+
+func (r Root) choices() []choice {
+	cs := []choice{{kind: &domain.ClaudeTerminal}, {kind: &domain.ShellTerminal}}
+	for _, s := range r.bench.Hidden(r.sessions) {
+		cs = append(cs, choice{session: s})
+	}
+	return cs
+}
+
 func (r Root) do(act action, key string) (Root, tea.Cmd) {
 	switch act {
-	case actFocusSidebar:
-		r = r.setFocus(focusSidebar)
-		return r, r.sidebar.Refresh()
-	case actFocusPanes:
-		return r.setFocus(focusTerminal), nil
-	case actTab:
-		n := int(key[len(key)-1] - '0')
-		if n > len(r.tabs) {
+	case actMove:
+		d := arrow(key)
+		if r.focus == focusSidebar {
+			if d == domain.Right {
+				return r.setFocus(focusTerminal), nil
+			}
 			return r, nil
 		}
-		if n-1 == r.active && r.screen != nil {
-			return r.setFocus(focusTerminal), nil
+		if b, ok := r.bench.Move(d, r.area()); ok {
+			r.bench = b
+			return r.sync()
 		}
-		r.active = n - 1
-		return r.show()
+		if d == domain.Left {
+			r = r.setFocus(focusSidebar)
+			return r, r.sidebar.Refresh()
+		}
+	case actTab:
+		n := int(key[len(key)-1] - '0')
+		if !r.ready() || n > len(r.bench.Tabs) {
+			return r, nil
+		}
+		r.bench.Active, r.bench.Zoom, r.pick = n-1, false, 0
+		r = r.setFocus(focusTerminal)
+		return r.sync()
 	case actLeader:
 		r.leader = true
 	case actNewClaude, actNewShell:
@@ -150,7 +238,33 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 			kind = domain.ShellTerminal
 		}
 		r.status = "creating…"
-		return r, r.loadTabs(wt, &kind)
+		return r, r.loadTabs(wt, &kind, false)
+	case actSplit, actClosePane, actZoom:
+		if !r.ready() {
+			return r, nil
+		}
+		switch act {
+		case actSplit:
+			r.bench, r.pick = r.bench.Split(arrow(key)), 0
+		case actClosePane:
+			r.bench = r.bench.ClosePane()
+		case actZoom:
+			r.bench.Zoom = !r.bench.Zoom
+		}
+		r = r.setFocus(focusTerminal)
+		return r.sync()
+	case actPick:
+		cs := r.choices()
+		if !r.ready() || r.pick >= len(cs) {
+			return r, nil
+		}
+		c := cs[r.pick]
+		if c.kind != nil {
+			r.status = "creating…"
+			return r, r.loadTabs(*r.wt, c.kind, true)
+		}
+		r.bench = r.bench.Place(c.session.ID)
+		return r.sync()
 	case actNewWorktree:
 		var cmd tea.Cmd
 		r.sidebar, cmd = r.sidebar.NewWorktree()
@@ -161,6 +275,10 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 		d := 1
 		if act == actUp {
 			d = -1
+		}
+		if r.focus == focusTerminal {
+			r.pick = min(max(r.pick+d, 0), len(r.choices())-1)
+			return r, nil
 		}
 		r.sidebar = r.sidebar.Move(d)
 	case actExpand:
@@ -177,7 +295,7 @@ func (r Root) do(act action, key string) (Root, tea.Cmd) {
 	case actBackspace:
 		r.sidebar = r.sidebar.Type("", true)
 	case actOpen:
-		if wt, ok := r.sidebar.Selected(); ok && r.wt != nil && r.wt.ID == wt.ID && r.screen != nil {
+		if wt, ok := r.sidebar.Selected(); ok && r.wt != nil && r.wt.ID == wt.ID {
 			return r.setFocus(focusTerminal), nil // already on screen
 		}
 		var cmd tea.Cmd
@@ -200,8 +318,17 @@ func (r Root) onKey(k tea.KeyMsg) (Root, tea.Cmd) {
 		return r.do(act, key)
 	}
 	if r.focus == focusTerminal {
-		if b := keyBytes(k); b != nil {
-			_ = r.screen.Write(b)
+		id := r.bench.Tab().Focus
+		if id == "" {
+			if act, ok := lookup(pickKeys, key); ok {
+				return r.do(act, key)
+			}
+			return r, nil
+		}
+		if s := r.screens[id]; s != nil {
+			if b := keyBytes(k); b != nil {
+				_ = s.Write(b)
+			}
 		}
 		return r, nil
 	}
@@ -218,48 +345,63 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		r.width, r.height = msg.Width, msg.Height
-		var cmd tea.Cmd
+		var cmd, sync tea.Cmd
 		r.sidebar, cmd = r.sidebar.Update(tea.WindowSizeMsg{Width: sidebarWidth, Height: msg.Height - 1})
-		if r.screen != nil {
-			r.screen.Resize(r.paneSize())
-		}
-		return r, cmd
+		r, sync = r.sync()
+		return r, tea.Batch(cmd, sync)
 	case openMsg:
-		if r.screen != nil {
-			r.screen.Close()
-			r.screen = nil
-		}
-		wt := msg.wt
-		r.wt, r.tabs, r.active, r.status = &wt, nil, 0, "attaching…"
-		return r, r.loadTabs(wt, nil)
+		r = r.switchTo(msg.wt)
+		r.status = "attaching…"
+		return r, r.loadTabs(msg.wt, nil, false)
 	case tabsMsg:
 		if msg.err != nil {
 			r.status = msg.err.Error()
 			return r, nil
 		}
-		wt := msg.wt
-		r.wt, r.tabs, r.active = &wt, msg.tabs, msg.active
-		return r.show()
+		if r.wt == nil || msg.wt.ID != r.wt.ID {
+			if msg.created == "" {
+				return r, nil // stale: another worktree has been opened since
+			}
+			r = r.switchTo(msg.wt) // a tab was made for the sidebar's selection
+		}
+		r.sessions, r.status = msg.sessions, ""
+		if msg.into {
+			r.bench = r.bench.Place(msg.created)
+		}
+		r.bench = r.bench.Reconcile(msg.sessions)
+		if msg.created != "" {
+			r.bench = r.bench.Show(msg.created)
+		}
+		if !msg.quiet {
+			r = r.setFocus(focusTerminal)
+		}
+		return r.sync()
 	case screenMsg:
+		delete(r.attaching, msg.session.ID)
 		if msg.err != nil {
 			r.status = msg.err.Error()
 			return r, nil
 		}
-		if r.active >= len(r.tabs) || r.tabs[r.active].ID != msg.session.ID || r.screen != nil {
-			msg.screen.Close() // stale: we've since switched tabs
+		if _, ok := r.visible()[msg.session.ID]; !ok || r.screens[msg.session.ID] != nil {
+			msg.screen.Close() // stale: the pane went away while attaching
 			return r, nil
 		}
-		r.screen, r.status = msg.screen, ""
-		return r.setFocus(focusTerminal), waitFrame(msg.screen)
+		r.screens[msg.session.ID] = msg.screen
+		r, cmd := r.sync() // the layout may have changed size meanwhile
+		return r, tea.Batch(cmd, waitFrame(msg.screen))
 	case frameMsg:
-		if msg.screen != r.screen {
-			return r, nil // stale: we've since switched tabs
+		for _, s := range r.screens {
+			if s == msg.screen {
+				return r, waitFrame(s)
+			}
 		}
-		return r, waitFrame(msg.screen)
+		return r, nil // stale: detached since
 	case closedMsg:
-		if msg.screen == r.screen {
-			r.screen, r.status = nil, "terminal session ended"
-			r = r.setFocus(focusSidebar)
+		for id, s := range r.screens {
+			if s == msg.screen {
+				delete(r.screens, id)
+				return r, r.reload() // the session ended: reconcile drops its pane
+			}
 		}
 		return r, nil
 	case tea.KeyMsg:
@@ -294,64 +436,130 @@ func (r Root) View() string {
 	if r.leader {
 		r.sidebar.focused = false // the menu holds the accent while open
 	}
-	pw, ph := r.paneSize()
-	bodyH := ph + 2 // tab bar + pane header + terminal
+	area := r.area()
+	bodyH := area.H + 1 // tab bar + panes
 	side := lipgloss.NewStyle().Width(sidebarWidth).Height(bodyH).MaxHeight(bodyH).Render(r.sidebar.View())
 	sep := ruleStyle.Render(repeatLine("│", bodyH))
 
-	var main string
+	var panes string
 	switch {
-	case r.screen != nil:
-		main = r.screen.Render()
-	case r.status != "":
-		main = dimStyle.Render(r.status)
+	case r.wt == nil:
+		panes = box(dimStyle.Render("enter on a worktree opens its terminals"), area.W, area.H)
+	case !r.ready():
+		panes = box(dimStyle.Render(r.status), area.W, area.H)
+	case r.bench.Zoom:
+		panes = r.pane(r.bench.Tab().Focus, area)
 	default:
-		main = dimStyle.Render("enter on a worktree opens its terminals")
+		panes = r.render(r.bench.Tab().Root, area)
 	}
-	pane := lipgloss.NewStyle().Width(pw).Height(ph).MaxWidth(pw).MaxHeight(ph).Render(main)
 	if r.leader {
-		pane = overlayBottomRight(pane, r.leaderMenu(), pw, ph)
+		panes = overlayBottomRight(panes, r.leaderMenu(), area.W, area.H)
 	}
-	cut := lipgloss.NewStyle().MaxWidth(pw)
-	column := cut.Render(r.tabBar()) + "\n" + cut.Render(r.paneHeader(pw)) + "\n" + pane
+	column := lipgloss.NewStyle().MaxWidth(area.W).Render(r.tabBar()) + "\n" + panes
 	body := lipgloss.JoinHorizontal(lipgloss.Top, side, sep, column)
 	return body + "\n" + r.statusBar()
 }
 
+// render draws a split tree into rect, mirroring Pane.Halves.
+func (r Root) render(p *domain.Pane, rect domain.Rect) string {
+	if p.IsLeaf() {
+		return r.pane(p.Session, rect)
+	}
+	a, b := p.Halves(rect)
+	if p.Dir == domain.Right {
+		return lipgloss.JoinHorizontal(lipgloss.Top, r.render(p.First, a), ruleStyle.Render(repeatLine("│", rect.H)), r.render(p.Second, b))
+	}
+	return r.render(p.First, a) + "\n" + r.render(p.Second, b)
+}
+
+// pane is one pane: a header line, then the terminal or the picker.
+func (r Root) pane(id string, rect domain.Rect) string {
+	var body string
+	switch s := r.screens[id]; {
+	case id == "":
+		body = r.picker()
+	case s != nil:
+		body = s.Render()
+	case r.status != "":
+		body = dimStyle.Render(r.status)
+	default:
+		body = dimStyle.Render("attaching…")
+	}
+	return r.paneHeader(id, rect.W) + "\n" + box(body, rect.W, rect.H-1)
+}
+
+func box(s string, w, h int) string {
+	return lipgloss.NewStyle().Width(w).Height(h).MaxWidth(w).MaxHeight(h).Render(s)
+}
+
+func (r Root) label(id string) string {
+	if s, ok := r.session(id); ok {
+		return s.Label
+	}
+	return "new pane"
+}
+
+// picker is the empty pane's "what runs here?" list.
+func (r Root) picker() string {
+	lines := []string{mutedStyle.Render(" what runs here?"), ""}
+	focused := r.focus == focusTerminal && !r.leader
+	for i, c := range r.choices() {
+		name, note := c.session.Label, "running, not shown"
+		if c.kind != nil {
+			name, note = c.kind.Label, "new session"
+		}
+		bar, line := " ", " "+padRight(name, 10)+dimStyle.Render(note)
+		if i == r.pick {
+			line = selectedStyle.Render(" " + padRight(name, 10) + note + " ")
+			if focused {
+				bar = accentStyle.Render("▌")
+			}
+		}
+		lines = append(lines, bar+line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (r Root) tabBar() string {
-	if len(r.tabs) == 0 {
+	if r.wt == nil {
 		return ""
 	}
 	var b strings.Builder
-	for i, t := range r.tabs {
-		label := " " + strconv.Itoa(i+1) + " " + t.Label + " "
-		if i == r.active {
-			b.WriteString(selectedStyle.Render(label))
-		} else {
-			b.WriteString(mutedStyle.Render(label))
+	for i, t := range r.bench.Tabs {
+		var names []string
+		for _, id := range t.Root.Leaves() {
+			names = append(names, r.label(id))
 		}
+		label := " " + strconv.Itoa(i+1) + " " + strings.Join(names, "+") + " "
+		if i != r.bench.Active {
+			b.WriteString(mutedStyle.Render(label))
+			continue
+		}
+		if r.bench.Zoom {
+			label += "[zoom] "
+		}
+		b.WriteString(selectedStyle.Render(label))
 	}
 	return b.String()
 }
 
-// paneHeader is the pane's title rule; it turns accent when keys go to the
-// pane, so it's the one place on screen that says "you're typing here".
-func (r Root) paneHeader(w int) string {
-	if r.active >= len(r.tabs) {
-		return ruleStyle.Render(strings.Repeat("─", w))
-	}
-	title := " " + r.tabs[r.active].Label + " "
+// paneHeader is a pane's title rule; it turns accent on the pane keys go
+// to, so it's the one place on screen that says "you're typing here".
+func (r Root) paneHeader(id string, w int) string {
+	title := " " + r.label(id) + " "
 	fill := max(w-lipgloss.Width(title)-1, 0)
-	if r.focus == focusTerminal && !r.leader {
-		return accentStyle.Render("━" + title + strings.Repeat("━", fill))
+	if r.focus == focusTerminal && !r.leader && id == r.bench.Tab().Focus {
+		return ansi.Truncate(accentStyle.Render("━"+title+strings.Repeat("━", fill)), w, "")
 	}
-	return ruleStyle.Render("─") + mutedStyle.Render(title) + ruleStyle.Render(strings.Repeat("─", fill))
+	return ansi.Truncate(ruleStyle.Render("─")+mutedStyle.Render(title)+ruleStyle.Render(strings.Repeat("─", fill)), w, "")
 }
 
 func (r Root) mode() (string, string) {
 	switch {
 	case r.leader:
 		return "MENU", dimStyle.Render("press a key from the menu")
+	case r.focus == focusTerminal && r.bench.Tab().Focus == "":
+		return "NEW PANE", hints(pickKeys) + "  " + hints(globalKeys)
 	case r.focus == focusTerminal:
 		return "TERMINAL", hints(globalKeys)
 	default:
@@ -379,7 +587,7 @@ func (r Root) leaderMenu() string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(accentStyle.Render(padRight(k.label, 4)) + textStyle.Render(k.help))
+		b.WriteString(accentStyle.Render(padRight(k.label, 5)) + textStyle.Render(k.help))
 	}
 	return menuStyle.Render(dimStyle.Render("ctrl+space") + "\n" + b.String())
 }

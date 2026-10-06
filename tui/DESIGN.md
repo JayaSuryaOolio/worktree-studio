@@ -1,7 +1,7 @@
 # wts-tui design system
 
-Status: build steps 1–2 done (keymap, theme, status bar, sidebar tree);
-splits, resizing and the palette are next. See *Build order*.
+Status: build steps 1–3 done (keymap, theme, status bar, sidebar tree,
+splits); resizing and the palette are next. See *Build order*.
 
 ## The problem it solves
 
@@ -159,6 +159,7 @@ jump to a worktree in another repo.
  SIDEBAR   type filter  ↑↓ move  →← open/close  enter open  ctrl+space menu
  LEADER    c claude  t shell  →↓ split  x close  z zoom  r resize  space palette
  RESIZE    arrows resize  shift bigger  esc done
+ NEW PANE  ↑↓ choose  enter open  esc close pane
 ```
 
 The chip is the only text with a filled background (`surface-2` with accent
@@ -183,8 +184,8 @@ keys, so they can't drift from what the keys actually do.
 
 | Layer | New |
 |---|---|
-| `domain` | `Layout`: a pure split tree (`Split(dir)`, `Close`, `Resize(dir, n)`, `Neighbor(dir)`, `Zoom`), plus `Tabs` (ordered layouts per worktree, reconciled against the server's session list). This holds all the geometry logic and is fully unit-tested with no UI. |
-| `app` | `Workbench` use case: open a worktree, reconcile tabs, add a session to a tab or split; `LayoutStore` port. |
+| `domain` | `layout.go`: `Pane`, an immutable split tree (`Split`, `Close`, `Replace`, `Rects`, `Neighbor`; `Resize` in step 4), and `Workbench`, one worktree's tabs reconciled against the server's session list (`Reconcile`, `Split`, `Place`, `ClosePane`, `Move`, `Zoom`, `Hidden`). This holds all the geometry logic and is fully unit-tested with no UI. |
+| `app` | `Terminals` (list/create/attach sessions); a `LayoutStore` port arrives with persistence in step 5. |
 | `infra` | `layoutfile` adapter (JSON); `ptyterm` unchanged (one attach per visible pane). |
 | `ui` | `theme.go` (the tokens above, the only place colors exist), `keymap.go` (one table that drives dispatch, status-bar hints and the leader menu), `panes.go`, `tabbar.go`, `statusbar.go`, `palette.go`; the sidebar becomes a tree. |
 
@@ -192,7 +193,7 @@ keys, so they can't drift from what the keys actually do.
 
 1. `theme.go` + `keymap.go` + status bar + the new focus rules. `j`/`k`/`[`/`]`/`ctrl+]` go away; `alt` keys and the leader menu arrive.
 2. Sidebar tree with type-to-filter.
-3. `domain.Layout` + split rendering + focus moves + close/zoom; the empty-pane "what to run" picker.
+3. `domain.Pane`/`Workbench` + split rendering + focus moves + close/zoom; the empty-pane "what to run" picker.
 4. Resizing by keyboard (`alt+shift+arrows`, resize mode) and mouse (click to focus, drag dividers, wheel to the pane).
 5. Command palette + layout persistence.
 

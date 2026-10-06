@@ -13,9 +13,10 @@ Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare
 
 | Key | Where | Action |
 |---|---|---|
-| `alt+←` / `alt+→` | anywhere | focus sidebar / terminal |
+| `alt+←→↑↓` | anywhere | move to the neighbouring pane; `alt+←` from the leftmost pane goes to the sidebar, `alt+→` from the sidebar back |
 | `alt+1`–`alt+9` | anywhere | go to tab N |
-| `ctrl+space` | anywhere | menu: `c` new Claude tab, `t` new shell tab, `n` new worktree, `q` quit |
+| `ctrl+space` | anywhere | menu: `c` new Claude tab, `t` new shell tab, `→`/`↓` split right/down, `x` close pane, `z` zoom pane, `n` new worktree, `q` quit |
+| `↑`/`↓`, `enter`, `esc` | empty pane | pick what runs there: new Claude, new shell, or a running session that isn't shown; `esc` closes the pane |
 | `↑`/`↓` | sidebar | move |
 | `→` / `←` | sidebar | expand / collapse a repo; `→` on a worktree opens its terminals, `←` jumps to its repo |
 | `enter` | sidebar | open worktree's terminals (toggles on a repo) |
@@ -23,7 +24,7 @@ Design system and the full keymap plan: [`DESIGN.md`](DESIGN.md). The rule: bare
 
 On macOS, `alt` needs Option to send Meta (Ghostty `macos-option-as-alt = true`, iTerm2 Option key = Esc+, Terminal.app "Use Option as Meta key"); `ctrl+space` works without it.
 
-Tabs are the worktree's terminal sessions (the same tmux sessions the browser shows; a shell is created if there are none). Closing wts-tui only detaches; sessions keep running. Closing tabs isn't supported yet — close them in the browser.
+Tabs are the worktree's terminal sessions (the same tmux sessions the browser shows; a shell is created if there are none). Closing wts-tui only detaches; sessions keep running. A tab is a split layout and each pane one session. Splitting opens an empty pane that asks what to run. Closing a pane only hides its session (pick it back into any empty pane); killing sessions is still done in the browser. Each worktree keeps its own tabs while wts-tui runs (not saved yet).
 New-worktree dialog: type a name, `tab` to the branch picker, `←`/`→` to cycle, `enter` create, `esc` cancel.
 
 ## Layout (DDD, dependencies point inward)
@@ -37,4 +38,4 @@ ui/               Bubble Tea presentation. Depends on app/domain only.
 cmd/wts-tui/      composition root.
 ```
 
-Terminal limits: one visible session at a time, no mouse or scrollback, no splits yet (DESIGN.md build steps 3–5). Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.
+Terminal limits: no resizing splits, mouse or scrollback yet (DESIGN.md build steps 4–5). Not yet: spotlight badge, expandable row actions, hover summary, other dialogs (add repo, attach, settings), branch filtering in the new-worktree picker, terminals/editor.
