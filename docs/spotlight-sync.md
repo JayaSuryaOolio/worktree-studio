@@ -51,4 +51,4 @@ spotlight stop
 
 - Mirrors the **entire** worktree checkout into the **entire** root — there's no per-subdirectory/per-workspace scoping. Fine for this repo's scale (tracked-file total is ~22MB, excluding `node_modules`), but worth knowing if a much larger monorepo's tracked files ever became the bottleneck.
 - Requires `fswatch` installed separately from the `spotlight` CLI itself (`brew install fswatch` on macOS).
-- If the root is dirty for reasons unrelated to spotlight (e.g. you were mid-edit there for something else), `start` will correctly refuse — there's no "stash it for me" option, by design.
+- If the root is dirty for reasons unrelated to spotlight (e.g. you were mid-edit there for something else), `start` refuses by default; pass `--stash` (CLI) or `?stash=true` (API)/the UI's confirm-dialog checkbox to stash the root's changes and proceed anyway.
