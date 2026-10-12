@@ -111,6 +111,12 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
       // xterm.js won't send that sequence for Option unless told this is
       // the intended meaning of the key. See docs/terminal-keybindings.md.
       macOptionIsMeta: true,
+      // With tmux's `mouse on` (see internal/term.CreateSession) every
+      // plain drag goes to tmux/the pane program, not xterm.js's own
+      // selection. xterm.js's escape hatch is a modifier-held drag — but on
+      // macOS that's Option only, and only when this flag is set (Shift
+      // does nothing there). Same setting the crew desktop app uses.
+      macOptionClickForcesSelection: true,
       // xterm.js already parses OSC 8 hyperlinks (the escape sequence
       // `claude` itself uses for its clickable-looking links — confirmed
       // via `strings` on the binary) with no addon needed for that part.
