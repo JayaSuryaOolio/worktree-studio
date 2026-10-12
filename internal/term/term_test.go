@@ -223,6 +223,31 @@ func TestCreateSessionSetsXtermKeys(t *testing.T) {
 	}
 }
 
+// TestEnsureHyperlinkFeatureIsIdempotent: tmux strips OSC 8 hyperlinks
+// unless the client's terminal-features include "hyperlinks", and the option
+// is appended with -a, so calling it from every CreateSession plus startup
+// must not pile up duplicate entries.
+func TestEnsureHyperlinkFeatureIsIdempotent(t *testing.T) {
+	requireTmux(t)
+	st := newTestStore(t)
+	m := &Manager{Store: st}
+	ts, err := m.CreateSession("wt1", t.TempDir(), "shell", "") // starts the (test) tmux server, calls Ensure once
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	t.Cleanup(func() { _ = m.CloseSession(ts) })
+	EnsureHyperlinkFeature()
+	EnsureHyperlinkFeature()
+
+	out, err := TmuxCmd("show-options", "-g", "terminal-features").Output()
+	if err != nil {
+		t.Fatalf("tmux show-options: %v", err)
+	}
+	if n := strings.Count(string(out), hyperlinkFeature); n != 1 {
+		t.Fatalf("want exactly 1 %q entry, got %d in:\n%s", hyperlinkFeature, n, out)
+	}
+}
+
 // TestMouseDragCopyRelaysOSC52 confirms a real mouse-drag selection in
 // copy-mode both actually reaches the browser clipboard via OSC 52 and
 // visibly says so — not just that tmux's own paste buffer gets set. This

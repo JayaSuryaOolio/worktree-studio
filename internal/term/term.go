@@ -130,6 +130,10 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 	_ = TmuxCmd("set-option", "-g", "xterm-keys", "on").Run()
 	_ = TmuxCmd("set-option", "-g", "extended-keys", "on").Run()
 
+	// OSC 8 hyperlinks (what `claude` and `ls --hyperlink` emit) — see
+	// EnsureHyperlinkFeature.
+	EnsureHyperlinkFeature()
+
 	// Server-global key tables (see the function's own comment for the full
 	// mechanism) — set here so a freshly created session is correct even if
 	// the server process itself was never restarted since these changed.
@@ -361,4 +365,28 @@ func BindGlobalCopyModeKeys() {
 func CorrectGlobalKeyEncodingSettings() {
 	_ = TmuxCmd("set-option", "-g", "xterm-keys", "on").Run()
 	_ = TmuxCmd("set-option", "-g", "extended-keys", "on").Run()
+}
+
+// hyperlinkFeature is the terminal-features entry that tells tmux the
+// attaching client (xterm.js, attached with TERM=xterm-256color — see
+// attachEnv) understands OSC 8 hyperlinks.
+const hyperlinkFeature = "xterm-256color:hyperlinks"
+
+// EnsureHyperlinkFeature makes tmux forward OSC 8 hyperlinks from a pane to
+// xterm.js. Without it tmux silently strips them, so links printed by a
+// program in the pane (e.g. `claude`) are never underlined or clickable in
+// the browser. Verified in a real browser: with the feature set (and a fresh
+// attach) an OSC 8 link is underlined and clicking it hits Terminal.tsx's
+// linkHandler, with tmux `mouse on` still set.
+//
+// Server-global like every option here, and only seen by clients that attach
+// AFTER it's set — an already-open tab needs a reload. Idempotent: `-a`
+// appends, so it checks first instead of growing the list on every call
+// (CreateSession and server startup both call this). Best-effort.
+func EnsureHyperlinkFeature() {
+	out, err := TmuxCmd("show-options", "-g", "terminal-features").Output()
+	if err != nil || strings.Contains(string(out), hyperlinkFeature) {
+		return
+	}
+	_ = TmuxCmd("set-option", "-ga", "terminal-features", ","+hyperlinkFeature).Run()
 }
