@@ -61,7 +61,11 @@ Asked directly, considered, and the answer is no: **both options above (`set-cli
 
 Fix: `term.EnsureHyperlinkFeature()` runs `tmux set -ga terminal-features ',xterm-256color:hyperlinks'` (checked first, so it's idempotent) from `CreateSession` and at server startup. Like every option here it's server-global and only affects clients that attach afterwards — an already-open tab needs a reload. Confirmed with `mouse on` still set: the OSC 8 text is underlined and a click opens the URL in a new tab.
 
-Not covered: plain-text URLs (no OSC 8 wrapper) — that needs `@xterm/addon-web-links`, a separate change. Whether `claude` itself emits OSC 8 inside tmux is unconfirmed; check in a real `claude` pane.
+Whether `claude` itself emits OSC 8 inside tmux is unconfirmed; check in a real `claude` pane. Plain-text URLs (no OSC 8 wrapper) are handled separately, below.
+
+## Plain-text URLs are clickable too (`@xterm/addon-web-links`)
+
+`linkHandler` only covers OSC 8 hyperlinks. Most URLs a shell or `claude` prints are plain text, so `Terminal.tsx` also loads `@xterm/addon-web-links`, routed through the same `openLink` (`window.open` with `noopener,noreferrer`, no `confirm()` dialog). Verified in a real browser with tmux `mouse on` still set: hovering a plain URL underlines it and clicking opens it in a new tab — which also settles the earlier worry that `mouse on` swallows link clicks.
 
 ## `macOptionClickForcesSelection` — now set
 
