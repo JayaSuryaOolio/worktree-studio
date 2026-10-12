@@ -1,0 +1,621 @@
+#!/bin/bash
+# wtx — worktree exec harness.
+#
+# One command that creates (or reuses) a git worktree for a task and launches
+# `claude` with that worktree as cwd, so the repo's own .claude/ and CLAUDE.md
+# load without anyone having to remember to `cd` first.
+#
+# The determinism is enforced here, in the wrapper — not by a line in an agent
+# prompt that an agent may or may not follow.
+#
+# Creation goes through `worktree-studio create-worktree` (so the worktree
+# lands in the dashboard and the audit log like any other), and falls back to
+# plain `git worktree add` when that command can't do the job. The fallback
+# always announces itself; it is never silent.
+#
+# Both paths branch from the SAME explicitly-resolved ref — a remote-tracking
+# `origin/<base>`, never a local branch. See resolve_base for why.
+#
+# See docs/wtx.md for the full contract.
+
+set -u
+set -o pipefail
+
+readonly WTX_VERSION="2.0.0"
+
+# Exit codes are part of the contract — callers branch on them.
+readonly EX_USAGE=2        # bad arguments, unknown repo
+readonly EX_CONFLICT=3     # worktree exists but can't be safely reused
+readonly EX_CREATE=4       # worktree creation failed in both modes
+readonly EX_UNSAFE=5       # a safety assertion tripped (would have run in the main checkout)
+readonly EX_DEPS=6         # a required dependency is missing
+
+# ---------------------------------------------------------------------------
+# output
+# ---------------------------------------------------------------------------
+
+# Everything informational goes to stderr so that --print-path's stdout stays
+# a single clean path that callers can safely `$(...)`.
+say()  { printf 'wtx: %s\n' "$*" >&2; }
+warn() { printf 'wtx: WARNING: %s\n' "$*" >&2; }
+
+# banner is for the things a caller must not be able to miss — above all, that
+# we stopped using worktree-studio and went to raw git.
+banner() {
+  printf '\n' >&2
+  printf 'wtx: ==========================================================\n' >&2
+  while [ $# -gt 0 ]; do printf 'wtx: %s\n' "$1" >&2; shift; done
+  printf 'wtx: ==========================================================\n\n' >&2
+}
+
+die() {
+  local code=$1; shift
+  printf 'wtx: ERROR: %s\n' "$1" >&2; shift
+  while [ $# -gt 0 ]; do printf 'wtx:        %s\n' "$1" >&2; shift; done
+  exit "$code"
+}
+
+# ---------------------------------------------------------------------------
+# the allowlist
+# ---------------------------------------------------------------------------
+#
+# An allowlist, not a search: a repo not named here is unreachable through
+# this harness, which is the point — it is what stops a typo'd or guessed name
+# from resolving to some unrelated checkout. Notably ~/work/pos-3 is a second
+# checkout of the same GitHub repo as `pos` and must never be targeted; see
+# repo_path's explicit case for it.
+#
+# The built-in list is the five repos this harness was written for. Override it
+# with WTX_REPOS, a space-separated list of alias=path pairs:
+#
+#   WTX_REPOS="api=$HOME/src/api web=$HOME/src/web" wtx api ool-12-thing
+#
+# A relative path in WTX_REPOS is rejected rather than resolved against the
+# caller's cwd — the whole value of the allowlist is that the same alias means
+# the same directory no matter where you run it from.
+
+wtx_default_repos() {
+  local h; h=$(host_home)
+  printf '%s\n' \
+    "pos=$h/work/pos" \
+    "sso=$h/work/sso" \
+    "backoffice=$h/work/backoffice" \
+    "insights=$h/work/insights" \
+    "oolio-one-gitops=$h/work/oolio-one-gitops"
+}
+
+# repo_entries prints one "alias=path" per line, from WTX_REPOS if set.
+# The unquoted expansion is deliberate: WTX_REPOS is a space-separated list and
+# splitting it is the whole point.
+# shellcheck disable=SC2086
+repo_entries() {
+  if [ -n "${WTX_REPOS:-}" ]; then
+    printf '%s\n' ${WTX_REPOS}
+  else
+    wtx_default_repos
+  fi
+}
+
+# validate_repo_entries runs before any lookup, so a malformed WTX_REPOS is
+# reported once, here, rather than from inside repo_path's command
+# substitution — where `die`'s exit would only kill the subshell and the caller
+# would go on to print a misleading "unknown repo" instead.
+validate_repo_entries() {
+  local entry
+  while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    case "$entry" in
+      *=/*) ;;
+      *=*)  die $EX_USAGE "WTX_REPOS entry '$entry' is not an absolute path" \
+                "aliases must resolve identically from every directory" ;;
+      *)    die $EX_USAGE "WTX_REPOS entry '$entry' is not in alias=/abs/path form" ;;
+    esac
+  done < <(repo_entries)
+}
+
+repo_aliases() { repo_entries | cut -d= -f1 | tr '\n' ' '; }
+
+# Aliases that resolve to another alias' repo. Kept separate from the entry
+# list so `--list` and the "in-scope repos" error line stay the canonical set.
+canonical_alias() {
+  case "$1" in
+    accounts) printf 'sso\n' ;;
+    gitops)   printf 'oolio-one-gitops\n' ;;
+    *)        printf '%s\n' "$1" ;;
+  esac
+}
+
+repo_path() {
+  local want; want=$(canonical_alias "$1")
+  local entry
+  while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    case "$entry" in
+      "$want="*) printf '%s\n' "${entry#*=}"; return 0 ;;
+    esac
+  done < <(repo_entries)
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# host home
+# ---------------------------------------------------------------------------
+#
+# $HOME is not trustworthy here. Agent sandboxes (Paperclip among them)
+# rewrite it to a per-run temp directory that is deleted when the run ends, so
+# a path derived from it silently points at nothing on the next run. Ask the
+# system's own user database instead and never derive a durable path from an
+# inherited environment variable.
+_WTX_HOST_HOME=""
+host_home() {
+  if [ -n "$_WTX_HOST_HOME" ]; then printf '%s\n' "$_WTX_HOST_HOME"; return 0; fi
+
+  local h=""
+  if [ -n "${WTX_HOST_HOME_DIR:-}" ]; then
+    h=$WTX_HOST_HOME_DIR
+  elif command -v dscl >/dev/null 2>&1; then
+    h=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  fi
+  if [ -z "$h" ] && command -v getent >/dev/null 2>&1; then
+    h=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)
+  fi
+  [ -z "$h" ] && h=${HOME:-}
+
+  if [ -z "$h" ] || [ ! -d "$h" ]; then
+    die $EX_DEPS "cannot resolve your real home directory" \
+        "set WTX_HOST_HOME_DIR=/path/to/home and retry"
+  fi
+  _WTX_HOST_HOME=$h
+  printf '%s\n' "$h"
+}
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+# slugify mirrors worktree-studio's own internal/api/util.go slugify exactly:
+# lowercase, anything outside [a-z0-9-] becomes a dash, dashes collapse, ends
+# trimmed. It must stay identical, because the server derives BOTH the branch
+# name and the directory name from it — if we slugified differently we'd ask
+# for one branch, get another, and never find it again on the reuse path.
+slugify() {
+  local s
+  s=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+      | sed -e 's/[^a-z0-9-]\{1,\}/-/g' -e 's/-\{1,\}/-/g' -e 's/^-//' -e 's/-$//')
+  [ -z "$s" ] && s=worktree
+  printf '%s\n' "$s"
+}
+
+# realpath_of resolves symlinks so that path comparisons (repo vs worktree,
+# studio's reported path vs the allowlist entry) are done on canonical paths.
+# /Users on macOS is clean, but /tmp and /var are symlinks and worktree-studio's
+# own tests hit exactly this.
+realpath_of() {
+  [ -e "$1" ] || { printf '%s\n' "$1"; return 0; }
+  ( cd "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
+}
+
+# worktree_for_branch prints the checkout path git itself associates with
+# refs/heads/$2 in repo $1, or nothing.
+#
+# This is the single source of truth for "does a worktree for this branch
+# already exist", and it is deliberately asked of git rather than of
+# worktree-studio's database. That is what makes reuse work identically
+# whether the worktree was created through the server or through the fallback,
+# and what stops a stale/unreachable server from causing a duplicate.
+worktree_for_branch() {
+  git -C "$1" worktree list --porcelain 2>/dev/null | awk -v want="refs/heads/$2" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }
+  '
+}
+
+is_dirty() {
+  [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]
+}
+
+# ---------------------------------------------------------------------------
+# base ref resolution
+# ---------------------------------------------------------------------------
+#
+# Every worktree is branched from a remote-tracking ref (origin/main,
+# origin/master, ...), never from a local branch, and never from whatever the
+# main checkout's HEAD happens to be at the time.
+#
+# Branching off a local `main` inherits that checkout's state: main may be
+# behind origin, may have been left mid-rebase, or may be carrying someone's
+# stray local commit. origin/main is a fetched, immutable-by-us ref — the same
+# commit for every task started at the same time, which is the determinism this
+# harness exists to provide.
+#
+# wtx resolves it here and passes it EXPLICITLY to both creation paths rather
+# than letting either side pick its own default. That matters: worktree-studio's
+# own gitops.DetectDefaultBranch strips the "origin/" prefix and hands git a
+# bare local branch name, so a repo with no base_branch override configured
+# would otherwise branch from local main on the studio path and origin/main on
+# the git path — the two paths would disagree. Passing the ref explicitly makes
+# them agree by construction.
+#
+# `--base` overrides it. A bare name given to --base is pinned to its
+# remote-tracking counterpart when one exists ("main" -> "origin/main"); a value
+# that already contains a slash, or that has no counterpart on origin, is used
+# verbatim, which is how you branch from a tag, a SHA, or a local-only branch.
+resolve_base() {
+  local repo=$1 want=$2 b c
+
+  if [ -n "$want" ]; then
+    b=$want
+  else
+    # origin/HEAD is the remote's own declared default. --short renders it
+    # already prefixed ("origin/main"), which is exactly the form we want.
+    b=$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+    if [ -z "$b" ]; then
+      for c in main master; do
+        git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$c" && { b="origin/$c"; break; }
+      done
+    fi
+    # No remote at all (a local-only repo). Fall back to a local default and
+    # say so, rather than failing outright.
+    if [ -z "$b" ]; then
+      for c in main master; do
+        git -C "$repo" show-ref --verify --quiet "refs/heads/$c" && { b=$c; break; }
+      done
+      [ -n "$b" ] && warn "no origin/* default branch found; branching from local '$b'"
+    fi
+  fi
+
+  case "$b" in
+    */*|"") : ;;
+    *) git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$b" && b="origin/$b" ;;
+  esac
+
+  printf '%s\n' "$b"
+}
+
+# ---------------------------------------------------------------------------
+# usage
+# ---------------------------------------------------------------------------
+
+usage() {
+  cat <<EOF
+wtx $WTX_VERSION — create/reuse a worktree and launch claude inside it
+
+usage:
+  wtx <repo> <name> [options] [-- <claude args>...]
+  wtx --list
+
+repos (allowlist — override with WTX_REPOS="alias=/abs/path ..."):
+  $(repo_aliases)
+  aliases: accounts -> sso, gitops -> oolio-one-gitops
+
+arguments:
+  <name>   task/worktree name. Slugified to become BOTH the branch name and
+           the worktree directory name — one task, one worktree, one branch.
+
+options:
+  --base <ref>      base to branch from. Default: origin/HEAD's target. A bare
+                    branch name is pinned to origin/<name> when that exists.
+  --print-path      print the worktree path to stdout and exit; do not launch
+  --require-clean   fail if the reused worktree has uncommitted changes
+  --force-git       skip worktree-studio entirely; use git worktree directly
+  --host-home       run claude with the real host HOME (for use from inside an
+                    agent sandbox that rewrote it). Auto-enabled, with a
+                    warning, when a sandboxed CLAUDE_CONFIG_DIR is detected.
+  -h, --help        this text
+
+exit codes:
+  0 ok   $EX_USAGE usage/unknown repo   $EX_CONFLICT worktree conflict
+  $EX_CREATE creation failed   $EX_UNSAFE safety assertion   $EX_DEPS missing dependency
+
+examples:
+  wtx pos ool-1234-fix-tax-rounding
+  wtx sso ool-99-token-refresh -- --permission-mode plan
+  cd "\$(wtx backoffice ool-50-thing --print-path)"
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# argument parsing
+# ---------------------------------------------------------------------------
+
+repo_alias=""
+task_name=""
+base_ref=""
+print_path=0
+require_clean=0
+force_git=0
+host_home_mode=0
+claude_args=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)      usage; exit 0 ;;
+    --version)      printf 'wtx %s\n' "$WTX_VERSION"; exit 0 ;;
+    --list)         repo_entries | cut -d= -f1; exit 0 ;;
+    --base)         [ $# -ge 2 ] || die $EX_USAGE "--base requires a value"; base_ref=$2; shift 2 ;;
+    --base=*)       base_ref=${1#--base=}; shift ;;
+    --print-path|--no-launch) print_path=1; shift ;;
+    --require-clean) require_clean=1; shift ;;
+    --force-git)    force_git=1; shift ;;
+    --host-home)    host_home_mode=1; shift ;;
+    --)             shift; claude_args=("$@"); break ;;
+    -*)             die $EX_USAGE "unrecognized option: $1" "run 'wtx --help'" ;;
+    *)
+      if   [ -z "$repo_alias" ]; then repo_alias=$1
+      elif [ -z "$task_name" ];  then task_name=$1
+      else die $EX_USAGE "unexpected argument: $1" "run 'wtx --help'"
+      fi
+      shift ;;
+  esac
+done
+
+[ -n "$repo_alias" ] || { usage >&2; exit $EX_USAGE; }
+[ -n "$task_name" ]  || die $EX_USAGE "missing <name>" "run 'wtx --help'"
+
+# ---------------------------------------------------------------------------
+# dependencies
+# ---------------------------------------------------------------------------
+
+command -v git >/dev/null 2>&1 || die $EX_DEPS "git not found on PATH"
+
+# ---------------------------------------------------------------------------
+# resolve the repo
+# ---------------------------------------------------------------------------
+
+validate_repo_entries
+
+if ! repo=$(repo_path "$repo_alias"); then
+  extra=()
+  case "$repo_alias" in
+    pos-3|pos3|pos-2|pos2)
+      extra=("'$repo_alias' is a duplicate checkout of the pos repo and is deliberately"
+             "not reachable through wtx. Use 'wtx pos ...' instead.") ;;
+  esac
+  die $EX_USAGE "unknown repo: '$repo_alias'" \
+      "in-scope repos: $(repo_aliases)" "${extra[@]+"${extra[@]}"}"
+fi
+
+[ -d "$repo" ] || die $EX_USAGE "repo '$repo_alias' is not checked out at $repo"
+
+# Confirm it's a real git repo AND that it is its own top level. A path that
+# resolves into some *other* repo's tree (a nested or moved checkout) must not
+# be accepted just because the alias table pointed at it.
+repo=$(realpath_of "$repo")
+repo_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
+  || die $EX_USAGE "repo '$repo_alias' at $repo is not a git repository"
+repo_top=$(realpath_of "$repo_top")
+[ "$repo_top" = "$repo" ] \
+  || die $EX_UNSAFE "$repo is inside another git repository ($repo_top), refusing"
+
+branch=$(slugify "$task_name")
+say "repo   $repo_alias  ($repo)"
+say "branch $branch"
+
+# ---------------------------------------------------------------------------
+# reuse, or create
+# ---------------------------------------------------------------------------
+
+worktree=$(worktree_for_branch "$repo" "$branch")
+
+# A worktree whose directory has been deleted out from under git still shows
+# up in `worktree list` until pruned. Prune once and re-ask rather than
+# failing on a ghost.
+if [ -n "$worktree" ] && [ ! -d "$worktree" ]; then
+  warn "worktree record for '$branch' points at a missing directory ($worktree); pruning"
+  git -C "$repo" worktree prune >/dev/null 2>&1
+  worktree=$(worktree_for_branch "$repo" "$branch")
+fi
+
+if [ -n "$worktree" ]; then
+  say "reusing existing worktree for '$branch' (not creating a second one)"
+else
+  # --- create -------------------------------------------------------------
+  created_via=""
+
+  base=$(resolve_base "$repo" "$base_ref")
+  if [ -n "$base" ]; then
+    git -C "$repo" rev-parse --verify --quiet "$base^{commit}" >/dev/null \
+      || die $EX_USAGE "base ref '$base' does not resolve to a commit in $repo" \
+             "fetch it first, or pass an existing ref with --base"
+    say "base   $base"
+  fi
+
+  # The branch can already exist while no worktree is associated with it —
+  # someone made it with plain `git branch`, or a tree that used to hold it
+  # was checked out onto something else. git only ever checks a branch out in
+  # one worktree, and `worktree list` covers the main checkout too, so
+  # reaching here with the branch present means it is checked out nowhere.
+  #
+  # worktree-studio's create path can only ever do `worktree add -b`, i.e.
+  # make a *new* branch, so it would just fail. Take the git path and say why.
+  attach_branch=0
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    attach_branch=1
+    banner "Branch '$branch' already exists but is checked out in no worktree." \
+           "Attaching a worktree to the existing branch with plain 'git worktree add'." \
+           "(worktree-studio can only create brand-new branches, so it is skipped here.)" \
+           "The existing branch's own commits are kept; --base is NOT applied."
+  fi
+
+  if [ "$attach_branch" -eq 1 ]; then
+    : # handled by the git block below
+  elif [ "$force_git" -eq 1 ]; then
+    banner "--force-git: skipping worktree-studio, using 'git worktree add' directly." \
+           "This worktree will NOT appear in the worktree-studio dashboard or audit log."
+  elif ! command -v worktree-studio >/dev/null 2>&1; then
+    banner "FALLING BACK TO PLAIN 'git worktree add'." \
+           "Reason: 'worktree-studio' is not on PATH, so create-worktree cannot run." \
+           "Install it with: $(host_home)/work/worktree-studio/install/install.sh" \
+           "This worktree will NOT appear in the worktree-studio dashboard or audit log."
+  else
+    # The one call this harness exists to wrap. Note the base ref is passed
+    # explicitly (see resolve_base) so this and the git fallback below branch
+    # from exactly the same commit.
+    studio_args=(create-worktree "$branch")
+    [ -n "$base" ] && studio_args+=(--branch "$base")
+    studio_args+=("$repo")
+
+    say "worktree-studio ${studio_args[*]}"
+    studio_err=$(worktree-studio "${studio_args[@]}" 2>&1 >/dev/null)
+    studio_rc=$?
+
+    # Trust git, not the exit code. `create-worktree` reports success on any
+    # 2xx it cannot parse — an older server answering the SPA catch-all for
+    # /api/worktrees returns 200 with an HTML body and the command still exits
+    # 0 having created nothing. Re-asking git is the only claim worth acting
+    # on, and it is the same question the reuse path above asks.
+    if [ $studio_rc -eq 0 ] && [ -n "$(worktree_for_branch "$repo" "$branch")" ]; then
+      created_via="worktree-studio"
+      say "created via worktree-studio"
+    elif [ $studio_rc -eq 0 ]; then
+      banner "FALLING BACK TO PLAIN 'git worktree add'." \
+             "Reason: 'worktree-studio create-worktree' exited 0 but git has no" \
+             "worktree for '$branch' — the server did not actually create one." \
+             "(An older server without the /api/worktrees route does exactly this.)" \
+             "This worktree will NOT appear in the worktree-studio dashboard or audit log."
+    else
+      case "$studio_err" in
+        *"is worktree-studio running"*)
+          banner "FALLING BACK TO PLAIN 'git worktree add'." \
+                 "Reason: the worktree-studio server is not answering at ${WORKTREE_STUDIO_ADDR:-:8787}." \
+                 "Start it with:  $(host_home)/.worktree-studio/bin/worktree-studio" \
+                 "This worktree will NOT appear in the worktree-studio dashboard or audit log." ;;
+        *"isn't inside any worktree-studio-tracked repo"*)
+          banner "FALLING BACK TO PLAIN 'git worktree add'." \
+                 "Reason: $repo is not registered with worktree-studio." \
+                 "Register it from the dashboard to get audit-log and UI coverage." \
+                 "This worktree will NOT appear in the worktree-studio dashboard or audit log." ;;
+        *)
+          banner "FALLING BACK TO PLAIN 'git worktree add'." \
+                 "Reason: 'worktree-studio create-worktree' failed (exit $studio_rc):" \
+                 "  ${studio_err:-<no output>}" \
+                 "This worktree will NOT appear in the worktree-studio dashboard or audit log." ;;
+      esac
+    fi
+  fi
+
+  if [ -z "$created_via" ]; then
+    # Fallback root is kept out of worktree-studio's own root so the two never
+    # get confused about which worktrees they own.
+    wt_target="$(host_home)/.wtx/worktrees/$repo_alias/$branch"
+    mkdir -p "$(dirname "$wt_target")" \
+      || die $EX_CREATE "could not create $(dirname "$wt_target")"
+
+    # Something is already sitting at the path we'd use. If it's a worktree on
+    # a different branch, that is exactly the "two tasks in one tree" case —
+    # report it as the conflict it is rather than letting `git worktree add`
+    # fail with a message about the wrong thing.
+    if [ -e "$wt_target" ]; then
+      occupant=$(git -C "$wt_target" rev-parse --abbrev-ref HEAD 2>/dev/null)
+      die $EX_CONFLICT \
+        "target path $wt_target already exists${occupant:+ and is a worktree on branch '$occupant'}" \
+        "one task, one worktree, one branch — refusing to hand over a tree held by another task" \
+        "${occupant:+put it back with: git -C $wt_target checkout $branch}"
+    fi
+
+    if [ "$attach_branch" -eq 1 ]; then
+      say "git worktree add $wt_target $branch  (existing branch)"
+      git -C "$repo" worktree add "$wt_target" "$branch" >&2 \
+        || die $EX_CREATE "git worktree add failed"
+    else
+      say "git worktree add -b $branch $wt_target ${base:-<HEAD>}"
+      if [ -n "$base" ]; then
+        git -C "$repo" worktree add -b "$branch" "$wt_target" "$base" >&2 \
+          || die $EX_CREATE "git worktree add failed"
+      else
+        git -C "$repo" worktree add -b "$branch" "$wt_target" >&2 \
+          || die $EX_CREATE "git worktree add failed"
+      fi
+    fi
+    created_via="git worktree"
+  fi
+
+  worktree=$(worktree_for_branch "$repo" "$branch")
+  [ -n "$worktree" ] \
+    || die $EX_CREATE "created a worktree via $created_via but git does not associate it with '$branch'"
+fi
+
+worktree=$(realpath_of "$worktree")
+
+# ---------------------------------------------------------------------------
+# safety assertions — nothing past this point may run in the main checkout
+# ---------------------------------------------------------------------------
+
+[ -d "$worktree" ] || die $EX_CREATE "worktree path $worktree does not exist"
+
+[ "$worktree" != "$repo" ] \
+  || die $EX_UNSAFE "resolved worktree IS the main checkout ($repo); refusing to launch"
+
+wt_top=$(git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
+  || die $EX_UNSAFE "$worktree is not a git working tree; refusing to launch"
+[ "$(realpath_of "$wt_top")" = "$worktree" ] \
+  || die $EX_UNSAFE "$worktree is not the top level of its working tree; refusing to launch"
+
+# One task, one worktree, one branch. If the tree we're about to hand over is
+# sitting on some other branch, another task is using it — creating a second
+# worktree or silently switching branches would both be wrong.
+wt_branch=$(git -C "$worktree" rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ "$wt_branch" = "$branch" ] \
+  || die $EX_CONFLICT "worktree $worktree is on branch '$wt_branch', not '$branch'" \
+       "one task, one worktree, one branch — refusing to share a tree between tasks" \
+       "check it out with: git -C $worktree checkout $branch"
+
+# Dirty on the *requested* branch is the ordinary case of resuming your own
+# half-finished task, so it warns and proceeds; --require-clean turns it into a
+# hard gate for callers that want one. Dirty on a *different* branch is already
+# a hard error above. Note this is about the worktree being reused — the base a
+# new worktree branches from is never a dirty local branch (see resolve_base).
+if is_dirty "$worktree"; then
+  if [ "$require_clean" -eq 1 ]; then
+    die $EX_CONFLICT "worktree $worktree has uncommitted changes and --require-clean was given" \
+        "commit, stash, or drop them, or rerun without --require-clean"
+  fi
+  warn "worktree has uncommitted changes (same branch, so assumed to be this task's own work-in-progress)"
+  git -C "$worktree" status --short >&2
+fi
+
+say "worktree $worktree"
+
+if [ "$print_path" -eq 1 ]; then
+  printf '%s\n' "$worktree"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# launch claude inside the worktree
+# ---------------------------------------------------------------------------
+
+command -v claude >/dev/null 2>&1 || die $EX_DEPS "claude not found on PATH"
+
+# An agent sandbox may have pointed CLAUDE_CONFIG_DIR at a per-run temp
+# directory with no credentials in it, in which case the launched claude would
+# just say "Not logged in". Detect precisely that and restore the host's own
+# config — loudly, never silently.
+if [ "$host_home_mode" -eq 0 ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  case "$(realpath_of "$CLAUDE_CONFIG_DIR")" in
+    "$(host_home)"/*) : ;;
+    *) host_home_mode=1
+       banner "CLAUDE_CONFIG_DIR points outside your home directory:" \
+              "  $CLAUDE_CONFIG_DIR" \
+              "That is an agent-sandbox override whose credentials do not persist." \
+              "Launching claude with your real HOME ($(host_home)) instead." \
+              "Pass --host-home to make this explicit, or unset CLAUDE_CONFIG_DIR to opt out." ;;
+  esac
+fi
+
+cd "$worktree" || die $EX_UNSAFE "could not cd into $worktree; refusing to launch"
+
+# Final belt-and-braces check on the actual process cwd, after the cd.
+[ "$(pwd -P)" = "$worktree" ] \
+  || die $EX_UNSAFE "cwd is $(pwd -P), expected $worktree; refusing to launch"
+
+say "launching claude in $worktree"
+
+if [ "$host_home_mode" -eq 1 ]; then
+  exec env -u CLAUDE_CONFIG_DIR -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
+           -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID \
+           HOME="$(host_home)" \
+       claude ${claude_args[@]+"${claude_args[@]}"}
+fi
+
+exec claude ${claude_args[@]+"${claude_args[@]}"}

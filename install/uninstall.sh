@@ -2,7 +2,8 @@
 # Reverses install.sh: removes this app's hooks (every Claude Code hook
 # registered in internal/claudehook's registry + the globally-installed
 # worktree-studio skill) and removes the installed prod build
-# (~/.worktree-studio/bin/worktree-studio).
+# (~/.worktree-studio/bin/worktree-studio) plus the wtx harness installed
+# beside it (~/.worktree-studio/bin/wtx).
 #
 # Deliberately does NOT touch ~/.worktree-studio/studio.db, worktrees/,
 # audit.log.jsonl, server.log, or backups/ — those are this app's actual
@@ -16,6 +17,7 @@ log() { printf '%s%s\n' "$PREFIX" "$1"; }
 
 INSTALL_DIR="$HOME/.worktree-studio/bin"
 BIN_PATH="$INSTALL_DIR/worktree-studio"
+WTX_PATH="$INSTALL_DIR/wtx"
 
 if [ -x "$BIN_PATH" ]; then
   log "removing hooks (every registered claude hook + worktree-studio skill)"
@@ -28,6 +30,11 @@ fi
 if [ -e "$BIN_PATH" ]; then
   log "removing installed binary: $BIN_PATH"
   rm -f "$BIN_PATH"
+fi
+
+if [ -e "$WTX_PATH" ]; then
+  log "removing installed wtx harness: $WTX_PATH"
+  rm -f "$WTX_PATH"
 fi
 
 if [ -d "$INSTALL_DIR" ] && [ -z "$(ls -A "$INSTALL_DIR")" ]; then
