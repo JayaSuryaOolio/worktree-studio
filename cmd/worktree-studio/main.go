@@ -173,6 +173,10 @@ func main() {
 	// docs/terminal-keybindings.md.
 	term.CorrectGlobalKeyEncodingSettings()
 
+	// And for tmux stripping OSC 8 hyperlinks — see
+	// term.EnsureHyperlinkFeature's own comment.
+	term.EnsureHyperlinkFeature()
+
 	// Same idea again, for the copy-mode keys that relay a copy to the
 	// browser clipboard (and now show a "Copied N chars" confirmation).
 	// tmux key tables are server-global, so this corrects every existing
