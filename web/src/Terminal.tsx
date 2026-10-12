@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { terminalWsUrl } from "./api";
@@ -12,6 +13,8 @@ interface Props {
   // terminalAppDetection.ts for what WorktreeDetail.tsx does with it.
   onTitleChange?: (title: string) => void;
 }
+
+const openLink = (uri: string) => window.open(uri, "_blank", "noopener,noreferrer");
 
 export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
 
@@ -120,13 +123,15 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
       // link clicks are *also* being swallowed by mouse-tracking mode the
       // same way text selection is (unconfirmed without a real browser).
       linkHandler: {
-        activate: (_event, uri) => {
-          window.open(uri, "_blank", "noopener,noreferrer");
-        },
+        activate: (_event, uri) => openLink(uri),
       },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Plain-text URLs (no OSC 8 wrapper — most of what `claude` and shell
+    // tools print). linkHandler above only covers explicit hyperlinks. Same
+    // opener, so both kinds behave identically.
+    term.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
     // OSC 52 clipboard passthrough: when a program running inside the
     // terminal (tmux copy-mode, if `set-clipboard on` — see
     // internal/term.CreateSession — or any inner app that emits OSC 52
