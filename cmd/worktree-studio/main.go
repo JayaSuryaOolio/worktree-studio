@@ -247,7 +247,7 @@ func main() {
 	mountFrontend(r, logger)
 
 	logger.Info("worktree-studio listening", "addr", addr)
-	if err := http.Serve(ln, r); err != nil {
+	if err := serve(ln, r, logger); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}

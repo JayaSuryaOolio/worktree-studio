@@ -1,3 +1,4 @@
+import { clipboard } from "./desktop";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -435,7 +436,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
 
   function copyBranch() {
     if (!branch) return;
-    navigator.clipboard.writeText(branch).then(() => {
+    clipboard.writeText(branch).then(() => {
       setBranchCopied(true);
       if (branchCopiedTimeoutRef.current) window.clearTimeout(branchCopiedTimeoutRef.current);
       branchCopiedTimeoutRef.current = window.setTimeout(() => setBranchCopied(false), 1500);

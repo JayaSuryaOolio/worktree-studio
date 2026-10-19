@@ -1,3 +1,4 @@
+import { clipboard } from "./desktop";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Worktree } from "./api";
@@ -123,7 +124,7 @@ export function PathCell({ path, underRoot }: { path: string; underRoot: boolean
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(path);
+      await clipboard.writeText(path);
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {

@@ -5,6 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { terminalWsUrl } from "./api";
+import { clipboard, openExternal } from "./desktop";
 
 interface Props {
   terminalId: string;
@@ -14,14 +15,14 @@ interface Props {
   onTitleChange?: (title: string) => void;
 }
 
-const openLink = (uri: string) => window.open(uri, "_blank", "noopener,noreferrer");
+const openLink = openExternal;
 
 export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
 
 // @xterm/addon-clipboard's default BrowserClipboardProvider only relays to
 // navigator.clipboard when the OSC 52 selection field is exactly "c" — read
 // directly from its source (`writeText(selection, text) { return selection
-// !== "c" ? Promise.resolve() : navigator.clipboard.writeText(text); }`).
+// !== "c" ? Promise.resolve() : clipboard.writeText(text); }`).
 // tmux's own OSC 52 output always uses an EMPTY selection field
 // (`\x1b]52;;<base64>\x07`, confirmed via a real websocket-frame capture —
 // see docs/terminal-clipboard.md's Problem 7), which silently no-ops against
@@ -31,8 +32,8 @@ export type TerminalKeyAction = "copy" | "paste" | "newline" | "pass";
 // and always relays to it, so tmux's blank-selection writes actually reach
 // the browser clipboard instead of vanishing silently.
 export const alwaysSystemClipboardProvider: IClipboardProvider = {
-  readText: () => navigator.clipboard.readText(),
-  writeText: (_selection, text) => navigator.clipboard.writeText(text),
+  readText: () => clipboard.readText(),
+  writeText: (_selection, text) => clipboard.writeText(text),
 };
 
 /**
@@ -180,7 +181,7 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
         case "copy": {
           const selection = term.getSelection();
           if (!selection) return true; // no selection: real Ctrl+C, send SIGINT as normal
-          navigator.clipboard?.writeText(selection).catch(() => {
+          clipboard.writeText(selection).catch(() => {
             // Clipboard permission denied/unavailable — nothing else to
             // do; the selection is still visible for a manual right-
             // click copy.
@@ -189,7 +190,7 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
         }
         case "paste":
           event.preventDefault(); // see comment above — avoids a double-paste via xterm's own native `paste` listener
-          navigator.clipboard?.readText().then((text) => term.paste(text)).catch(() => {
+          clipboard.readText().then((text) => term.paste(text)).catch(() => {
             // Clipboard permission denied/unavailable. Deliberately no
             // fallback to the native paste event here (we just prevented
             // it) — a failed programmatic read is rare (this app runs on

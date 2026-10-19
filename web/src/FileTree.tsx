@@ -1,3 +1,4 @@
+import { clipboard } from "./desktop";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { getFileTree, type FileNode } from "./api";
@@ -111,18 +112,18 @@ export default function FileTree({ repoId, worktreeId, onOpenFile, activePath, f
   }, [contextMenu]);
 
   function copyPathToClipboard(path: string) {
-    navigator.clipboard.writeText(path);
+    clipboard.writeText(path);
     setContextMenu(null);
   }
 
   function copyAbsolutePathToClipboard(path: string) {
-    if (folderPath) navigator.clipboard.writeText(`${folderPath}/${path}`);
+    if (folderPath) clipboard.writeText(`${folderPath}/${path}`);
     setContextMenu(null);
   }
 
   function copyFolderPath() {
     if (!folderPath) return;
-    navigator.clipboard.writeText(folderPath).then(() => {
+    clipboard.writeText(folderPath).then(() => {
       setPathCopied(true);
       window.setTimeout(() => setPathCopied(false), 1500);
     });

@@ -248,6 +248,10 @@ tmux display-message -l -d 1500 -c '#{client_tty}' "Copied ${#B} chars to clipbo
 
 **Verified live, end to end, with the strongest available evidence**: `pbcopy` a sentinel → real OS-level mouse drag in the app → `pbpaste` returns exactly the dragged text (sentinel replaced), and the status line visibly reads `Copied 38 chars to clipboard` with the count matching `pbpaste`'s byte length exactly. Both halves confirmed in the same drag, in a fresh browser window. Isolated-pty harness confirmed the OSC 52 relay still fires alongside the new message (adding it broke nothing).
 
+## Desktop (Wails) build
+
+`go build -tags desktop,production ./cmd/worktree-studio` (see README) opens the UI in a Wails window. Inside it `web/src/desktop.ts` routes clipboard reads/writes through `runtime.ClipboardGetText/SetText` and link clicks through `runtime.BrowserOpenURL`, so none of the `navigator.clipboard` permission issues apply. tmux is unchanged. Websockets bypass Wails' asset handler (it can't carry them) and connect straight to the loopback server, whose address is injected into `index.html` as `window.__WTS_WS_BASE__`. Not yet verified by hand in a live window: terminal websocket, Cmd+C/V, OSC 8 and plain-URL clicks.
+
 ## If copy/paste still doesn't work after all this
 
 **Read this first — the two most common false alarms**, both of which have cost real debugging time on this page:
