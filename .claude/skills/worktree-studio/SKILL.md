@@ -35,7 +35,7 @@ go build -o worktree-studio ./cmd/worktree-studio
 
 `go build ./...` alone (before the frontend is ever built) still succeeds — `web/dist/` ships a placeholder so the `go:embed` directive always has something, and the server serves a "run `bun run build`" page instead of crashing. You only need the frontend build for the real UI.
 
-**Desktop window instead of a browser tab:** build with `CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio-desktop ./cmd/worktree-studio` (the `CGO_LDFLAGS` is macOS-only). Same server and CLI subcommands; see the README's "Desktop app (Wails)" section.
+**Desktop window instead of a browser tab:** build with `CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio-desktop ./cmd/worktree-studio` (the `CGO_LDFLAGS` is macOS-only). Same server and CLI subcommands; `install/build-app.sh` builds a double-clickable `build/Worktree Studio.app`. see the README's "Desktop app (Wails)" section.
 
 Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or your existing registered repos, if `~/.worktree-studio/studio.db` already has data from a prior run — this state persists across restarts by design).
 

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,6 +20,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
+
+// Launched from Finder/Dock the app inherits launchd's minimal PATH, which
+// lacks tmux/git/gh/claude. Prepend the usual install locations.
+// ponytail: fixed list, not the user's login-shell PATH; read it from `$SHELL -lc` if a tool is still missing.
+func init() {
+	home, _ := os.UserHomeDir()
+	extra := []string{"/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin")}
+	os.Setenv("PATH", strings.Join(extra, ":")+":"+os.Getenv("PATH"))
+}
 
 // serve is the Wails desktop entry point: the same HTTP server as the web
 // build keeps running on its loopback listener, and a native window renders

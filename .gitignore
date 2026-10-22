@@ -24,3 +24,6 @@ web/*.tsbuildinfo
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Desktop app bundle
+/build/

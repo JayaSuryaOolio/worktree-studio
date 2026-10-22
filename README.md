@@ -36,6 +36,8 @@ CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,productio
 
 (`CGO_LDFLAGS` is only needed on macOS when building without the `wails` CLI.) It still listens on a loopback port like the web build.
 
+For a double-clickable macOS app (Dock icon, no terminal), run `install/build-app.sh` — it builds the frontend, then assembles `build/Worktree Studio.app` (no `wails` CLI needed); copy it to `/Applications`. Launched from Finder it gets `/opt/homebrew/bin`, `/usr/local/bin` and `~/.local/bin` prepended to `PATH` so tmux/git are found.
+
 ## CLI subcommands (need the binary on `PATH`)
 
 `./worktree-studio` also doubles as a small CLI for one-off actions against an already-running server (`install-hooks`/`uninstall-hooks`, `open-file <path>`, `spotlight --start|--stop|--status [path]`, `orphans [--kill] [--min-age=<duration>]`, `create-worktree <name> [--branch <source-branch>] [path]` — see the skill file for the full list). These only work if `worktree-studio` resolves as a command from wherever you run them (e.g. a tmux pane sitting in some worktree's directory, not this checkout) — a plain `go build -o worktree-studio ./cmd/worktree-studio` only produces a binary in the current directory, so a zsh `command not found` from anywhere else is expected until it's actually installed somewhere on `PATH`:
