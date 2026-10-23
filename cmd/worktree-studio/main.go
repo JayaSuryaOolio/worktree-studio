@@ -42,6 +42,19 @@ func addrPort(addr string) string {
 	return ":" + addr
 }
 
+// serverBaseURL is where the one-shot CLI subcommands reach the server:
+// WORKTREE_STUDIO_ADDR if set, else the address of the server that is
+// actually running (~/.worktree-studio/server.addr), else the default port.
+func serverBaseURL() string {
+	addr := defaultAddr
+	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
+		addr = v
+	} else if running := runningServer(); running != "" {
+		addr = running
+	}
+	return "http://localhost" + addrPort(addr)
+}
+
 // maxPortTries bounds how far past the requested port listenFirstFree looks.
 const maxPortTries = 20
 
