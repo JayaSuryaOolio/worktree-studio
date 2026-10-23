@@ -46,8 +46,22 @@ func serve(ln net.Listener, h http.Handler, logger *slog.Logger) error {
 	}()
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	return window(port)
+}
+
+// attach opens the window on an already-running server (e.g. the background
+// service) instead of starting a second one over the same SQLite registry.
+func attach(addr string) (bool, error) {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, err
+	}
+	return true, window(port)
+}
+
+func window(port string) error {
 	if _, err := strconv.Atoi(port); err != nil {
-		return fmt.Errorf("listener address %q has no port", ln.Addr())
+		return fmt.Errorf("address has no port: %q", port)
 	}
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + port}
 	inject := []byte(`<script>window.__WTS_WS_BASE__="ws://127.0.0.1:` + port + `"</script></head>`)

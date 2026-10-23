@@ -13,3 +13,6 @@ import (
 func serve(ln net.Listener, h http.Handler, _ *slog.Logger) error {
 	return http.Serve(ln, h)
 }
+
+// attach is desktop-only; the web build always runs its own server.
+func attach(string) (bool, error) { return false, nil }

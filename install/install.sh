@@ -87,8 +87,27 @@ log "building Go binary -> $BIN_PATH"
 mkdir -p "$INSTALL_DIR"
 ( cd "$REPO_ROOT" && go build -o "$BIN_PATH" ./cmd/worktree-studio )
 
+log "building terminal UI -> $INSTALL_DIR/wts-tui"
+( cd "$REPO_ROOT" && go build -o "$INSTALL_DIR/wts-tui" ./tui/cmd/wts-tui )
+
+if [ "$OS" = macos ]; then
+  log "building desktop app -> ~/Applications/Worktree Studio.app"
+  "$SCRIPT_DIR/build-app.sh"
+  mkdir -p "$HOME/Applications"
+  rm -rf "$HOME/Applications/Worktree Studio.app"
+  cp -R "$REPO_ROOT/build/Worktree Studio.app" "$HOME/Applications/"
+fi
+
+log "installing launcher: wts -> $INSTALL_DIR/wts, ~/.local/bin/wts"
+cp "$SCRIPT_DIR/wts" "$INSTALL_DIR/wts"
+mkdir -p "$HOME/.local/bin"
+ln -sf "$INSTALL_DIR/wts" "$HOME/.local/bin/wts"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) log "note: add ~/.local/bin to your PATH to run 'wts'" ;; esac
+
 log "installing hooks (every registered claude hook + worktree-studio skill)"
 "$BIN_PATH" install-hooks
 
-log "done. Run the server with: $BIN_PATH"
-log "(add $INSTALL_DIR to your PATH to just run: worktree-studio)"
+log "installing background service (server starts at login)"
+"$INSTALL_DIR/wts" install-service
+
+log "done. Try: wts web | wts tui | wts desktop   (wts status|stop|restart|logs for the server)"

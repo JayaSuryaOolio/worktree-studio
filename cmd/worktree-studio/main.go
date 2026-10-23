@@ -71,6 +71,27 @@ func listenFirstFree(addr string, logger *slog.Logger) (net.Listener, string, er
 	return nil, "", fmt.Errorf("no free port in %d tries from %s: %w", maxPortTries, addr, lastErr)
 }
 
+// runningServer returns the address recorded in ~/.worktree-studio/server.addr
+// if a server actually answers there, else "". The file can be stale after
+// a crash, hence the probe.
+func runningServer() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".worktree-studio", "server.addr"))
+	if err != nil {
+		return ""
+	}
+	addr := strings.TrimSpace(string(b))
+	resp, err := (&http.Client{Timeout: time.Second}).Get("http://" + addr + "/api/repos")
+	if err != nil {
+		return ""
+	}
+	resp.Body.Close()
+	return addr
+}
+
 // logFilePath returns ~/.worktree-studio/server.log — this process's own
 // log output, mirrored to disk so the main settings modal's Logs tab (and
 // anyone debugging after the fact) has something durable to read even
@@ -104,6 +125,18 @@ func main() {
 	}
 	if runCreateWorktreeCommand(os.Args[1:]) {
 		return
+	}
+
+	// Desktop build + a server already running (the background service):
+	// just open the window on it rather than starting a second server.
+	if addr := runningServer(); addr != "" {
+		if ok, err := attach(addr); ok {
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "desktop window:", err)
+				os.Exit(1)
+			}
+			return
+		}
 	}
 
 	logPath, err := logFilePath()

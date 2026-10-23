@@ -6,7 +6,18 @@ A repo can also point at another tool's own workspace root (its settings page's 
 
 ## Quick launch
 
-`./wts web` (browser), `./wts dev` (Vite hot reload), `./wts tui` (terminal UI), `./wts desktop` (Wails app, needs the `wails-app` branch merged), `./wts status`, `./wts stop`. It starts the server if needed, or reuses a running one, and wires up whatever port it landed on (the server records it in `~/.worktree-studio/server.addr`).
+`./install/install.sh` builds everything into `~/.worktree-studio/bin`, installs the macOS app to `~/Applications`, puts `wts` on your PATH (`~/.local/bin`) and registers the server as a background service (launchd on macOS, `systemd --user` on Linux) that starts at login. Then:
+
+```bash
+wts web        # browser
+wts tui        # terminal UI
+wts desktop    # Wails app (macOS); attaches to the running service instead of starting its own server
+wts status | start | stop | restart | logs      # control the server
+wts install-service | uninstall-service         # toggle run-at-login
+wts dev        # Vite hot reload (from a repo checkout; run install.sh first)
+```
+
+Every front end finds the server through `~/.worktree-studio/server.addr`, so a non-default port never matters. Without the service, `wts` starts the server in the background on demand.
 
 ## How to run
 
