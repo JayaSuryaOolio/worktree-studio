@@ -913,7 +913,10 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
                 title={summary.pr.title}
               >
                 <span className="worktree-header-pr-number">#{summary.pr.number}</span>
-                {summary.pr.is_draft && <span className="worktree-header-pr-draft">draft</span>}
+                {(() => {
+                  const status = summary.pr.is_draft && summary.pr.state === "OPEN" ? "draft" : summary.pr.state.toLowerCase();
+                  return <span className={`worktree-header-pr-status worktree-header-pr-status-${status}`}>{status}</span>;
+                })()}
                 <span className="worktree-header-pr-title">{summary.pr.title}</span>
               </a>
             ) : null}

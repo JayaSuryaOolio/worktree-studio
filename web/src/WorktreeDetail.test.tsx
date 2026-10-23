@@ -284,7 +284,7 @@ describe("WorktreeDetail", () => {
         has_upstream: true,
         dirty: false,
         changed_files: [],
-        pr: { number: 2841, title: "Order id migration", url: "https://example/pr", is_draft: true },
+        pr: { number: 2841, title: "Order id migration", state: "OPEN", url: "https://example/pr", is_draft: true },
       });
       renderPage();
       await screen.findByTestId("terminal-t1");
@@ -294,6 +294,20 @@ describe("WorktreeDetail", () => {
       expect(screen.getByText("draft")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /2841/ })).toHaveAttribute("href", "https://example/pr");
     });
+  });
+
+  it("shows a merged PR's state", async () => {
+    vi.mocked(getWorktreeSummary).mockResolvedValue({
+      branch: "feature",
+      ahead: 0,
+      behind: 0,
+      has_upstream: true,
+      dirty: false,
+      changed_files: [],
+      pr: { number: 7, title: "Done", state: "MERGED", url: "https://example/pr", is_draft: false },
+    });
+    renderPage();
+    expect(await screen.findByText("merged")).toBeInTheDocument();
   });
 
   it("fetches the saved layout for this worktree on mount", async () => {

@@ -86,6 +86,7 @@ Clicking a repo's name opens its own root checkout (the main `git` working tree,
 `FileTree.tsx`'s header no longer shows the worktree/folder name (removed per direct request — no room to also fit git/PR info). In its place:
 - A git-branch icon (`icons/FileTreeIcons.tsx`) toggles filtering the tree to only files changed on the current branch (`filterTreeToChangedFiles`, a pure exported function) — prunes to matching files plus every ancestor directory with at least one matching descendant, not a flat list. Disabled when there are no changed files.
 - A PR badge (`#123 ↗`) appears when the branch has one, opening it in a new tab on click.
+- The worktree header's PR link (`WorktreeDetail.tsx`) also shows the PR's state as a small badge: `draft` (open + draft), `open`, `merged` (`--ok`) or `closed` (`--danger`) — only the outcomes are coloured.
 - Collapse-all got a proper two-chevron SVG icon (replacing a plain `⊟` glyph) and stays right-aligned via the heading's `justify-content: space-between`.
 - Both new elements are powered by `useWorktreeSummary.ts` — see "Sidebar hover popover" below, which shares the exact same hook/cache.
 
