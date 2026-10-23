@@ -91,11 +91,7 @@ func runSpotlightCommand(args []string) bool {
 }
 
 func spotlightAction(action, path string, stash bool) int {
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
-	selfBaseURL := "http://localhost" + addrPort(addr)
+	selfBaseURL := serverBaseURL()
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	var resp *http.Response
