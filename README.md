@@ -24,6 +24,20 @@ cd web && bun install && bun run dev  # terminal 2: Vite dev server on :5173
 
 See `docs/running-locally.md` for more detail and `docs/architecture.md` for how the pieces fit together.
 
+## Desktop app (Wails)
+
+The same binary can also open in a native window instead of a browser tab — a second entry point over the identical server, so the web app keeps working unchanged. The window's webview has no browser clipboard-permission model, so copy/paste goes through Wails' Go-side clipboard and links open in the OS browser (`web/src/desktop.ts`); see `docs/terminal-clipboard.md`.
+
+```bash
+cd web && bun install && bun run build
+cd ..
+CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio-desktop ./cmd/worktree-studio   # macOS
+```
+
+(`CGO_LDFLAGS` is only needed on macOS when building without the `wails` CLI.) It still listens on a loopback port like the web build.
+
+For a double-clickable macOS app (Dock icon, no terminal), run `install/build-app.sh` — it builds the frontend, then assembles `build/Worktree Studio.app` (no `wails` CLI needed); copy it to `/Applications`. Launched from Finder it gets `/opt/homebrew/bin`, `/usr/local/bin` and `~/.local/bin` prepended to `PATH` so tmux/git are found.
+
 ## CLI subcommands (need the binary on `PATH`)
 
 `./worktree-studio` also doubles as a small CLI for one-off actions against an already-running server (`install-hooks`/`uninstall-hooks`, `open-file <path>`, `spotlight --start|--stop|--status [path]`, `orphans [--kill] [--min-age=<duration>]`, `create-worktree <name> [--branch <source-branch>] [path]` — see the skill file for the full list). These only work if `worktree-studio` resolves as a command from wherever you run them (e.g. a tmux pane sitting in some worktree's directory, not this checkout) — a plain `go build -o worktree-studio ./cmd/worktree-studio` only produces a binary in the current directory, so a zsh `command not found` from anywhere else is expected until it's actually installed somewhere on `PATH`:

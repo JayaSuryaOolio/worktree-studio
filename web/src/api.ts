@@ -1,3 +1,4 @@
+import { wsOrigin } from "./desktop";
 // Thin client wrapper around worktree-studio's REST API.
 
 export interface Repo {
@@ -496,8 +497,7 @@ export function clearAttention(repoId: string, worktreeId: string): Promise<void
  * page so it works both from `vite dev` (proxied) and the production Go
  * server (served directly) without needing separate config. */
 export function terminalWsUrl(terminalId: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/terminals/${terminalId}`;
+  return `${wsOrigin()}/ws/terminals/${terminalId}`;
 }
 
 /** Builds the websocket URL for a worktree's file-change push (fsnotify-
@@ -505,22 +505,19 @@ export function terminalWsUrl(terminalId: string): string {
  * terminalWsUrl above, so it works from both `vite dev` and the production
  * server unmodified. */
 export function filesWsUrl(worktreeId: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/files/${worktreeId}`;
+  return `${wsOrigin()}/ws/files/${worktreeId}`;
 }
 
 /** Builds the websocket URL for the global (not worktree-scoped) attention
  * push channel — see useAttentionStream.ts. */
 export function attentionWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/attention`;
+  return `${wsOrigin()}/ws/attention`;
 }
 
 /** Builds the websocket URL for the global (not worktree-scoped) open-file
  * push channel — see useOpenFileStream.ts. */
 export function openFileWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/open-file`;
+  return `${wsOrigin()}/ws/open-file`;
 }
 
 /** Returns the saved dockview layout for a worktree, or `null` if nothing
