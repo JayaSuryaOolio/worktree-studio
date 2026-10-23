@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const (
@@ -323,7 +324,9 @@ func TestContextScriptContentHasExpectedShape(t *testing.T) {
 		"gh pr list",
 		`printf '%s\n' "$context"`,
 		"curl",
-		"http://localhost:8787/api/claude-hook-context",
+		"server.addr",
+		"wts_base='http://localhost:8787'",
+		"$wts_base/api/claude-hook-context",
 		"exit 0",
 	} {
 		if !strings.Contains(content, want) {
@@ -572,5 +575,36 @@ func TestReadSettingsRejectsInvalidJSONRatherThanClobbering(t *testing.T) {
 	}
 	if string(data) != "this is not json" {
 		t.Error("settings.json was modified despite the parse failure")
+	}
+}
+
+// The installed script resolves the server at run time: server.addr wins over
+// the URL baked in at install time (which here points at a dead port).
+func TestHookScriptPrefersServerAddrOverBakedURL(t *testing.T) {
+	home := withFakeClaudeHome(t)
+	hit := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit <- r.URL.Path }))
+	defer ts.Close()
+	os.MkdirAll(filepath.Join(home, ".worktree-studio"), 0o755)
+	if err := os.WriteFile(filepath.Join(home, ".worktree-studio", "server.addr"), []byte(strings.TrimPrefix(ts.URL, "http://")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallHookByID(sessionTrackingID, noServerURL); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := scriptPath("session-start.sh")
+	cmd := exec.Command("sh", path)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart"}`)
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-hit:
+		if got != "/api/claude-hook" {
+			t.Fatalf("hit %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("script did not reach the server named in server.addr")
 	}
 }

@@ -98,12 +98,14 @@ if [ "$3" = "1" ]; then
     wts_branch="$(git rev-parse --short HEAD 2>/dev/null)"
   fi
   if [ -n "$wts_cwd" ] && [ -n "$wts_branch" ]; then
+    wts_base="$(sed 's|^|http://|' "$HOME/.worktree-studio/server.addr" 2>/dev/null)"
+    [ -n "$wts_base" ] || wts_base='%s'
     curl -s -m 2 -X POST \
       --data-urlencode "cwd=$wts_cwd" \
       --data-urlencode "branch=$wts_branch" \
       --data-urlencode "prev_head=$1" \
       --data-urlencode "new_head=$2" \
-      '%s/api/git-hook/post-checkout' >/dev/null 2>&1 || true
+      "$wts_base/api/git-hook/post-checkout" >/dev/null 2>&1 || true
   fi
 fi
 %s

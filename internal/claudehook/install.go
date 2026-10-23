@@ -142,7 +142,11 @@ func hookScriptContent(serverBaseURL string) string {
 # you uninstall the SessionStart/Notification hooks from Claude Code's
 # settings. Shared by both events; the JSON payload's own hook_event_name
 # field is what tells the server which one fired.
-curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- '%s/api/claude-hook' >/dev/null 2>&1 || true
+# Resolve the server at run time (it may have restarted on another port);
+# the address baked in at install time is only the fallback.
+wts_base="$(sed 's|^|http://|' "$HOME/.worktree-studio/server.addr" 2>/dev/null)"
+[ -n "$wts_base" ] || wts_base='%s'
+curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- "$wts_base/api/claude-hook" >/dev/null 2>&1 || true
 exit 0
 `, serverBaseURL)
 }
@@ -220,7 +224,11 @@ esac
 printf '%%s\n' "$context"
 
 if command -v jq >/dev/null 2>&1; then
-  jq -n --arg cwd "$cwd" --arg context "$context" '{cwd: $cwd, context: $context}' 2>/dev/null | curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- '%s/api/claude-hook-context' >/dev/null 2>&1 || true
+  # Resolve the server at run time (it may have restarted on another port);
+  # the address baked in at install time is only the fallback.
+  wts_base="$(sed 's|^|http://|' "$HOME/.worktree-studio/server.addr" 2>/dev/null)"
+  [ -n "$wts_base" ] || wts_base='%s'
+  jq -n --arg cwd "$cwd" --arg context "$context" '{cwd: $cwd, context: $context}' 2>/dev/null | curl -s -m 2 -X POST -H 'Content-Type: application/json' -d @- "$wts_base/api/claude-hook-context" >/dev/null 2>&1 || true
 fi
 
 exit 0
