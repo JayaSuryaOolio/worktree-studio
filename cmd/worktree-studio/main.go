@@ -197,6 +197,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Publish the bound address so launchers/clients (./wts, vite, the TUI)
+	// can find a server that landed on a non-default port. Stale after a
+	// crash; readers probe it before trusting it.
+	_ = os.WriteFile(filepath.Join(home, ".worktree-studio", "server.addr"), []byte("localhost"+addrPort(addr)), 0o644)
+
 	srv := &api.Server{
 		Store:        st,
 		Audit:        al,

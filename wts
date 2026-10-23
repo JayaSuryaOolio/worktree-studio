@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# One launcher for every entry point. Finds (or starts) the server, so you
+# never need to know its port.   ./wts {web|dev|tui|desktop|status|stop}
+set -euo pipefail
+cd "$(dirname "$0")"
+D="$HOME/.worktree-studio"; ADDR_FILE="$D/server.addr"; BIN=build/worktree-studio
+
+alive() { [ -f "$ADDR_FILE" ] && curl -fs -o /dev/null --max-time 1 "http://$(cat "$ADDR_FILE")/api/repos"; }
+
+ensure_server() {
+  alive && return
+  [ -f web/dist/index.html ] || (cd web && bun install && bun run build)
+  go build -o "$BIN" ./cmd/worktree-studio
+  rm -f "$ADDR_FILE"; mkdir -p "$D"
+  nohup "$BIN" >/dev/null 2>&1 &   # logs go to $D/server.log by themselves
+  for _ in $(seq 50); do alive && return; sleep 0.2; done
+  echo "server did not come up; see $D/server.log" >&2; exit 1
+}
+
+case "${1:-}" in
+  web)     ensure_server; open "http://$(cat "$ADDR_FILE")" ;;
+  dev)     ensure_server; export WORKTREE_STUDIO_ADDR="$(cat "$ADDR_FILE")"; cd web && exec bun run dev --open ;;
+  tui)     ensure_server; export WORKTREE_STUDIO_ADDR="$(cat "$ADDR_FILE")"; exec go run ./tui/cmd/wts-tui ;;
+  desktop) ensure_server
+           [ -f install/build-app.sh ] || { echo "desktop entry point lives on the wails-app branch; merge it first" >&2; exit 1; }
+           [ -d "build/Worktree Studio.app" ] || install/build-app.sh
+           open "build/Worktree Studio.app" ;;
+  status)  alive && echo "running: http://$(cat "$ADDR_FILE")" || echo "not running" ;;
+  stop)    pkill -f "$BIN" && echo stopped || echo "not running"; rm -f "$ADDR_FILE" ;;
+  *)       echo "usage: ./wts {web|dev|tui|desktop|status|stop}"; exit 2 ;;
+esac

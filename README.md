@@ -4,6 +4,10 @@ A small local tool for managing `git worktree`-based parallel development: a Go 
 
 A repo can also point at another tool's own workspace root (its settings page's "External worktrees root" field) — worktree-studio then auto-discovers and registers any worktree that tool creates there on every page load, no manual attach needed. See `docs/architecture.md`'s "External worktree auto-discovery" section.
 
+## Quick launch
+
+`./wts web` (browser), `./wts dev` (Vite hot reload), `./wts tui` (terminal UI), `./wts desktop` (Wails app, needs the `wails-app` branch merged), `./wts status`, `./wts stop`. It starts the server if needed, or reuses a running one, and wires up whatever port it landed on (the server records it in `~/.worktree-studio/server.addr`).
+
 ## How to run
 
 Production-style (single Go binary serving the built frontend):
