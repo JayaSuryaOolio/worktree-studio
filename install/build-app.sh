@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Builds "Worktree Studio.app" (macOS) around the Wails desktop binary.
-# Needs only Go + bun (no `wails` CLI). Output: ./build/Worktree Studio.app
+# Builds the "Worktree Studio.app" launcher bundle (macOS). Output: ./build/Worktree Studio.app
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -9,8 +8,17 @@ cd "$(dirname "$0")/.."
 APP="build/Worktree Studio.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
-  go build -tags desktop,production -o "$APP/Contents/MacOS/worktree-studio" ./cmd/worktree-studio
+# The bundle is a thin launcher: the real (desktop-tagged) binary is the
+# one install.sh puts in ~/.worktree-studio/bin. Double-click = start the
+# backend if needed, then open the window.
+cat > "$APP/Contents/MacOS/worktree-studio" <<'L'
+#!/bin/sh
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+W="$HOME/.worktree-studio/bin/worktree-studio"
+"$W" start >/dev/null 2>&1
+exec "$W" desktop-run
+L
+chmod +x "$APP/Contents/MacOS/worktree-studio"
 
 # Icon: rasterise web/public/icon.svg via Quick Look; skipped if that fails.
 tmp=$(mktemp -d)

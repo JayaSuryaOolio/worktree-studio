@@ -17,11 +17,11 @@ log() { printf '%s%s\n' "$PREFIX" "$1"; }
 INSTALL_DIR="$HOME/.worktree-studio/bin"
 BIN_PATH="$INSTALL_DIR/worktree-studio"
 
-if [ -x "$INSTALL_DIR/wts" ]; then
-  log "stopping and removing background service"
-  "$INSTALL_DIR/wts" uninstall-service || true
+if [ -x "$BIN_PATH" ]; then
+  log "stopping backend, web and desktop"
+  "$BIN_PATH" stop || true
 fi
-rm -f "$HOME/.local/bin/wts" "$INSTALL_DIR/wts" "$INSTALL_DIR/wts-tui"
+rm -f "$HOME/.local/bin/wts"
 rm -rf "$HOME/Applications/Worktree Studio.app"
 
 if [ -x "$BIN_PATH" ]; then
