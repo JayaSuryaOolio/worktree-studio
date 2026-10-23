@@ -41,11 +41,7 @@ func openFile(path string) int {
 		return 1
 	}
 
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
-	selfBaseURL := "http://localhost" + addrPort(addr)
+	selfBaseURL := serverBaseURL()
 
 	body, err := json.Marshal(map[string]string{"cwd": cwd, "path": path})
 	if err != nil {

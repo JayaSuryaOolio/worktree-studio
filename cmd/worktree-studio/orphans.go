@@ -69,11 +69,7 @@ func runOrphansCommand(args []string) bool {
 }
 
 func orphansAction(kill bool, minAge time.Duration) int {
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
-	selfBaseURL := "http://localhost" + addrPort(addr)
+	selfBaseURL := serverBaseURL()
 
 	minAgeHours := strconv.FormatFloat(minAge.Hours(), 'f', -1, 64)
 	client := &http.Client{Timeout: 15 * time.Second}

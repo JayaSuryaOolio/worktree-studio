@@ -37,11 +37,7 @@ func runHooksCommand(args []string) bool {
 }
 
 func installHooks() int {
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
-	selfBaseURL := "http://localhost" + addrPort(addr)
+	selfBaseURL := serverBaseURL()
 
 	// Every registered hook (internal/claudehook/install.go's hookRegistry)
 	// gets installed here — not just the original session-tracking one —

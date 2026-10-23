@@ -87,11 +87,7 @@ func runCreateWorktreeCommand(args []string) bool {
 }
 
 func createWorktreeAction(path, name, branch string) int {
-	addr := defaultAddr
-	if v := os.Getenv("WORKTREE_STUDIO_ADDR"); v != "" {
-		addr = v
-	}
-	selfBaseURL := "http://localhost" + addrPort(addr)
+	selfBaseURL := serverBaseURL()
 
 	body, err := json.Marshal(map[string]string{"path": path, "name": name, "source_branch": branch})
 	if err != nil {
