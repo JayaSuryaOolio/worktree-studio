@@ -85,10 +85,24 @@ log "building frontend (bun run build)"
 
 log "building Go binary -> $BIN_PATH"
 mkdir -p "$INSTALL_DIR"
-( cd "$REPO_ROOT" && go build -o "$BIN_PATH" ./cmd/worktree-studio )
+if [ "$OS" = macos ]; then
+  # Same binary also carries the Wails desktop window (`wts desktop start`).
+  ( cd "$REPO_ROOT" && CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o "$BIN_PATH" ./cmd/worktree-studio )
+  log "installing launcher app -> ~/Applications/Worktree Studio.app"
+  "$SCRIPT_DIR/build-app.sh"
+  mkdir -p "$HOME/Applications"
+  rm -rf "$HOME/Applications/Worktree Studio.app"
+  cp -R "$REPO_ROOT/build/Worktree Studio.app" "$HOME/Applications/"
+else
+  ( cd "$REPO_ROOT" && go build -o "$BIN_PATH" ./cmd/worktree-studio )
+fi
+
+log "putting wts on PATH: ~/.local/bin/wts -> $BIN_PATH"
+mkdir -p "$HOME/.local/bin"
+ln -sf "$BIN_PATH" "$HOME/.local/bin/wts"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) log "note: add ~/.local/bin to your PATH to run 'wts'" ;; esac
 
 log "installing hooks (every registered claude hook + worktree-studio skill)"
 "$BIN_PATH" install-hooks
 
-log "done. Run the server with: $BIN_PATH"
-log "(add $INSTALL_DIR to your PATH to just run: worktree-studio)"
+log "done. Run: wts start, then wts web start | wts desktop start | wts tui   (wts status shows everything)"

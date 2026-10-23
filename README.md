@@ -4,6 +4,21 @@ A small local tool for managing `git worktree`-based parallel development: a Go 
 
 A repo can also point at another tool's own workspace root (its settings page's "External worktrees root" field) — worktree-studio then auto-discovers and registers any worktree that tool creates there on every page load, no manual attach needed. See `docs/architecture.md`'s "External worktree auto-discovery" section.
 
+## Quick launch
+
+`./install/install.sh` builds one binary (`~/.worktree-studio/bin/worktree-studio`, symlinked as `wts` in `~/.local/bin`; on macOS it includes the Wails window and a double-clickable `~/Applications/Worktree Studio.app`). Each piece runs as a detached background process:
+
+```bash
+wts start              # backend (API + UI); prints its URL and log path
+wts web start          # standalone web server (proxies to the backend); errors if the backend isn't up
+wts desktop start      # native window (macOS)
+wts tui                # terminal UI, foreground
+wts status             # backend / web / desktop: state, URL, pid, log folder
+wts web stop | desktop stop | stop    # `stop` stops everything
+```
+
+Every piece finds the backend through `~/.worktree-studio/server.addr`, so a non-default port never matters. Pids are in `~/.worktree-studio/run/`, logs in `~/.worktree-studio/{server,web,desktop}.log`.
+
 ## How to run
 
 Production-style (single Go binary serving the built frontend):
@@ -31,12 +46,12 @@ The same binary can also open in a native window instead of a browser tab — a 
 ```bash
 cd web && bun install && bun run build
 cd ..
-CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio-desktop ./cmd/worktree-studio   # macOS
+CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio ./cmd/worktree-studio   # macOS
 ```
 
-(`CGO_LDFLAGS` is only needed on macOS when building without the `wails` CLI.) It still listens on a loopback port like the web build.
+(`CGO_LDFLAGS` is only needed on macOS when building without the `wails` CLI.) The window attaches to a running backend (`wts start` first, then `wts desktop start`); it doesn't run a server of its own.
 
-For a double-clickable macOS app (Dock icon, no terminal), run `install/build-app.sh` — it builds the frontend, then assembles `build/Worktree Studio.app` (no `wails` CLI needed); copy it to `/Applications`. Launched from Finder it gets `/opt/homebrew/bin`, `/usr/local/bin` and `~/.local/bin` prepended to `PATH` so tmux/git are found.
+`install/install.sh` also installs a double-clickable `Worktree Studio.app` (Dock icon, no terminal): a thin launcher that runs `wts start` and then the window from the installed binary, with `/opt/homebrew/bin`, `/usr/local/bin` and `~/.local/bin` on `PATH` so tmux/git are found.
 
 ## CLI subcommands (need the binary on `PATH`)
 

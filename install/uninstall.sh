@@ -18,6 +18,13 @@ INSTALL_DIR="$HOME/.worktree-studio/bin"
 BIN_PATH="$INSTALL_DIR/worktree-studio"
 
 if [ -x "$BIN_PATH" ]; then
+  log "stopping backend, web and desktop"
+  "$BIN_PATH" stop || true
+fi
+rm -f "$HOME/.local/bin/wts"
+rm -rf "$HOME/Applications/Worktree Studio.app"
+
+if [ -x "$BIN_PATH" ]; then
   log "removing hooks (every registered claude hook + worktree-studio skill)"
   "$BIN_PATH" uninstall-hooks
 else

@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -30,24 +29,24 @@ func init() {
 	os.Setenv("PATH", strings.Join(extra, ":")+":"+os.Getenv("PATH"))
 }
 
-// serve is the Wails desktop entry point: the same HTTP server as the web
-// build keeps running on its loopback listener, and a native window renders
-// it. Wails' asset handler can't carry websockets, so HTTP goes through a
+// desktopRun opens the Wails window on the already-running server at addr.
+// Wails' asset handler can't carry websockets, so HTTP goes through a
 // reverse proxy and the page is told the real address to open its websockets
 // against (web/src/desktop.ts wsOrigin). Clipboard and link opening go
 // through Wails' runtime (web/src/desktop.ts), which is what avoids the
 // browser clipboard-permission problems in docs/terminal-clipboard.md.
 // Build: go build -tags desktop,production ./cmd/worktree-studio
-func serve(ln net.Listener, h http.Handler, logger *slog.Logger) error {
-	go func() {
-		if err := http.Serve(ln, h); err != nil {
-			logger.Error("server exited", "err", err)
-		}
-	}()
+func desktopRun(addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	return window(port)
+}
 
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
+func window(port string) error {
 	if _, err := strconv.Atoi(port); err != nil {
-		return fmt.Errorf("listener address %q has no port", ln.Addr())
+		return fmt.Errorf("address has no port: %q", port)
 	}
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + port}
 	inject := []byte(`<script>window.__WTS_WS_BASE__="ws://127.0.0.1:` + port + `"</script></head>`)

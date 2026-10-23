@@ -5,16 +5,19 @@ import react from "@vitejs/plugin-react";
 // dev server and the API server can run side by side (see
 // docs/running-locally.md). `bun run build` outputs to dist/, which
 // web/embed.go go:embeds into the production Go binary.
+// WORKTREE_STUDIO_ADDR (e.g. localhost:8788, set by ./wts dev) picks the API server.
+const api = process.env.WORKTREE_STUDIO_ADDR?.replace(/^:/, "localhost:") ?? "localhost:8787";
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8787",
+        target: `http://${api}`,
         changeOrigin: true,
       },
       "/ws": {
-        target: "ws://localhost:8787",
+        target: `ws://${api}`,
         ws: true,
       },
     },
