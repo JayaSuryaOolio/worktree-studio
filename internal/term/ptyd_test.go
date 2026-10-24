@@ -199,3 +199,20 @@ func waitForOutput(t *testing.T, m *Manager, ts store.TerminalSession, want stri
 	}
 	return string(out)
 }
+
+func TestPtydStatusFlagsOldDaemonBuild(t *testing.T) {
+	m := newPtydManager(t)
+	if running, outdated := m.PtydStatus(); !running || outdated {
+		t.Fatalf("same build: running=%v outdated=%v", running, outdated)
+	}
+	dir, err := os.MkdirTemp("", "ptyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	m.Ptyd = &ptyd.Client{Socket: filepath.Join(dir, "s")}
+	servePtyd(t, m.Ptyd, "old-build")
+	if running, outdated := m.PtydStatus(); !running || !outdated {
+		t.Fatalf("old build: running=%v outdated=%v", running, outdated)
+	}
+}

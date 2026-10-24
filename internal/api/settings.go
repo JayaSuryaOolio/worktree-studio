@@ -158,15 +158,36 @@ func (s *Server) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 // WORKTREE_STUDIO_TERMINAL_BACKEND pins it for this server run, so a PUT is
 // stored but has no effect until restart without it. IdleReapDays is the
 // ptyd idle reaper (0 = off; term.IdleReapSettingKey). See docs/ptyd.md.
+// PtydOutdated: the running daemon is a different build than this server
+// (see handleRestartPtyd).
 type terminalSettings struct {
 	Backend      string `json:"backend"`
 	EnvOverride  bool   `json:"env_override"`
 	IdleReapDays int    `json:"idle_reap_days"`
+	PtydRunning  bool   `json:"ptyd_running"`
+	PtydOutdated bool   `json:"ptyd_outdated"`
 }
 
 func (s *Server) handleGetTerminalSettings(w http.ResponseWriter, r *http.Request) {
 	b, fromEnv := s.Term.Backend()
-	writeJSON(w, http.StatusOK, terminalSettings{Backend: b, EnvOverride: fromEnv, IdleReapDays: s.Term.IdleReapDays()})
+	running, outdated := s.Term.PtydStatus()
+	writeJSON(w, http.StatusOK, terminalSettings{Backend: b, EnvOverride: fromEnv, IdleReapDays: s.Term.IdleReapDays(), PtydRunning: running, PtydOutdated: outdated})
+}
+
+// handleRestartPtyd restarts the ptyd daemon on this server's build (an
+// upgrade otherwise never reaches it): sessions are saved, the daemon exits
+// and every ptyd tab is restored on a new one. Open tabs disconnect and
+// reconnect on reload.
+func (s *Server) handleRestartPtyd(w http.ResponseWriter, r *http.Request) {
+	s.RecordClaudeSessions() // so the restored tabs resume their claude
+	restored, err := s.Term.RestartPtyd()
+	if err != nil {
+		s.Log.Error("restart ptyd", "err", err, "restored", restored)
+		writeError(w, http.StatusInternalServerError, "failed to restart ptyd: "+err.Error())
+		return
+	}
+	s.Log.Info("restarted ptyd", "restored", restored)
+	writeJSON(w, http.StatusOK, map[string]int{"restored": restored})
 }
 
 // handlePutTerminalSettings updates whichever fields are present.

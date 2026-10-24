@@ -21,6 +21,7 @@ import {
   renameTaskStatus,
   reorderTaskStatuses,
   ServerLogs,
+  restartPtyd,
   setIdleReapDays,
   setTerminalBackend,
   TerminalBackend,
@@ -561,10 +562,42 @@ function TerminalTab() {
               Pinned by WORKTREE_STUDIO_TERMINAL_BACKEND for this server run.
             </p>
           )}
+          {settings.ptyd_outdated && <PtydRestart onDone={() => getTerminalSettings().then(setSettings)} />}
           <IdleReaper settings={settings} onChange={setSettings} />
         </>
       )}
     </section>
+  );
+}
+
+// Shown when the ptyd daemon runs an older build than the server (it keeps
+// the binary it started from): restart it, every ptyd tab comes back.
+function PtydRestart({ onDone }: { onDone: () => void }) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function restart() {
+    if (!window.confirm("Restart the PTY daemon? Running programs in ptyd terminals are stopped; tabs come back with their scrollback (claude resumed).")) return;
+    setError(null);
+    restartPtyd()
+      .then((r) => {
+        setMessage(`Restarted; ${r.restored} terminal(s) restored. Reload the page to reconnect open terminals.`);
+        onDone();
+      })
+      .catch((err) => setError((err as Error).message));
+  }
+
+  return (
+    <>
+      <p className="settings-hint">
+        The PTY daemon is running an older build of worktree-studio.{" "}
+        <button type="button" onClick={restart}>
+          Restart ptyd
+        </button>
+      </p>
+      {error && <p className="error">{error}</p>}
+      {message && <p className="muted">{message}</p>}
+    </>
   );
 }
 

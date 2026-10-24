@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,7 +28,34 @@ func ptydServe() {
 		fmt.Println("ptyd already running on", sock)
 		return
 	}
+	if err == nil {
+		fmt.Println("ptyd stopped (sessions saved)")
+		return
+	}
 	die("ptyd: %v", err)
+}
+
+// ptydRestart is `wts ptyd restart`: the daemon picks up this build. With
+// the backend running it does the whole restart, tabs restored; otherwise
+// the daemon just saves and stops, and the next backend start restores.
+func ptydRestart() {
+	if addr := runningServer(); addr != "" {
+		resp, err := http.Post("http://"+addr+"/api/settings/terminal/ptyd-restart", "application/json", nil)
+		if err != nil {
+			die("ptyd restart: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			die("ptyd restart: %s", body)
+		}
+		fmt.Printf("ptyd restarted: %s\n", body)
+		return
+	}
+	if err := (&ptyd.Client{Socket: ptyd.DefaultSocket()}).Shutdown(); err != nil {
+		die("ptyd restart: %v", err)
+	}
+	fmt.Println("ptyd stopped with sessions saved; they come back when the backend next starts")
 }
 
 // detachKey (Ctrl+\, as in dtach/abduco) ends `wts attach` without

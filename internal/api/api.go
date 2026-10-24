@@ -171,6 +171,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Get("/logs", s.handleGetLogs)
 		r.Get("/terminal", s.handleGetTerminalSettings)
 		r.Put("/terminal", s.handlePutTerminalSettings)
+		r.Post("/terminal/ptyd-restart", s.handleRestartPtyd)
 	})
 }
 

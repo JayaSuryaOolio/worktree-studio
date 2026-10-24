@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -209,7 +210,18 @@ func (c *Client) Shutdown() error {
 		return nil
 	}
 	if _, err := c.do(Request{Op: "shutdown"}); err != nil {
-		return err
+		// A daemon from before the shutdown op (it can't save anything
+		// either): SIGTERM whoever holds its lock file.
+		// ponytail: drop once no such daemons are left running.
+		out, lerr := exec.Command("lsof", "-t", c.Socket+".lock").Output()
+		if lerr != nil {
+			return err
+		}
+		for _, f := range strings.Fields(string(out)) {
+			if pid, _ := strconv.Atoi(f); pid > 0 && pid != os.Getpid() {
+				_ = syscall.Kill(pid, syscall.SIGTERM)
+			}
+		}
 	}
 	for i := 0; i < 50 && c.Running(); i++ {
 		time.Sleep(100 * time.Millisecond)

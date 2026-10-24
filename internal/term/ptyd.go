@@ -175,6 +175,47 @@ func (m *Manager) RestoreWorktree(worktreeID string) (restored int, err error) {
 	return restored, nil
 }
 
+// PtydStatus reports whether the ptyd daemon is running and, if so, whether
+// it runs a different build than this server (an upgrade it hasn't picked
+// up: the daemon keeps the binary it was started from until RestartPtyd).
+func (m *Manager) PtydStatus() (running, outdated bool) {
+	c, err := m.ptydClient()
+	if err != nil || !c.Running() {
+		return false, false
+	}
+	v, err := c.Version()
+	return true, err == nil && v != ptyd.BuildID()
+}
+
+// RestartPtyd restarts the daemon on the current build: it saves every
+// session's scrollback and exits, then each ptyd tab that was live comes
+// back on a fresh daemon via Restore (scrollback, claude --resume).
+func (m *Manager) RestartPtyd() (restored int, err error) {
+	c, err := m.ptydClient()
+	if err != nil {
+		return 0, err
+	}
+	sessions, err := c.List()
+	if err != nil {
+		return 0, err
+	}
+	if err := c.Shutdown(); err != nil {
+		return 0, err
+	}
+	for _, s := range sessions {
+		ts, err := m.Store.GetTerminalSession(s.ID)
+		if err != nil || ts.Backend != BackendPtyd {
+			_ = c.Kill(s.ID) // an orphan: drop its saved log
+			continue
+		}
+		if err := m.Restore(ts); err != nil {
+			return restored, err
+		}
+		restored++
+	}
+	return restored, nil
+}
+
 // ptydEnv is the environment for a ptyd shell: ours with TERM fixed (see
 // attachEnv), tmux's markers dropped (the server may itself run inside
 // tmux), and truecolor advertised since xterm.js renders it.

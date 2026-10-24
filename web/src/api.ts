@@ -141,6 +141,9 @@ export interface TerminalSettings {
   env_override: boolean;
   /** Close ptyd terminals idle this many days (0 = off). See docs/ptyd.md. */
   idle_reap_days: number;
+  ptyd_running: boolean;
+  /** The ptyd daemon runs an older build than the server; restartPtyd fixes it. */
+  ptyd_outdated: boolean;
 }
 
 /** A ptyd terminal with no client attached and no output for the idle
@@ -782,6 +785,12 @@ export function setIdleReapDays(days: number): Promise<TerminalSettings> {
     method: "PUT",
     body: JSON.stringify({ idle_reap_days: days }),
   });
+}
+
+/** Restarts the ptyd daemon on the server's build; ptyd tabs come back with
+ * their scrollback, and open ones reconnect on reload. */
+export function restartPtyd(): Promise<{ restored: number }> {
+  return request("/api/settings/terminal/ptyd-restart", { method: "POST" });
 }
 
 export function listIdlePtydSessions(days: number): Promise<IdleTerminal[]> {
