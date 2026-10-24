@@ -130,7 +130,7 @@ worktree-studio set-task --new "Invoice export" [path]
 worktree-studio set-task --clear [path]
 ```
 
-HTTP equivalents: `PUT /api/repos/<repoId>/worktrees/<id>/task` with `{source,key,url,new_title}` (empty body clears), `POST /api/worktree-task` with the same plus `path`, `GET /api/tasks`, `PATCH /api/tasks/<source>/<key>` (`title`, `url`, `status_id`), and `/api/task-statuses` (GET, POST `{name}`, PATCH `/<id>` `{name}`, PUT `/order` `[ids]`, DELETE `/<id>`).
+HTTP equivalents: `PUT /api/repos/<repoId>/worktrees/<id>/task` with `{source,key,url,new_title}` (empty body clears), `POST /api/worktree-task` with the same plus `path`, `GET /api/tasks`, `PATCH /api/tasks/<source>/<key>` (`title`, `url`, `status_id`), and `/api/task-statuses` (GET, POST `{name}`, PATCH `/<id>` `{name}`, PUT `/order` `{ids}`, DELETE `/<id>`).
 
 ## Attaching an existing worktree (no git mutation)
 

@@ -198,7 +198,7 @@ PUT    /api/repos/{repoID}/worktrees/{worktreeID}/task   set or clear {source, k
 POST   /api/worktree-task                     same, plus {path}; resolves the worktree like open-file (backs `set-task`)
 GET|POST /api/task-statuses                  list, add {name}
 PATCH|DELETE /api/task-statuses/{id}         rename {name}, delete (409 when in use or the last one)
-PUT    /api/task-statuses/order               reorder [ids]
+PUT    /api/task-statuses/order               reorder {ids}
 GET|POST|DELETE /api/task-sources             manage adapters
 POST   /api/task-sources/{id}/test            run `list` once (explicit action only)
 ```
