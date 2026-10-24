@@ -1,5 +1,9 @@
 # Session persistence (tmux-backed terminals)
 
+> This describes the default `tmux` backend. The opt-in `ptyd` backend gets
+> the same restart survival from a PTY daemon instead of tmux — see
+> `docs/ptyd.md`.
+
 ## Why tmux instead of a bare PTY
 
 worktree-studio's terminal tabs don't run a shell directly under a PTY owned by the Go process. Instead, each tab is a real **tmux session**, and the Go server merely `tmux attach-session`s to it under a pty. This is the "best available working solution now, custom later if needed" call from `PLAN.md`: tmux already solves "a shell session survives its controlling process dying" correctly — scrollback, running jobs, signal handling, all of it — and reimplementing that from scratch in Go would just be redoing tmux, badly.

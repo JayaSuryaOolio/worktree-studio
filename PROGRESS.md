@@ -4,6 +4,29 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-10-24 — Running claude sessions in a worktree
+
+Branch `live-claude-sessions` (stacked on `ptyd`). The worktree's empty-state screen now lists claude sessions **running right now** above the past ones you can `--resume`.
+
+- **Backend** (`internal/claudehook/running.go`): reads Claude Code's internal registry `~/.claude/sessions/<pid>.json`, keeps entries whose cwd is at or under the worktree and whose pid is alive (stale files are common), and merges them into `GET .../claude-sessions` with `running`, `kind`, `status`, `name`, `pid`, `short_id`, `terminal_id`, running first. `terminal_id`: tmux from the `wts-<id>` session name; ptyd by walking the claude pid's parent chain (`ps -axo pid=,ppid=`) to a ptyd shell pid of this worktree.
+- **Web**: "Running" section. In one of our tabs → focus it (or add its panel if it was created elsewhere); `bg` → new terminal running `claude attach <short_id>` (the full session id is rejected by `claude attach`); interactive in another terminal app → disabled card with a tooltip plus a "Fork" button (`claude --resume <id> --fork-session`). The "+" button has no menu, so it doesn't list these.
+- **Fallback**: unreadable registry or unknown format → past sessions only. Known gap: pid reuse after a crash (procStart is not checked).
+- **Verified**: `go test ./...` (all pass except the known `TestGitHookInstallActuallyFiresOnRealCheckout`), `bun run test`, `bun run build`; a read-only run against the real registry filtered stale entries correctly. No live UI run (a second server would Reconcile the shared `~/.worktree-studio` DB).
+
+---
+
+## 2026-10-24 — ptyd: opt-in PTY-daemon terminal backend
+
+Branch `ptyd`. A second terminal backend next to tmux, toggled per new terminal; tmux stays the default and its code path is unchanged. Full design, toggle, limitations and the criteria for making it the default live in `docs/ptyd.md` (living doc with a Progress checklist).
+
+- **Daemon** (`internal/ptyd`, `wts ptyd`): owns PTYs via creack/pty on `~/.worktree-studio/ptyd.sock`; JSON request line + framed streaming on attach; 4 MiB scrollback per session replayed on attach from a clean boundary, then live. The API server auto-starts it detached (Setsid), so it outlives the server.
+- **Toggle**: `settings` table (`terminal_backend`) + `WORKTREE_STUDIO_TERMINAL_BACKEND` override, `GET/PUT /api/settings/terminal`, Settings → Terminal tab. `terminal_sessions.backend` records each row's backend (existing rows migrate as `tmux`); ws attach, cwd, reconcile and orphans (`ptyd:<id>`) all follow the row.
+- **Clients**: web (replay framed by `replay-start`/`replay-done`, replies to replayed queries dropped, 10k-line scrollback), TUI (`tui/infra/ptyterm` attaches to the daemon directly; replies dropped up to a marker through the emulator's reply pipe), `wts attach <id>` (either backend; Ctrl+\ detaches).
+- **Verified**: `go test ./...` (ptyd unit + detach/reattach integration, backend toggle, TUI replay-without-replies), `bun run build`, `bun run test`.
+- **Not done / next**: see `docs/ptyd.md` "Criteria for making ptyd the default".
+
+---
+
 ## 2026-09-16 — Auto-discovery of another tool's worktrees, from a per-repo configured root
 
 Direct ask: onboard worktrees another tool (e.g. Conductor) creates for a registered repo, automatically, on page load — rather than requiring a manual "Attach" click per worktree (the existing flow, still there, unchanged).

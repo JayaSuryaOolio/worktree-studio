@@ -160,6 +160,8 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/hooks/{id}/install", s.handleInstallHook)
 		r.Post("/hooks/{id}/uninstall", s.handleUninstallHook)
 		r.Get("/logs", s.handleGetLogs)
+		r.Get("/terminal", s.handleGetTerminalSettings)
+		r.Put("/terminal", s.handlePutTerminalSettings)
 	})
 }
 

@@ -223,10 +223,11 @@ type terminalJSON struct {
 	WorktreeID      string `json:"worktree_id"`
 	TmuxSessionName string `json:"tmux_session_name"`
 	TabLabel        string `json:"tab_label"`
+	Backend         string `json:"backend"`
 }
 
 func (t terminalJSON) domain() domain.TerminalSession {
-	return domain.TerminalSession{ID: t.ID, Worktree: domain.WorktreeID(t.WorktreeID), TmuxName: t.TmuxSessionName, Label: t.TabLabel}
+	return domain.TerminalSession{ID: t.ID, Worktree: domain.WorktreeID(t.WorktreeID), TmuxName: t.TmuxSessionName, Label: t.TabLabel, Backend: t.Backend}
 }
 
 func (c *Client) Sessions(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID) ([]domain.TerminalSession, error) {

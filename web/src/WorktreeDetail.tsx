@@ -35,7 +35,11 @@ import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
 import { takePendingFileOpen } from "./pendingFileOpen";
 import { takePendingNewTerminal } from "./pendingNewTerminal";
 import { registerActiveWorktreeActions } from "./activeWorktreeActions";
-import { openShellWithClaudeResume } from "./worktreeShellActions";
+import {
+  openShellWithClaudeAttach,
+  openShellWithClaudeFork,
+  openShellWithClaudeResume,
+} from "./worktreeShellActions";
 import { detectTerminalApp, TerminalAppKind } from "./terminalAppDetection";
 import { isRootWorktreeId } from "./rootWorktree";
 import { formatBytes, formatDateTime } from "./format";
@@ -186,7 +190,58 @@ const DockviewActionsContext = createContext<{
   worktreeId: string;
   onOpenShell: () => void;
   onOpenClaude: () => void;
+  onShowTerminal: (terminalId: string) => void;
 } | null>(null);
+
+const ELSEWHERE_TOOLTIP =
+  "Running in another terminal. Opening it here would start a second copy of the same conversation; fork it instead.";
+
+// One running claude session in the watermark. Three cases: it's in one of
+// this worktree's terminals (bring that tab to front), it's a `claude --bg`
+// session (attach to it in a new terminal), or it's an interactive session
+// in some other terminal app (not clickable, but can be forked).
+function RunningSessionCard({ s }: { s: ClaudeSessionSummary }) {
+  const actions = useContext(DockviewActionsContext)!;
+  const navigate = useNavigate();
+  const label = s.name || s.preview || s.session_id;
+  const where = s.terminal_id ? "in a tab here" : s.kind === "bg" ? "background" : "in another terminal";
+  const body = (
+    <>
+      <span className="claude-session-card-preview">{label}</span>
+      <span className="claude-session-card-meta">
+        <span className={`claude-session-status-${s.status}`}>{s.status || "running"}</span>
+        <span>{where}</span>
+      </span>
+    </>
+  );
+  if (!s.terminal_id && s.kind !== "bg") {
+    return (
+      <div className="claude-session-card is-elsewhere" title={ELSEWHERE_TOOLTIP} aria-disabled="true">
+        {body}
+        <button
+          type="button"
+          onClick={() => openShellWithClaudeFork(navigate, actions.repoId, actions.worktreeId, s.session_id)}
+        >
+          Fork
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="claude-session-card"
+      title={s.preview || label}
+      onClick={() =>
+        s.terminal_id
+          ? actions.onShowTerminal(s.terminal_id)
+          : openShellWithClaudeAttach(navigate, actions.repoId, actions.worktreeId, s.short_id ?? "")
+      }
+    >
+      {body}
+    </button>
+  );
+}
 
 // How many past-session cards the welcome screen shows at once — a
 // worktree that's had claude running in it for months could have dozens
@@ -201,7 +256,8 @@ const MAX_WELCOME_SESSIONS = 12;
 // instead of only ever starting fresh. Sourced from
 // ~/.claude/projects/ directly (see internal/claudehook.ListSessionsForCwd),
 // independent of the audit log/DB, so it also surfaces sessions started by
-// hand outside worktree-studio entirely.
+// hand outside worktree-studio entirely. Sessions running right now are
+// listed above those, under "Running" (see RunningSessionCard).
 function Watermark() {
   const actions = useContext(DockviewActionsContext);
   const navigate = useNavigate();
@@ -228,6 +284,9 @@ function Watermark() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actions?.repoId, actions?.worktreeId]);
 
+  const running = sessions?.filter((s) => s.running) ?? [];
+  const past = sessions?.filter((s) => !s.running) ?? [];
+
   return (
     <div className="dockview-watermark">
       <p>Nothing open in this worktree yet.</p>
@@ -241,11 +300,21 @@ function Watermark() {
           </button>
         </div>
       )}
-      {actions && sessions && sessions.length > 0 && (
+      {actions && running.length > 0 && (
+        <div className="dockview-welcome-sessions">
+          <h3>Running</h3>
+          <div className="claude-session-cards">
+            {running.map((s) => (
+              <RunningSessionCard key={s.session_id} s={s} />
+            ))}
+          </div>
+        </div>
+      )}
+      {actions && past.length > 0 && (
         <div className="dockview-welcome-sessions">
           <h3>Past claude sessions</h3>
           <div className="claude-session-cards">
-            {sessions.slice(0, MAX_WELCOME_SESSIONS).map((s) => (
+            {past.slice(0, MAX_WELCOME_SESSIONS).map((s) => (
               <button
                 key={s.session_id}
                 type="button"
@@ -699,6 +768,26 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
     }
   }
 
+  // Brings one of this worktree's live terminals to front, adding its panel
+  // first if it has none — e.g. a terminal started from the CLI/TUI after
+  // this page loaded (closing a tab kills its terminal, so a known terminal
+  // without a panel only comes from somewhere else). Used by the
+  // watermark's running claude sessions.
+  async function handleShowTerminal(terminalId: string) {
+    if (!dockviewApi || focusTerminalPanel(terminalId)) return;
+    try {
+      const ts =
+        terminalsRef.current.find((t) => t.id === terminalId) ??
+        (await listTerminals(repoId, worktreeId)).find((t) => t.id === terminalId);
+      if (!ts) return;
+      setTerminals((prev) => (prev.some((t) => t.id === ts.id) ? prev : [...prev, ts]));
+      seedPanels(dockviewApi, [ts]);
+      focusTerminalPanel(terminalId);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   // Opens a file's editor panel, reusing an already-open panel for the same
   // path instead of creating a second one — see EditorPanel.tsx's doc
   // comment for why this is what makes the "two panels on the same file"
@@ -931,6 +1020,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               worktreeId,
               onOpenShell: () => handleNewTerminal("within"),
               onOpenClaude: () => handleNewTerminal("within", "claude", "claude"),
+              onShowTerminal: handleShowTerminal,
             }}
           >
             <DockviewReact

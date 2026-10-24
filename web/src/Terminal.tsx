@@ -75,12 +75,21 @@ export function classifyTerminalKeyEvent(event: {
   return "pass";
 }
 
+// What xterm.js sends back on its own when it parses a query (cursor
+// position/device status/attributes reports, DECRQM, OSC/DCS replies) —
+// mirrors internal/ptyd.IsTerminalReply.
+const TERMINAL_REPLY = /^(\x1b\[[?>=]?[0-9;]*[Rcnt]|\x1b\[\?[0-9;]*\$y|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\)+$/;
+
+export function isTerminalReply(data: string): boolean {
+  return TERMINAL_REPLY.test(data);
+}
+
 /**
  * A real terminal, not an exec-and-capture box: xterm.js renders whatever
  * the server's pty->tmux attach sends over the websocket, and every
  * keystroke goes straight back over the wire. See PLAN.md section 3 — the
- * backing tmux session is what makes this survive a worktree-studio server
- * restart, not anything client-side.
+ * backing tmux session (or ptyd PTY, docs/ptyd.md) is what makes this
+ * survive a worktree-studio server restart, not anything client-side.
  */
 export default function Terminal({ terminalId, onTitleChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,6 +108,9 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
 
     const term = new XTerm({
       cursorBlink: true,
+      // Real scrollback under the ptyd backend (raw PTY output). Under tmux
+      // the attach is an alternate-screen repaint, so this stays unused.
+      scrollback: 10000,
       fontSize: 13,
       fontFamily:
         "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -219,11 +231,28 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
       }
     };
 
+    // ptyd replays the session's recent output on attach, between
+    // replay-start/replay-done control frames. Queries in that output make
+    // xterm.js answer (onData) as if it were live; those answers must not
+    // reach the shell. Dropped until xterm.js has actually parsed the whole
+    // replay (the write callback), not just received it. See docs/ptyd.md.
+    let replaying = false;
+
     ws.onopen = sendResize;
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(ev.data));
       } else if (typeof ev.data === "string") {
+        if (ev.data.startsWith("{")) {
+          try {
+            const msg = JSON.parse(ev.data) as { type?: string };
+            if (msg.type === "replay-start") replaying = true;
+            else if (msg.type === "replay-done") term.write("", () => (replaying = false));
+            return;
+          } catch {
+            // not a control frame after all: plain text, written below
+          }
+        }
         term.write(ev.data);
       }
     };
@@ -235,6 +264,7 @@ export default function Terminal({ terminalId, onTitleChange }: Props) {
     };
 
     const dataDisposable = term.onData((data) => {
+      if (replaying && isTerminalReply(data)) return;
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }

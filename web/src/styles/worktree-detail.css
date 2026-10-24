@@ -350,6 +350,22 @@
   border-color: var(--accent);
 }
 
+/* A running interactive session in some other terminal app: shown, not
+   clickable (see WorktreeDetail.tsx's RunningSessionCard). */
+.claude-session-card.is-elsewhere {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.claude-session-card.is-elsewhere:hover {
+  background: var(--surface-1);
+  border-color: var(--rule);
+}
+
+.claude-session-status-busy {
+  color: var(--accent);
+}
+
 .claude-session-card-preview {
   font-family: var(--font-mono);
   font-size: var(--fs-2);
