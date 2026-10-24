@@ -137,7 +137,8 @@ TODO.
 - [x] Backend toggle (settings table + env), `terminal_sessions.backend`,
       term.Manager seam, backend-aware reconcile/orphans/cwd/ws, settings
       API, `wts ptyd`, `wts attach`
-- [ ] Web client (replay handling, scrollback, settings toggle)
+- [x] Web client: replay-frame handling + reply dropping, 10k-line
+      scrollback, Settings → Terminal toggle
 - [ ] TUI
 - [ ] Docs (README, architecture, PROGRESS, PLAN, SKILL.md)
 
