@@ -153,6 +153,31 @@ func TestAddListRemoveWorktree(t *testing.T) {
 	}
 }
 
+func TestRemoveWorktreeWhoseDirIsGoneSucceeds(t *testing.T) {
+	repo := newTestRepo(t)
+	wtPath := filepath.Join(t.TempDir(), "vanished")
+
+	if err := AddWorktree(repo, wtPath, "vanished", ""); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if err := os.RemoveAll(wtPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveWorktree(repo, wtPath, true); err != nil {
+		t.Fatalf("RemoveWorktree on a deleted dir: %v, want nil", err)
+	}
+	entries, err := ListWorktrees(repo)
+	if err != nil {
+		t.Fatalf("ListWorktrees: %v", err)
+	}
+	for _, e := range entries {
+		if e.Branch == "refs/heads/vanished" {
+			t.Errorf("git still lists the vanished worktree after RemoveWorktree: %+v", e)
+		}
+	}
+}
+
 func TestRemoveWorktreeDirtyWithoutForceFails(t *testing.T) {
 	repo := newTestRepo(t)
 	wtPath := filepath.Join(t.TempDir(), "dirty-feature")

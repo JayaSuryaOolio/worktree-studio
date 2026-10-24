@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -175,6 +177,12 @@ func DeleteBranch(repoPath, branch string) error {
 // error, so callers can offer the user an explicit "remove anyway" retry
 // with force=true instead of silently discarding their work. With force,
 // --force is passed and git removes the worktree unconditionally.
+//
+// If the directory is already gone (deleted by hand, or by another tool),
+// git refuses with "is not a working tree"; there is nothing left to remove,
+// so that counts as success after a `git worktree prune` drops git's stale
+// entry. Without this an archived worktree whose folder vanished would fail
+// the archive sweep forever.
 func RemoveWorktree(repoPath, worktreePath string, force bool) error {
 	args := []string{"-C", repoPath, "worktree", "remove"}
 	if force {
@@ -186,6 +194,10 @@ func RemoveWorktree(repoPath, worktreePath string, force bool) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if _, statErr := os.Stat(worktreePath); errors.Is(statErr, fs.ErrNotExist) {
+			_ = exec.Command("git", "-C", repoPath, "worktree", "prune").Run()
+			return nil
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if !force && isDirtyWorktreeError(msg) {
 			return fmt.Errorf("%w: %s", ErrWorktreeDirty, msg)
