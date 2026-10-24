@@ -139,3 +139,22 @@
 .task-crumb-empty:focus-visible {
   opacity: 1;
 }
+
+.task-status-list {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-5);
+}
+
+.task-status-list li,
+.task-status-add {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.task-status-list input,
+.task-status-add input {
+  flex: 1;
+  min-width: 0;
+}
