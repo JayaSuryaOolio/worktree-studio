@@ -8,6 +8,7 @@ import { RepoProvider } from "./RepoContext";
 vi.mock("./api", () => ({
   listTasks: vi.fn(() => Promise.resolve([])),
   listTaskStatuses: vi.fn(() => Promise.resolve([])),
+  refreshTaskTitles: vi.fn(() => Promise.resolve({ refreshed: 0, errors: {} })),
   listRepos: vi.fn(),
   listWorktrees: vi.fn(),
   discoverExternalWorktrees: vi.fn(() => Promise.resolve([])),

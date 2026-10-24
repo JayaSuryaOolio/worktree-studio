@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  addTaskSource,
   addTaskStatus,
+  deleteTaskSource,
   deleteTaskStatus,
   DependencyName,
   DependencyStatus,
@@ -11,9 +13,12 @@ import {
   HookStatus,
   installHook,
   installSkill,
+  listTaskSources,
   renameTaskStatus,
   reorderTaskStatuses,
   ServerLogs,
+  TaskSource,
+  testTaskSource,
   uninstallHook,
 } from "./api";
 import {
@@ -582,7 +587,101 @@ function TasksTab() {
         any more, and back to the first if one becomes active again. A status still used by a task can't be
         deleted.
       </p>
+
+      <TaskSources />
     </section>
+  );
+}
+
+// Task sources: adapter commands that the task picker searches and that
+// keep external task titles fresh (docs/tasks-plan.md).
+function TaskSources() {
+  const [sources, setSources] = useState<TaskSource[]>([]);
+  const [draft, setDraft] = useState<TaskSource>({ id: "", name: "", command: "" });
+  const [results, setResults] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = () => listTaskSources().then(setSources).catch((err) => setError((err as Error).message));
+  useEffect(() => {
+    reload();
+  }, []);
+
+  async function run(fn: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await fn();
+      reload();
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    }
+  }
+
+  function test(id: string) {
+    setResults((r) => ({ ...r, [id]: "Testing…" }));
+    testTaskSource(id)
+      .then((t) => `OK — ${t.count} task${t.count === 1 ? "" : "s"}${t.sample[0] ? `, e.g. ${t.sample[0].key} ${t.sample[0].title}` : ""}`)
+      .catch((err) => (err as Error).message)
+      .then((msg) => setResults((r) => ({ ...r, [id]: msg })));
+  }
+
+  return (
+    <>
+      <h3>Task sources</h3>
+      <ul className="task-source-list">
+        {sources.map((src) => (
+          <li key={src.id}>
+            <span className="task-key">{src.id}</span>
+            <span>{src.name}</span>
+            <code>{src.command}</code>
+            <button type="button" onClick={() => test(src.id)}>
+              Test
+            </button>
+            <button type="button" aria-label={`Remove source ${src.id}`} onClick={() => run(() => deleteTaskSource(src.id))}>
+              ✕
+            </button>
+            {results[src.id] && <p className="settings-hint">{results[src.id]}</p>}
+          </li>
+        ))}
+      </ul>
+      <form
+        className="task-source-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(() => addTaskSource(draft)).then((ok) => ok && setDraft({ id: "", name: "", command: "" }));
+        }}
+      >
+        <input
+          type="text"
+          value={draft.id}
+          placeholder="id, e.g. jira"
+          aria-label="Source id"
+          onChange={(e) => setDraft({ ...draft, id: e.target.value })}
+        />
+        <input
+          type="text"
+          value={draft.name}
+          placeholder="Name"
+          aria-label="Source name"
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        />
+        <input
+          type="text"
+          value={draft.command}
+          placeholder="/absolute/path/to/adapter"
+          aria-label="Source command"
+          onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+        />
+        <button type="submit">Add</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+      <p className="settings-hint">
+        An adapter is a read-only command answering <code>list [--query text]</code> and <code>get key…</code> with a
+        JSON array of <code>{"{key, title, url}"}</code>. It runs as you. <code>install/task-sources/jira</code> is
+        an example built on <code>acli</code>. Removing a source keeps its tasks; they just stop refreshing.
+      </p>
+    </>
   );
 }
 
