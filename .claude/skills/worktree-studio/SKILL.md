@@ -134,6 +134,8 @@ HTTP equivalents: `PUT /api/repos/<repoId>/worktrees/<id>/task` with `{source,ke
 
 In the web UI: the new-worktree dialog has a **Task** picker (search, `jira:PROJ-1`, or "+ New task"); the crumb at the top of a worktree (`#12 Invoice export ›`, or "+ task") opens a popup for status, title, link and "+ Worktree for this task"; Settings → Tasks switches the sidebar to **group by task** and edits the status list; `/board` shows tasks in a column per status (drag to change status). The TUI shows the task key on each worktree row and its filter matches it.
 
+**Task sources (Jira etc.):** Settings → Tasks → Task sources registers an adapter: an id (the `task_source` label, e.g. `jira`), a name, and the absolute path of a read-only command answering `list [--query <text>]` and `get <key>...` with `[{"key","title","url"}]`. The picker then searches it, and external titles are refreshed (`get`, at most every 5 minutes) on page load. `install/task-sources/jira` is an example built on `acli` (`acli jira auth login` first; `JIRA_SITE` optional). HTTP: `GET|POST /api/task-sources` (`{id,name,command}`), `DELETE /api/task-sources/<id>`, `POST /api/task-sources/<id>/test`, `POST /api/tasks/refresh[?force=1]`.
+
 ## Attaching an existing worktree (no git mutation)
 
 For a worktree created some other way — by hand with `git worktree add`, or by another tool — there's a separate "attach" flow that registers it without running any git command at all. In the UI: the sidebar's per-repo "📂" button (next to the "+" for a new worktree), or "📂 Attach existing worktree in `<repo>`" in the command palette.

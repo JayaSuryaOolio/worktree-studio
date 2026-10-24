@@ -237,7 +237,7 @@ A task row is created, at the first status, the first time any worktree is label
 
 Steps 1–8 are fully useful with local tasks and links alone. Step 9 is where Jira search comes in.
 
-**Status:** steps 1–8 are built (PR #13: store, API, CLI; the follow-up PR: web UI and the TUI task-key badge). Steps 9–10 are next.
+**Status:** all steps are built: 1–3 in PR #13 (store, API, CLI), 4–8 in PR #15 (web UI, TUI task-key badge), 9–10 in the task-sources PR. Not built from the plan: the "stale" marker when a source fails (the cached title just stays; Settings → Test shows the error), and the picker remembering the last-used source.
 
 ## Out of scope
 
