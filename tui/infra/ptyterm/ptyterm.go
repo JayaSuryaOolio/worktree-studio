@@ -191,7 +191,14 @@ func (s *screen) Close() {
 			_ = s.cmd.Process.Kill()
 			go s.cmd.Wait()
 		}
-		s.emu.Close()
+		// Close the emulator's reply pipe, not the emulator: that ends pump's
+		// io.Copy with EOF, whereas emu.Close writes vt's unguarded closed flag
+		// while that copy is still blocked in emu.Read (a data race).
+		if pw, ok := s.emu.InputPipe().(io.Closer); ok {
+			_ = pw.Close()
+		} else {
+			s.emu.Close()
+		}
 	})
 }
 
