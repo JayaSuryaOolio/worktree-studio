@@ -15,10 +15,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,7 +44,7 @@ const (
 const maxFrame = 16 << 20
 
 // Request is the first line of every connection. Op is one of create, list,
-// attach, resize, write, kill.
+// attach, resize, write, kill, shutdown.
 type Request struct {
 	Op   string   `json:"op"`
 	ID   string   `json:"id,omitempty"`
@@ -52,6 +54,11 @@ type Request struct {
 	Cols uint16   `json:"cols,omitempty"`
 	Rows uint16   `json:"rows,omitempty"`
 	Data []byte   `json:"data,omitempty"`
+	// Restore (create) seeds the new session's scrollback from its saved log.
+	Restore bool `json:"restore,omitempty"`
+	// Keep (kill) saves the scrollback first and keeps the log for a later
+	// Restore; a plain kill deletes it.
+	Keep bool `json:"keep,omitempty"`
 }
 
 // Session describes one live PTY.
@@ -61,11 +68,13 @@ type Session struct {
 	Cwd          string    `json:"cwd"` // where it was started, not where it is now
 	Created      time.Time `json:"created"`
 	LastActivity time.Time `json:"last_activity"` // last output
+	Clients      int       `json:"clients"`       // attached clients right now
 }
 
 type response struct {
 	Error    string    `json:"error,omitempty"`
 	Sessions []Session `json:"sessions,omitempty"`
+	Version  string    `json:"version,omitempty"` // list: the daemon's BuildID
 }
 
 const errNoSessionText = "no such session"
@@ -113,8 +122,16 @@ func IsTerminalReply(p []byte) bool { return replyPattern.Match(p) }
 
 // Server is the daemon: it owns the PTYs and serves the socket protocol.
 type Server struct {
+	// Dir holds each session's saved scrollback (<id>.log) so it survives the
+	// daemon going away; "" disables saving.
+	Dir string
+	// Version is what list reports, so clients can spot a stale daemon.
+	Version string
+
 	mu       sync.Mutex
 	sessions map[string]*session
+	ln       net.Listener
+	stopping atomic.Bool
 }
 
 type session struct {
@@ -127,7 +144,16 @@ type session struct {
 	subs     map[chan []byte]bool
 	exited   bool
 	exitCode int
+	dirty    bool // output since the last save
+	keep     bool // killed with Keep: don't delete the log on exit
+	discard  bool // plain kill: delete the log on exit
 }
+
+// restoredBanner follows the saved scrollback in a restored session.
+const restoredBanner = "\r\n\x1b[2m— restored after restart —\x1b[0m\r\n"
+
+// saveInterval is how often changed scrollback is written to Dir.
+const saveInterval = 15 * time.Second
 
 // ErrAlreadyRunning means another daemon holds the socket's lock.
 var ErrAlreadyRunning = errors.New("ptyd: already running")
@@ -153,19 +179,101 @@ func ListenAndServe(socket string) error {
 		return err
 	}
 	_ = os.Chmod(socket, 0o600)
-	return NewServer().Serve(ln)
+	srv := NewServer()
+	srv.Dir = LogDir(socket)
+	// SIGTERM is what a reboot or logout sends: save everything first.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	go func() { <-sigs; srv.shutdown() }()
+	go func() {
+		for range time.Tick(saveInterval) {
+			srv.saveAll()
+		}
+	}()
+	return srv.Serve(ln)
 }
 
-func NewServer() *Server { return &Server{sessions: map[string]*session{}} }
+func NewServer() *Server { return &Server{sessions: map[string]*session{}, Version: BuildID()} }
 
-// Serve accepts connections on ln until it fails.
+// Serve accepts connections on ln until it fails or shutdown closes it
+// (then it returns nil).
 func (s *Server) Serve(ln net.Listener) error {
+	s.mu.Lock()
+	s.ln = ln
+	s.mu.Unlock()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			if s.stopping.Load() {
+				return nil
+			}
 			return err
 		}
 		go s.handle(conn)
+	}
+}
+
+func (s *Server) logPath(id string) string { return filepath.Join(s.Dir, id+".log") }
+
+// save writes a session's scrollback to Dir if it changed since the last
+// save, atomically (temp file + rename).
+func (s *Server) save(sess *session) {
+	if s.Dir == "" {
+		return
+	}
+	// ponytail: holds the session lock for the (<=4 MiB) write, stalling its
+	// output that long; snapshot-then-write needs a guard against racing the
+	// log removal in run() if that ever shows.
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if !sess.dirty || sess.exited {
+		return
+	}
+	if err := writeFileAtomic(s.logPath(sess.ID), sess.buf.replay()); err == nil {
+		sess.dirty = false
+	}
+}
+
+func (s *Server) saveAll() {
+	for _, sess := range s.snapshot() {
+		s.save(sess)
+	}
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), path)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
+}
+
+// shutdown saves every session, ends them (keeping their logs for a later
+// Restore) and stops accepting connections, so Serve returns.
+func (s *Server) shutdown() {
+	s.stopping.Store(true)
+	for _, sess := range s.snapshot() {
+		s.save(sess)
+		sess.kill()
+	}
+	s.mu.Lock()
+	ln := s.ln
+	s.mu.Unlock()
+	if ln != nil {
+		ln.Close()
 	}
 }
 
@@ -204,11 +312,19 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 	if req.Op == "list" {
-		_ = reply(conn, response{Sessions: s.list()})
+		_ = reply(conn, response{Sessions: s.list(), Version: s.Version})
+		return
+	}
+	if req.Op == "shutdown" {
+		_ = reply(conn, response{})
+		s.shutdown()
 		return
 	}
 	sess := s.get(req.ID)
 	if sess == nil {
+		if req.Op == "kill" && !req.Keep && s.Dir != "" && req.ID != "" {
+			_ = os.Remove(s.logPath(req.ID)) // a saved log that was never restored
+		}
 		_ = reply(conn, response{Error: errNoSessionText})
 		return
 	}
@@ -218,6 +334,16 @@ func (s *Server) handle(conn net.Conn) {
 	case "resize":
 		err = pty.Setsize(sess.ptmx, &pty.Winsize{Cols: req.Cols, Rows: req.Rows})
 	case "kill":
+		if req.Keep {
+			sess.mu.Lock()
+			sess.keep = true
+			sess.mu.Unlock()
+			s.save(sess)
+		} else {
+			sess.mu.Lock()
+			sess.discard = true
+			sess.mu.Unlock()
+		}
 		sess.kill()
 	default:
 		err = fmt.Errorf("unknown op %q", req.Op)
@@ -232,14 +358,25 @@ func errResponse(err error) response {
 	return response{}
 }
 
-func (s *Server) list() []Session {
+func (s *Server) snapshot() []*session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Session, 0, len(s.sessions))
+	out := make([]*session, 0, len(s.sessions))
 	for _, sess := range s.sessions {
+		out = append(out, sess)
+	}
+	return out
+}
+
+func (s *Server) list() []Session {
+	all := s.snapshot()
+	out := make([]Session, 0, len(all))
+	for _, sess := range all {
 		sess.mu.Lock()
-		out = append(out, sess.Session)
+		info := sess.Session
+		info.Clients = len(sess.subs)
 		sess.mu.Unlock()
+		out = append(out, info)
 	}
 	return out
 }
@@ -271,6 +408,13 @@ func (s *Server) create(req Request) error {
 		cmd:     cmd,
 		buf:     scrollback{max: MaxScrollback},
 		subs:    map[chan []byte]bool{},
+		dirty:   true,
+	}
+	if req.Restore && s.Dir != "" {
+		if old, err := os.ReadFile(s.logPath(req.ID)); err == nil {
+			sess.buf.write(old)
+			sess.buf.write([]byte(restoredBanner))
+		}
 	}
 	s.sessions[req.ID] = sess
 	go s.run(sess)
@@ -303,9 +447,16 @@ func (s *Server) run(sess *session) {
 	sess.ptmx.Close()
 	<-readDone
 
+	stopping := s.stopping.Load()
 	sess.mu.Lock()
 	sess.exited = true
 	sess.exitCode = sess.cmd.ProcessState.ExitCode()
+	// Ended for good (a plain kill, or the shell exited by itself): its saved
+	// scrollback goes too. A daemon shutdown, a Keep kill or death by some
+	// other signal (a reboot) leaves it for Restore.
+	if s.Dir != "" && (sess.discard || !stopping && !sess.keep && sess.cmd.ProcessState.Exited()) {
+		_ = os.Remove(s.logPath(sess.ID))
+	}
 	for ch := range sess.subs {
 		delete(sess.subs, ch)
 		close(ch)
@@ -325,6 +476,7 @@ func (sess *session) broadcast(p []byte) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	sess.buf.write(p)
+	sess.dirty = true
 	sess.LastActivity = time.Now()
 	for ch := range sess.subs {
 		select {

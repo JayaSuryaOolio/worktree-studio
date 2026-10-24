@@ -252,6 +252,13 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	if !s.Term.Alive(ts) && ts.Backend == term.BackendPtyd && s.Term.Ptyd != nil && s.Term.Ptyd.HasSaved(ts.ID) {
+		// The daemon lost it (crash) but its scrollback was saved: bring it
+		// back, like startup's Reconcile would.
+		if err := s.Term.Restore(ts); err != nil && !s.Term.Alive(ts) { // Alive: a concurrent attach restored it
+			s.Log.Warn("restore ptyd terminal", "err", err, "terminal_id", ts.ID)
+		}
+	}
 	if !s.Term.Alive(ts) {
 		// The tmux session backing this tab is already gone — it died on
 		// its own (e.g. the pane's only process exited, which kills the
