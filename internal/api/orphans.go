@@ -5,7 +5,8 @@
 // mismatch, and it's exposed here rather than left as an ad-hoc shell
 // exercise precisely because "kill whatever looks orphaned" was already
 // tried informally once and swept up real, still-in-use sessions along
-// with it. See internal/term/orphans.go for the actual safeguard.
+// with it. See internal/term/orphans.go for the actual safeguard. ptyd
+// sessions with no row are listed too, named "ptyd:<id>" (term.FindOrphans).
 package api
 
 import (
@@ -53,7 +54,7 @@ func toOrphanJSON(o term.OrphanTmuxSession) orphanTmuxSessionJSON {
 // term.FindOrphanTmuxSessions) without killing anything — what
 // `worktree-studio orphans` shows by default.
 func (s *Server) handleListOrphanTmuxSessions(w http.ResponseWriter, r *http.Request) {
-	orphans, err := term.FindOrphanTmuxSessions(s.Store, parseMinAge(r))
+	orphans, err := s.Term.FindOrphans(parseMinAge(r))
 	if err != nil {
 		s.Log.Error("find orphan tmux sessions", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list orphan tmux sessions")
@@ -71,7 +72,7 @@ func (s *Server) handleListOrphanTmuxSessions(w http.ResponseWriter, r *http.Req
 // which enforces this itself — not repeated here) and audit-logs each kill.
 func (s *Server) handlePruneOrphanTmuxSessions(w http.ResponseWriter, r *http.Request) {
 	minAge := parseMinAge(r)
-	killed, protected, err := term.KillOrphanTmuxSessions(s.Store, minAge)
+	killed, protected, err := s.Term.KillOrphans(minAge)
 	if err != nil {
 		s.Log.Error("kill orphan tmux sessions", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to prune orphan tmux sessions")

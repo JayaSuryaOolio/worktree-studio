@@ -144,12 +144,14 @@ func contains(xs []string, x string) bool {
 	return false
 }
 
-// TerminalSession is a server-managed (tmux-backed) shell in a worktree.
+// TerminalSession is a server-managed shell in a worktree, backed by tmux
+// (TmuxName) or the ptyd daemon (Backend "ptyd", keyed by ID).
 type TerminalSession struct {
 	ID       string
 	Worktree WorktreeID
 	TmuxName string
 	Label    string
+	Backend  string
 }
 
 // TerminalKind is what a new terminal tab runs. Command is typed into the

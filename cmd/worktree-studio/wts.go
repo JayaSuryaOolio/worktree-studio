@@ -26,6 +26,8 @@ import (
 //	wts web start|stop         standalone web server proxying to the backend
 //	wts desktop start|stop     native window on the backend (macOS build)
 //	wts tui                    terminal UI, in the foreground
+//	wts attach <terminal-id>   this terminal becomes that terminal tab
+//	wts ptyd                   PTY daemon (normally auto-started)
 //	wts status
 //
 // Pids live in ~/.worktree-studio/run/<name>.pid, logs next to the data.
@@ -35,6 +37,8 @@ const usageText = `usage: wts <command>
   web start | stop           web server (needs the backend)
   desktop start | stop       desktop window (needs the backend)
   tui                        terminal UI (needs the backend)
+  attach <terminal-id>       attach this terminal to a terminal tab (Ctrl+\ detaches)
+  ptyd                       PTY daemon for the ptyd terminal backend (auto-started)
   status                     what is running, where, and where the logs are`
 
 const defaultWebAddr = ":8700"
@@ -188,6 +192,13 @@ func runWtsCommand(args []string) bool {
 		} else {
 			desktopStart()
 		}
+	case "attach":
+		if len(args) != 2 {
+			die("usage: wts attach <terminal-id>")
+		}
+		attachTerminal(args[1])
+	case "ptyd":
+		ptydServe()
 	case "web-serve": // internal: the web process
 		webServe()
 	case "desktop-run": // internal: the desktop process

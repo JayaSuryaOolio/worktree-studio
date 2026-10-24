@@ -24,6 +24,7 @@ import (
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/files"
 	"worktree-studio/internal/openfile"
+	"worktree-studio/internal/ptyd"
 	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 	webembed "worktree-studio/web"
@@ -174,10 +175,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if dropped, err := term.Reconcile(st); err != nil {
-		logger.Warn("reconcile terminal sessions against live tmux sessions", "err", err)
+	// The PTY daemon behind the opt-in ptyd terminal backend (docs/ptyd.md).
+	// Started on first use, never here, and left running when we exit.
+	termMgr := &term.Manager{Store: st, Audit: al, Ptyd: &ptyd.Client{Socket: ptyd.DefaultSocket(), AutoStart: true}}
+	if dropped, err := termMgr.Reconcile(); err != nil {
+		logger.Warn("reconcile terminal sessions against live tmux/ptyd sessions", "err", err)
 	} else if dropped > 0 {
-		logger.Info("pruned stale terminal session rows (tmux session no longer live)", "count", dropped)
+		logger.Info("pruned stale terminal session rows (backing session no longer live)", "count", dropped)
 	}
 
 	// One-time correction for an installation that already ran an earlier,
@@ -224,7 +228,7 @@ func main() {
 	srv := &api.Server{
 		Store:        st,
 		Audit:        al,
-		Term:         &term.Manager{Store: st, Audit: al},
+		Term:         termMgr,
 		Files:        files.NewManager(),
 		Attention:    attention.NewTracker(),
 		OpenFile:     openfile.NewTracker(),
