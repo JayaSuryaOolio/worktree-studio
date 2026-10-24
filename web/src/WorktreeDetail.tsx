@@ -28,6 +28,7 @@ import WorktreeAuditLog from "./WorktreeAuditLog";
 import FileTree from "./FileTree";
 import EditorPanel, { EditorPanelParams } from "./EditorPanel";
 import { useRepoContext } from "./RepoContext";
+import { TaskCrumb } from "./TaskPopup";
 import ClaudeIcon from "./icons/ClaudeIcon";
 import { PanelSideIcon } from "./icons/FileTreeIcons";
 import { registerActiveFileOpener } from "./activeWorktreeFileOpener";
@@ -961,6 +962,7 @@ function WorktreeDetailInner({ repoId, worktreeId }: { repoId: string; worktreeI
               to find out, and each part renders only when there's
               something to say. */}
           <div className="worktree-header">
+            {worktree && <TaskCrumb worktree={worktree} />}
             <span className="worktree-header-branch-name">{branch}</span>
             <button
               type="button"

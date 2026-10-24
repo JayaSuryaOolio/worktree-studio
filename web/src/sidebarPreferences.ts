@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 // Sidebar layout preferences — which repo groups are collapsed, and
 // whether the sidebar is showing at all. localStorage rather than SQLite:
 // unlike the terminal layout (which is per-worktree state you'd want back
@@ -11,6 +13,7 @@
 const COLLAPSED_KEY = "worktree-studio-collapsed-repos";
 const HIDDEN_KEY = "worktree-studio-sidebar-hidden";
 const WIDTH_KEY = "worktree-studio-sidebar-width";
+const GROUP_BY_KEY = "worktree-studio-sidebar-group-by";
 
 // Narrower than MIN and the branch names have nothing left to show; wider
 // than MAX and the sidebar starts competing with the terminal for the
@@ -77,4 +80,35 @@ export function setSidebarHidden(hidden: boolean): void {
   } catch {
     // See above.
   }
+}
+
+// Group by: "repo" (the default, every repo with its worktrees) or "task"
+// (one group per task, see docs/tasks-plan.md). Set from Settings, read
+// live by the sidebar — same listener pattern as filesPanelPreference.ts.
+export type SidebarGroupBy = "repo" | "task";
+
+const groupByListeners = new Set<() => void>();
+
+export function getSidebarGroupBy(): SidebarGroupBy {
+  try {
+    return localStorage.getItem(GROUP_BY_KEY) === "task" ? "task" : "repo";
+  } catch {
+    return "repo";
+  }
+}
+
+export function setSidebarGroupBy(groupBy: SidebarGroupBy): void {
+  try {
+    localStorage.setItem(GROUP_BY_KEY, groupBy);
+  } catch {
+    // See above.
+  }
+  groupByListeners.forEach((fn) => fn());
+}
+
+export function useSidebarGroupBy(): SidebarGroupBy {
+  return useSyncExternalStore((fn) => {
+    groupByListeners.add(fn);
+    return () => groupByListeners.delete(fn);
+  }, getSidebarGroupBy);
 }

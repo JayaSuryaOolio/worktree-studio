@@ -1,4 +1,5 @@
 import { Navigate, Routes, Route, useParams } from "react-router-dom";
+import Board from "./Board";
 import Layout from "./Layout";
 import RepoPicker from "./RepoPicker";
 import WorktreeDetail from "./WorktreeDetail";
@@ -20,6 +21,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<RepoPicker />} />
+        <Route path="/board" element={<Board />} />
         <Route path="/repo/:repoId" element={<RepoRootRedirect />} />
         <Route path="/repo/:repoId/settings" element={<RepoSettings />} />
         <Route

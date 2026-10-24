@@ -27,6 +27,10 @@ type Worktree struct {
 	Branch string
 	Pinned bool
 	Active bool // lifecycle "active" (vs archived/deleted)
+	// TaskKey labels the worktree with a task (docs/tasks-plan.md): "#12"
+	// for a local task, the external key (PROJ-123) otherwise, "" ad-hoc.
+	TaskKey   string
+	TaskTitle string
 }
 
 type GitStatus struct {

@@ -13,9 +13,13 @@ import {
   getSpotlightStatus,
   getWorktreeStatus,
   listRepos,
+  listTasks,
+  listTaskStatuses,
   listWorktrees,
   Repo,
   SpotlightStatus,
+  TaskStatus,
+  TaskWithWorktrees,
   Worktree,
   WorktreeStatus,
 } from "./api";
@@ -67,6 +71,13 @@ interface RepoContextValue {
   worktreesLoading: boolean;
   worktreesError: string | null;
   refreshWorktrees: () => void;
+
+  // Every task some worktree carries (see docs/tasks-plan.md), and the
+  // user-defined status list, ordered. Refreshed alongside the worktrees,
+  // since relabelling/archiving a worktree is what moves tasks.
+  tasks: TaskWithWorktrees[];
+  taskStatuses: TaskStatus[];
+  refreshTasks: () => void;
 
   // Keyed by worktree id (globally unique), regardless of which repo it
   // belongs to — a flat map is enough since ids never collide across repos.
@@ -145,6 +156,14 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   const [worktreesLoading, setWorktreesLoading] = useState(false);
   const [worktreesError, setWorktreesError] = useState<string | null>(null);
 
+  const [tasks, setTasks] = useState<TaskWithWorktrees[]>([]);
+  const [taskStatuses, setTaskStatuses] = useState<TaskStatus[]>([]);
+
+  function refreshTasks() {
+    listTasks().then(setTasks).catch(() => {});
+    listTaskStatuses().then(setTaskStatuses).catch(() => {});
+  }
+
   const [gitStatus, setGitStatus] = useState<Record<string, WorktreeStatus>>({});
   const [spotlightStatus, setSpotlightStatus] = useState<Record<string, SpotlightStatus>>({});
   const [statusRefreshing, setStatusRefreshing] = useState<Record<string, boolean>>({});
@@ -199,6 +218,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   useEffect(refreshRepos, []);
 
   function refreshWorktrees() {
+    refreshTasks();
     if (repos.length === 0) {
       setWorktreesByRepo({});
       return;
@@ -408,6 +428,9 @@ export function RepoProvider({ children }: { children: ReactNode }) {
     worktreesLoading,
     worktreesError,
     refreshWorktrees,
+    tasks,
+    taskStatuses,
+    refreshTasks,
     gitStatus,
     spotlightStatus,
     statusRefreshing,

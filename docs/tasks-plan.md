@@ -185,7 +185,7 @@ The worktree detail view (`WorktreeDetail.tsx`) gets a breadcrumb above its dock
 
 ### TUI
 
-Phase 1 shows the task key in the TUI's worktree list. Group-by-task in the TUI is a follow-up, and must work through ctrl+space like every other TUI action.
+The TUI shows the task key on worktree rows (the filter matches it) and the task's key and title at the start of the tab bar, like the web crumb. It doesn't group by task, and won't.
 
 ## API surface (new)
 
@@ -236,6 +236,8 @@ A task row is created, at the first status, the first time any worktree is label
 11. Docs: README, architecture.md, SKILL.md (CLI flags and `set-task`).
 
 Steps 1–8 are fully useful with local tasks and links alone. Step 9 is where Jira search comes in.
+
+**Status:** steps 1–8 are built (PR #13: store, API, CLI; the follow-up PR: web UI and the TUI task-key badge). Steps 9–10 are next.
 
 ## Out of scope
 

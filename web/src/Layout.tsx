@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import AddRepoDialog from "./AddRepoDialog";
 import AttachWorktreeDialog from "./AttachWorktreeDialog";
-import { createWorktree, importWorktree, Repo } from "./api";
+import { createWorktree, importWorktree, Repo, TaskRef } from "./api";
 import CommandPalette from "./CommandPalette";
 import NewWorktreeDialog from "./NewWorktreeDialog";
+import { NewWorktreeContext } from "./newWorktreeRequest";
+import { PickedTask } from "./TaskPicker";
 import { RepoProvider, useRepoContext } from "./RepoContext";
 import Sidebar from "./Sidebar";
 import { hasSafeModifier } from "./keyboard";
@@ -43,7 +45,11 @@ function LayoutShell() {
   // up, so there's exactly one dialog instance either surface can open,
   // not two independent copies.
   const [addRepoOpen, setAddRepoOpen] = useState(false);
-  const [newWorktreeRepoId, setNewWorktreeRepoId] = useState<string | null>(null);
+  const [newWorktree, setNewWorktree] = useState<{ repoId: string; task?: PickedTask } | null>(null);
+  const openNewWorktree = useCallback(
+    (repoId: string, task?: PickedTask) => setNewWorktree({ repoId, task }),
+    []
+  );
   const [attachWorktreeRepoId, setAttachWorktreeRepoId] = useState<string | null>(null);
 
   // Cmd/Ctrl+B hides the sidebar outright, for when the terminal is the
@@ -112,8 +118,8 @@ function LayoutShell() {
     navigate(`/repo/${repo.id}`);
   }
 
-  async function handleWorktreeCreate(repoId: string, name: string, sourceBranch: string) {
-    const wt = await createWorktree(repoId, name, sourceBranch);
+  async function handleWorktreeCreate(repoId: string, name: string, sourceBranch: string, task?: TaskRef) {
+    const wt = await createWorktree(repoId, name, sourceBranch, task);
     refreshWorktrees();
     navigate(`/repo/${repoId}/worktree/${wt.id}`);
   }
@@ -127,84 +133,87 @@ function LayoutShell() {
   const attachWorktreeRepo = repos.find((r) => r.id === attachWorktreeRepoId);
 
   return (
-    <div
-      className={sidebarHidden ? "app-shell sidebar-hidden" : "app-shell"}
-      style={{ ["--sidebar-w" as string]: `${sidebarWidth}px` }}
-    >
-      <Sidebar onAddRepo={() => setAddRepoOpen(true)} onNewWorktree={setNewWorktreeRepoId} />
-      {/* A real separator, not decoration: arrow keys resize it and Home
-          resets, so this isn't a pointer-only affordance. Double-click
-          also resets, which is the convention people try first. */}
-      {!sidebarHidden && (
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          aria-valuenow={sidebarWidth}
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          tabIndex={0}
-          onPointerDown={handleResizeStart}
-          onPointerMove={handleResizeMove}
-          onPointerUp={handleResizeEnd}
-          onPointerCancel={handleResizeEnd}
-          onDoubleClick={() => {
-            setWidth(SIDEBAR_DEFAULT_WIDTH);
-            setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") nudgeWidth(-16);
-            else if (e.key === "ArrowRight") nudgeWidth(16);
-            else if (e.key === "Home") nudgeWidth(SIDEBAR_DEFAULT_WIDTH - sidebarWidth);
-            else return;
-            e.preventDefault();
-          }}
-        />
-      )}
-      {/* The only way back once the sidebar is hidden other than the
-          keyboard — deliberately a hairline-width hit target pinned to the
-          screen edge, so it costs nothing visually until you go looking
-          for it. */}
-      {sidebarHidden && (
-        <button
-          type="button"
-          className="sidebar-reveal"
-          aria-label="Show sidebar"
-          title="Show sidebar (⌘B)"
-          onClick={() => {
-            setHidden(false);
-            setSidebarHidden(false);
-          }}
-        />
-      )}
-      <main className="app-main">
-        <Outlet />
-      </main>
+    <NewWorktreeContext.Provider value={openNewWorktree}>
+      <div
+        className={sidebarHidden ? "app-shell sidebar-hidden" : "app-shell"}
+        style={{ ["--sidebar-w" as string]: `${sidebarWidth}px` }}
+      >
+        <Sidebar onAddRepo={() => setAddRepoOpen(true)} onNewWorktree={openNewWorktree} />
+        {/* A real separator, not decoration: arrow keys resize it and Home
+            resets, so this isn't a pointer-only affordance. Double-click
+            also resets, which is the convention people try first. */}
+        {!sidebarHidden && (
+          <div
+            className="sidebar-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            tabIndex={0}
+            onPointerDown={handleResizeStart}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            onPointerCancel={handleResizeEnd}
+            onDoubleClick={() => {
+              setWidth(SIDEBAR_DEFAULT_WIDTH);
+              setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") nudgeWidth(-16);
+              else if (e.key === "ArrowRight") nudgeWidth(16);
+              else if (e.key === "Home") nudgeWidth(SIDEBAR_DEFAULT_WIDTH - sidebarWidth);
+              else return;
+              e.preventDefault();
+            }}
+          />
+        )}
+        {/* The only way back once the sidebar is hidden other than the
+            keyboard — deliberately a hairline-width hit target pinned to the
+            screen edge, so it costs nothing visually until you go looking
+            for it. */}
+        {sidebarHidden && (
+          <button
+            type="button"
+            className="sidebar-reveal"
+            aria-label="Show sidebar"
+            title="Show sidebar (⌘B)"
+            onClick={() => {
+              setHidden(false);
+              setSidebarHidden(false);
+            }}
+          />
+        )}
+        <main className="app-main">
+          <Outlet />
+        </main>
 
-      <CommandPalette
-        onAddRepo={() => setAddRepoOpen(true)}
-        onNewWorktree={setNewWorktreeRepoId}
-        onAttachWorktree={setAttachWorktreeRepoId}
-      />
+        <CommandPalette
+          onAddRepo={() => setAddRepoOpen(true)}
+          onNewWorktree={openNewWorktree}
+          onAttachWorktree={setAttachWorktreeRepoId}
+        />
 
-      {addRepoOpen && (
-        <AddRepoDialog onCreated={handleRepoCreated} onClose={() => setAddRepoOpen(false)} />
-      )}
-      {newWorktreeRepoId && (
-        <NewWorktreeDialog
-          repoId={newWorktreeRepoId}
-          onCreate={(name, sourceBranch) => handleWorktreeCreate(newWorktreeRepoId, name, sourceBranch)}
-          onClose={() => setNewWorktreeRepoId(null)}
-        />
-      )}
-      {attachWorktreeRepoId && attachWorktreeRepo && (
-        <AttachWorktreeDialog
-          repoName={attachWorktreeRepo.name}
-          onAttach={(path, name) => handleWorktreeAttach(attachWorktreeRepoId, path, name)}
-          onClose={() => setAttachWorktreeRepoId(null)}
-        />
-      )}
-    </div>
+        {addRepoOpen && (
+          <AddRepoDialog onCreated={handleRepoCreated} onClose={() => setAddRepoOpen(false)} />
+        )}
+        {newWorktree && (
+          <NewWorktreeDialog
+            repoId={newWorktree.repoId}
+            task={newWorktree.task}
+            onCreate={handleWorktreeCreate}
+            onClose={() => setNewWorktree(null)}
+          />
+        )}
+        {attachWorktreeRepoId && attachWorktreeRepo && (
+          <AttachWorktreeDialog
+            repoName={attachWorktreeRepo.name}
+            onAttach={(path, name) => handleWorktreeAttach(attachWorktreeRepoId, path, name)}
+            onClose={() => setAttachWorktreeRepoId(null)}
+          />
+        )}
+      </div>
+    </NewWorktreeContext.Provider>
   );
 }

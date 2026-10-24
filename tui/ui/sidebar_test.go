@@ -60,3 +60,30 @@ func TestSidebarRowsTreeAndFilter(t *testing.T) {
 	eq(show(sidebarRows(repos, items, nil, "LOG")), "a", "  feat/login", "b", "  feat/LOGOUT")
 	eq(show(sidebarRows(repos, items, nil, "crash")), "a", "  fix/crash")
 }
+
+func TestSidebarRowShowsAndFiltersByTaskKey(t *testing.T) {
+	repos := []domain.Repo{{ID: "a", Name: "A"}}
+	items := map[domain.RepoID][]domain.SidebarItem{
+		"a": {
+			{Worktree: domain.Worktree{RepoID: "a", Branch: "invoice-api", TaskKey: "PROJ-7"}},
+			{Worktree: domain.Worktree{RepoID: "a", Branch: "scratch"}},
+		},
+	}
+	rows := sidebarRows(repos, items, nil, "proj-7")
+	if len(rows) != 2 || rows[1].item.Worktree.Branch != "invoice-api" {
+		t.Fatalf("filter by task key: %+v", rows)
+	}
+	if got := (SidebarModel{}).worktreeRow(*rows[1].item, 60); !strings.Contains(got, "PROJ-7") {
+		t.Fatalf("row %q lacks the task key", got)
+	}
+}
+
+func TestTabBarLeadsWithTheTask(t *testing.T) {
+	r := Root{wt: &domain.Worktree{TaskKey: "PROJ-7", TaskTitle: "Invoice export"}}
+	if got := r.tabBar(); !strings.Contains(got, "PROJ-7 Invoice export ›") {
+		t.Fatalf("tab bar %q lacks the task", got)
+	}
+	if got := (Root{wt: &domain.Worktree{}}).tabBar(); got != "" {
+		t.Fatalf("ad-hoc worktree tab bar = %q", got)
+	}
+}

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  addTaskStatus,
+  deleteTaskStatus,
   DependencyName,
   DependencyStatus,
   DependencyStatusMap,
@@ -10,6 +12,8 @@ import {
   HookStatus,
   installHook,
   installSkill,
+  renameTaskStatus,
+  reorderTaskStatuses,
   ServerLogs,
   setTerminalBackend,
   TerminalBackend,
@@ -30,12 +34,14 @@ import {
 import { notificationPermission, requestNotificationPermission } from "./attentionNotify";
 import { getNotificationsEnabled, setNotificationsEnabled } from "./notificationPreference";
 import { FilesPanelSide, setStoredFilesSide, useFilesPanelSide } from "./filesPanelPreference";
+import { useRepoContext } from "./RepoContext";
+import { setSidebarGroupBy, SidebarGroupBy, useSidebarGroupBy } from "./sidebarPreferences";
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = "installation" | "appearance" | "terminal" | "logs";
+type Tab = "installation" | "appearance" | "terminal" | "tasks" | "logs";
 
 // Three tabs: an installation/dependency-status page (tmux/spotlight
 // detection, plus actionable install/uninstall for the claude hook and
@@ -87,6 +93,15 @@ export default function SettingsModal({ onClose }: Props) {
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "tasks"}
+            className={tab === "tasks" ? "active" : ""}
+            onClick={() => setTab("tasks")}
+          >
+            Tasks
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "logs"}
             className={tab === "logs" ? "active" : ""}
             onClick={() => setTab("logs")}
@@ -101,6 +116,8 @@ export default function SettingsModal({ onClose }: Props) {
             <AppearanceTab />
           ) : tab === "terminal" ? (
             <TerminalTab />
+          ) : tab === "tasks" ? (
+            <TasksTab />
           ) : (
             <LogsTab />
           )}
@@ -544,6 +561,110 @@ function TerminalTab() {
 // This server's own recent ERROR-level output (internal/api/logs.go),
 // plus the real file path — shown so a person can open/tail/grep it
 // directly for anything this bounded, errors-only view leaves out.
+// Group-by for the sidebar, and the task status list (docs/tasks-plan.md).
+// The first status is where a task starts and the last is "done" — a task
+// moves there by itself once none of its worktrees are active.
+function TasksTab() {
+  const groupBy = useSidebarGroupBy();
+  const { taskStatuses, refreshTasks } = useRepoContext();
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const groupings: { value: SidebarGroupBy; label: string }[] = [
+    { value: "repo", label: "Repo" },
+    { value: "task", label: "Task" },
+  ];
+
+  async function run(fn: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    refreshTasks();
+  }
+
+  function move(i: number, by: number) {
+    const ids = taskStatuses.map((s) => s.id);
+    [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
+    run(() => reorderTaskStatuses(ids));
+  }
+
+  return (
+    <section className="settings-section">
+      <h3>Group sidebar by</h3>
+      <div className="segmented" role="radiogroup" aria-label="Group sidebar by">
+        {groupings.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={groupBy === opt.value}
+            className={groupBy === opt.value ? "selected" : ""}
+            onClick={() => setSidebarGroupBy(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-hint">
+        {groupBy === "task"
+          ? "Worktrees sharing a task are listed together under it, across repos; ad-hoc worktrees stay under their repo."
+          : "Worktrees are listed under their repo."}
+      </p>
+
+      <h3>Task statuses</h3>
+      <ol className="task-status-list">
+        {taskStatuses.map((s, i) => (
+          <li key={s.id}>
+            <input
+              type="text"
+              key={s.name}
+              defaultValue={s.name}
+              aria-label={`Status ${i + 1} name`}
+              onBlur={(e) => {
+                const name = e.target.value.trim();
+                if (name && name !== s.name) run(() => renameTaskStatus(s.id, name));
+              }}
+            />
+            <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+              ↑
+            </button>
+            <button
+              type="button"
+              aria-label="Move down"
+              disabled={i === taskStatuses.length - 1}
+              onClick={() => move(i, 1)}
+            >
+              ↓
+            </button>
+            <button type="button" aria-label="Delete status" onClick={() => run(() => deleteTaskStatus(s.id))}>
+              ✕
+            </button>
+          </li>
+        ))}
+      </ol>
+      <form
+        className="task-status-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const name = newName.trim();
+          if (name) run(() => addTaskStatus(name)).then(() => setNewName(""));
+        }}
+      >
+        <input type="text" value={newName} placeholder="New status" onChange={(e) => setNewName(e.target.value)} />
+        <button type="submit">Add</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+      <p className="settings-hint">
+        New tasks start in the first status; a task moves to the last one when none of its worktrees are active
+        any more, and back to the first if one becomes active again. A status still used by a task can't be
+        deleted.
+      </p>
+    </section>
+  );
+}
+
 function LogsTab() {
   const [logs, setLogs] = useState<ServerLogs | null>(null);
   const [error, setError] = useState<string | null>(null);

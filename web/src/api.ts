@@ -48,6 +48,40 @@ export interface Worktree {
   // own ORDER BY already returns worktrees in that order, so nothing on
   // this side needs to re-sort for display.
   pinned: boolean;
+  // The task this worktree is labelled with (see docs/tasks-plan.md), or
+  // "" for an ad-hoc worktree. Worktrees sharing (source, key) are one task.
+  task_source: string;
+  task_key: string;
+}
+
+export interface Task {
+  source: string;
+  key: string;
+  title: string;
+  url: string;
+  status_id: number;
+  updated_at: string;
+}
+
+export interface TaskStatus {
+  id: number;
+  name: string;
+  position: number;
+}
+
+/** GET /api/tasks: every task with every worktree carrying it, archived
+ * and deleted ones included (the board shows history). */
+export interface TaskWithWorktrees extends Task {
+  worktrees: Worktree[];
+}
+
+/** What a worktree should be labelled with: an existing (source, key), or
+ * new_title to create a local task. All empty clears the label. */
+export interface TaskRef {
+  source?: string;
+  key?: string;
+  url?: string;
+  new_title?: string;
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
@@ -199,11 +233,62 @@ export function newNameSuggestion(repoId: string): Promise<string> {
  * tracking, e.g. "origin/main") to create the worktree from — see
  * listBranches() below. Omitted/"" falls back to the repo's base-branch
  * setting, then auto-detection, same as before this param existed. */
-export function createWorktree(repoId: string, name: string, sourceBranch?: string): Promise<Worktree> {
+export function createWorktree(
+  repoId: string,
+  name: string,
+  sourceBranch?: string,
+  task?: TaskRef
+): Promise<Worktree> {
   return request<Worktree>(`/api/repos/${repoId}/worktrees/`, {
     method: "POST",
-    body: JSON.stringify({ name, source_branch: sourceBranch }),
+    body: JSON.stringify({ name, source_branch: sourceBranch, task }),
   });
+}
+
+export function setWorktreeTask(repoId: string, worktreeId: string, task: TaskRef): Promise<Worktree> {
+  return request<Worktree>(`/api/repos/${repoId}/worktrees/${worktreeId}/task`, {
+    method: "PUT",
+    body: JSON.stringify(task),
+  });
+}
+
+export function listTasks(): Promise<TaskWithWorktrees[]> {
+  return request<TaskWithWorktrees[]>("/api/tasks");
+}
+
+export function searchTasks(q: string): Promise<Task[]> {
+  return request<Task[]>(`/api/tasks/search?q=${encodeURIComponent(q)}`);
+}
+
+export function updateTask(
+  source: string,
+  key: string,
+  patch: { title?: string; url?: string; status_id?: number }
+): Promise<Task> {
+  return request<Task>(`/api/tasks/${encodeURIComponent(source)}/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function listTaskStatuses(): Promise<TaskStatus[]> {
+  return request<TaskStatus[]>("/api/task-statuses");
+}
+
+export function addTaskStatus(name: string): Promise<TaskStatus> {
+  return request<TaskStatus>("/api/task-statuses", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function renameTaskStatus(id: number, name: string): Promise<void> {
+  return request<void>(`/api/task-statuses/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export function reorderTaskStatuses(ids: number[]): Promise<void> {
+  return request<void>("/api/task-statuses/order", { method: "PUT", body: JSON.stringify({ ids }) });
+}
+
+export function deleteTaskStatus(id: number): Promise<void> {
+  return request<void>(`/api/task-statuses/${id}`, { method: "DELETE" });
 }
 
 export interface RepoBranches {

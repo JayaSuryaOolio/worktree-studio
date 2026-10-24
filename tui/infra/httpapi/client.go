@@ -85,18 +85,39 @@ func (c *Client) Worktrees(ctx context.Context, repo domain.RepoID) ([]domain.Wo
 	var raw []struct {
 		ID, Name, Branch, Status string
 		Pinned                   bool
+		TaskSource               string `json:"task_source"`
+		TaskKey                  string `json:"task_key"`
 	}
 	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/", repo), nil, &raw); err != nil {
 		return nil, err
 	}
+	titles := c.taskTitles(ctx)
 	out := make([]domain.Worktree, len(raw))
 	for i, w := range raw {
 		out[i] = domain.Worktree{
 			ID: domain.WorktreeID(w.ID), RepoID: repo, Name: w.Name, Branch: w.Branch,
 			Pinned: w.Pinned, Active: w.Status == "active",
+			TaskKey: w.TaskKey, TaskTitle: titles[[2]string{w.TaskSource, w.TaskKey}],
+		}
+		if w.TaskSource == "local" {
+			out[i].TaskKey = "#" + w.TaskKey
 		}
 	}
 	return out, nil
+}
+
+// taskTitles maps (source, key) to the task's title. Best effort: a
+// failure just leaves titles out.
+func (c *Client) taskTitles(ctx context.Context) map[[2]string]string {
+	var raw []struct{ Source, Key, Title string }
+	out := map[[2]string]string{}
+	if err := c.do(ctx, "GET", "/api/tasks", nil, &raw); err != nil {
+		return out
+	}
+	for _, t := range raw {
+		out[[2]string{t.Source, t.Key}] = t.Title
+	}
+	return out
 }
 
 func (c *Client) GitStatus(ctx context.Context, repo domain.RepoID, wt domain.WorktreeID) (domain.GitStatus, error) {

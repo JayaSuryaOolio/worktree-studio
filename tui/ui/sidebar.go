@@ -43,7 +43,7 @@ func sidebarRows(repos []domain.Repo, items map[domain.RepoID][]domain.SidebarIt
 		var kids []sidebarRow
 		for i := range items[r.ID] {
 			it := &items[r.ID][i]
-			hay := strings.ToLower(it.Worktree.Branch + " " + it.Worktree.Name)
+			hay := strings.ToLower(it.Worktree.Branch + " " + it.Worktree.Name + " " + it.Worktree.TaskKey)
 			if q == "" || strings.Contains(hay, q) {
 				kids = append(kids, sidebarRow{repo: r, item: it})
 			}
@@ -391,6 +391,9 @@ func (m SidebarModel) repoRow(r domain.Repo, w int) string {
 // middle-truncated so the distinguishing tail survives (as branchLabel.ts).
 func (m SidebarModel) worktreeRow(it domain.SidebarItem, w int) string {
 	var badges []string
+	if it.Worktree.TaskKey != "" {
+		badges = append(badges, dimStyle.Render(it.Worktree.TaskKey))
+	}
 	if it.Git != nil {
 		if t := it.Git.Ticks(); t != "" {
 			badges = append(badges, dimStyle.Render(t))
