@@ -113,7 +113,8 @@ func (p *Pane) Rects(r Rect) map[string]Rect {
 }
 
 // Neighbor is the pane next to from in direction d: the nearest one that
-// shares some of from's edge, preferring the one sharing the most.
+// shares some of from's edge, preferring the one sharing the most, then the
+// top-most, then the left-most (so ties don't depend on map order).
 func Neighbor(rects map[string]Rect, from string, d Dir) (string, bool) {
 	f, ok := rects[from]
 	if !ok {
@@ -136,7 +137,9 @@ func Neighbor(rects map[string]Rect, from string, d Dir) (string, bool) {
 		if id == from || dist < 0 || over <= 0 {
 			continue
 		}
-		if best == "" || dist < bestDist || (dist == bestDist && over > bestOver) {
+		b := rects[best]
+		if best == "" || dist < bestDist || dist == bestDist && (over > bestOver ||
+			over == bestOver && (c.Y < b.Y || c.Y == b.Y && c.X < b.X)) {
 			best, bestDist, bestOver = id, dist, over
 		}
 	}
