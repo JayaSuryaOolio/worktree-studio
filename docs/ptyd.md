@@ -128,7 +128,16 @@ Default is `tmux`.
 
 ## Criteria for making ptyd the default
 
-TODO.
+- Daily use on ptyd for a couple of weeks (web, desktop and TUI) with no
+  lost sessions or stray input from replayed queries.
+- Reattach of a long-running `claude` session renders correctly: if trimmed
+  replay loses alternate-screen/mouse modes in practice, add the vt snapshot
+  first (see Known limitations).
+- A story for daemon upgrades (restart prompt, or re-exec with fd handoff),
+  so a new binary doesn't keep serving old ptyd code indefinitely.
+- Everything that still says tmux (attention hook, copy/paste docs, the
+  Settings dependency check for tmux) re-checked
+  against ptyd.
 
 ## Progress
 
@@ -141,7 +150,8 @@ TODO.
       scrollback, Settings → Terminal toggle
 - [x] TUI (`tui/infra/ptyterm`): attaches to ptyd sessions directly, replay
       fed into the vt emulator, its replies dropped up to a marker
-- [ ] Docs (README, architecture, PROGRESS, PLAN, SKILL.md)
+- [x] Docs (README, architecture, session-persistence, PROGRESS, PLAN,
+      SKILL.md)
 
 ## Learnings
 

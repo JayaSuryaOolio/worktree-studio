@@ -4,6 +4,18 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-10-24 — ptyd: opt-in PTY-daemon terminal backend
+
+Branch `ptyd`. A second terminal backend next to tmux, toggled per new terminal; tmux stays the default and its code path is unchanged. Full design, toggle, limitations and the criteria for making it the default live in `docs/ptyd.md` (living doc with a Progress checklist).
+
+- **Daemon** (`internal/ptyd`, `wts ptyd`): owns PTYs via creack/pty on `~/.worktree-studio/ptyd.sock`; JSON request line + framed streaming on attach; 4 MiB scrollback per session replayed on attach from a clean boundary, then live. The API server auto-starts it detached (Setsid), so it outlives the server.
+- **Toggle**: `settings` table (`terminal_backend`) + `WORKTREE_STUDIO_TERMINAL_BACKEND` override, `GET/PUT /api/settings/terminal`, Settings → Terminal tab. `terminal_sessions.backend` records each row's backend (existing rows migrate as `tmux`); ws attach, cwd, reconcile and orphans (`ptyd:<id>`) all follow the row.
+- **Clients**: web (replay framed by `replay-start`/`replay-done`, replies to replayed queries dropped, 10k-line scrollback), TUI (`tui/infra/ptyterm` attaches to the daemon directly; replies dropped up to a marker through the emulator's reply pipe), `wts attach <id>` (either backend; Ctrl+\ detaches).
+- **Verified**: `go test ./...` (ptyd unit + detach/reattach integration, backend toggle, TUI replay-without-replies), `bun run build`, `bun run test`.
+- **Not done / next**: see `docs/ptyd.md` "Criteria for making ptyd the default".
+
+---
+
 ## 2026-09-16 — Auto-discovery of another tool's worktrees, from a per-repo configured root
 
 Direct ask: onboard worktrees another tool (e.g. Conductor) creates for a registered repo, automatically, on page load — rather than requiring a manual "Attach" click per worktree (the existing flow, still there, unchanged).
