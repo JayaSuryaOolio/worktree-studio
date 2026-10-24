@@ -5,7 +5,7 @@
 - Go 1.21+ (module uses `modernc.org/sqlite`, a pure-Go driver — no cgo/sqlite3 headers needed).
 - [Bun](https://bun.sh) (for the Vite/React frontend — used as the package manager/runner instead of npm; `bun install`/`bun run` in place of `npm install`/`npm run`).
 - `git` on `PATH` (all worktree operations shell out to the real `git` binary).
-- `tmux` on `PATH` (terminal tabs are tmux sessions under the hood — see `docs/session-persistence.md`; `brew install tmux` on macOS).
+- `tmux` on `PATH` only if you switch terminals to the tmux backend (Settings → Terminal); the default `ptyd` backend needs nothing extra — see `docs/ptyd.md` and `docs/session-persistence.md`.
 - The standalone `spotlight` CLI installed (`github.com/JayaSuryaOolio/spotlight`; installs to `~/.local/bin/spotlight` by default), plus its own `fswatch` dependency (`brew install fswatch` on macOS) — see `docs/spotlight-sync.md`. Optional in the sense that worktree-studio still runs fine without it, but spotlight's REST endpoints will report `{"available": false}` / return `503` until it's installed.
 
 ## One-shot install / uninstall
@@ -63,7 +63,7 @@ Uses Vitest + `@testing-library/react` against jsdom (config: `web/vitest.config
 - SQLite registry: `~/.worktree-studio/studio.db`
 - Audit log (JSONL, append-only): `~/.worktree-studio/audit.log.jsonl`
 - Created worktrees live under: `~/.worktree-studio/worktrees/<repoId>/<worktree-name>/`
-- Terminal sessions are tmux sessions named `wts-<terminalId>` — not a file on disk, but visible via `tmux list-sessions`.
+- Terminal sessions live in the ptyd daemon (socket `~/.worktree-studio/ptyd.sock`, log `ptyd.log`), or, on the tmux backend, in tmux sessions named `wts-<terminalId>` (`tmux list-sessions`).
 
 None of the above are created by the repo itself — the server creates `~/.worktree-studio/` and its subdirectories on first run if missing.
 

@@ -1,6 +1,6 @@
 # Session persistence (tmux-backed terminals)
 
-> This describes the default `tmux` backend. The opt-in `ptyd` backend gets
+> This describes the `tmux` backend (selectable in Settings). The default `ptyd` backend gets
 > the same restart survival from a PTY daemon instead of tmux — see
 > `docs/ptyd.md`.
 
