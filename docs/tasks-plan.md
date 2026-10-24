@@ -14,8 +14,10 @@ The app is called *worktree-studio*, and it should stay close to that name.
 
 - The **worktree stays the primary object.** A task is a label on it, made of two columns: `task_source` and `task_key`.
 - The hierarchy is **task > worktree**. Several worktrees can carry the same task label, and the UI groups by it. A worktree has at most one task.
+- **Only tasks matter in the UI.** The source is just a small label next to a task. It says where the task came from; it is never a grouping level or a navigation step.
 - A worktree with no task is an **ad-hoc worktree**. That is the default and remains fully supported. Nothing about today's flow changes for someone who never uses tasks.
-- worktree-studio does **not** become a task tracker. It shows tasks only when at least one worktree carries them, or when they were created in its own local source. It never lists a Jira backlog, and it **never writes anything back** to Jira or any other source.
+- **Nothing starts until a worktree starts.** A task enters worktree-studio only when a worktree is created with it, or when a task label is set on an existing worktree. There is no backlog, no "to do" state and no standalone task creation.
+- worktree-studio does **not** become a task tracker. It shows only tasks that worktrees carry. It never lists a Jira backlog, and it **never writes anything back** to Jira or any other source.
 - **Status is worktree-studio's own.** The user defines a short list of statuses in Settings and picks one per task. Sources provide only the key, title and link.
 - **Task sources** are pluggable. worktree-studio's own SQLite table is one source (`local`). External sources are small commands that print JSON. More than one source can be active at once.
 - **Other tools drive worktrees, not tasks.** A tool such as Conveyor, a script or Claude can create a worktree with a task label through the CLI or API, then start working in it. worktree-studio doesn't dispatch, deploy or automate anything itself.
@@ -40,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 	key        TEXT NOT NULL,              -- 'PROJ-123' for an external task; a sequential number for a local one
 	title      TEXT NOT NULL DEFAULT '',   -- display name
 	url        TEXT NOT NULL DEFAULT '',   -- optional task link
-	status_id  INTEGER REFERENCES task_statuses(id),  -- NULL means no status set
+	status_id  INTEGER NOT NULL REFERENCES task_statuses(id),  -- set to the first status when the task is created
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY (source, key)
 );
@@ -74,7 +76,9 @@ CREATE TABLE IF NOT EXISTS task_statuses (
 );
 ```
 
-- The table is seeded on first run with `Todo`, `In progress`, `In review` and `Done`.
+- The table is seeded on first run with `In progress`, `In review` and `Done`. There is no `Todo`, because a task only exists once work on it has started.
+- **The first status** in the list is where every new task starts.
+- **The last status** is the terminal one. When every worktree carrying a task is archived, the task moves to the last status automatically (`Done` by default). This happens in the same code path as the archive and the archive sweep.
 - Statuses are edited in **Settings → Tasks**: add, rename, reorder or delete.
 - A status that tasks are using can't be deleted until those tasks are moved. Tasks reference statuses by `id`, so renaming one is just an update.
 - `position` sets the board's column order and the sort order of sidebar groups.
@@ -95,7 +99,7 @@ CREATE TABLE IF NOT EXISTS task_sources (
 
 ### Local source (built in)
 
-A local task gets the next sequential number as its key, and its title and link are edited in worktree-studio. This covers people who don't use Jira, and personal tasks that don't belong in Jira.
+A local task gets the next sequential number as its key, and its title and link are edited in worktree-studio. It is created only as part of starting a worktree: through "+ New task" in the new-worktree dialog, or with `--new` on the CLI. This covers people who don't use Jira, and personal tasks that don't belong in Jira.
 
 ### Command sources (external)
 
@@ -150,30 +154,33 @@ A small popover that opens when you click the **task icon**. The icon appears in
 The worktree detail view (`WorktreeDetail.tsx`) gets a breadcrumb above its dockview tab panels:
 
 ```
-[icon] PROJ-123 Split invoice export (jira)  ›  invoice-export-api
+[icon] PROJ-123 Split invoice export  jira  ›  invoice-export-api
 ```
+
+`jira` is a small, muted source label.
 
 - The task part opens the popup.
 - An ad-hoc worktree shows just its name, plus a faint "+ task" affordance.
 
 ### New-worktree dialog
 
-- An optional **Task** field above "Name". It is a searchable picker across every source, defaults to "None (ad-hoc)" and remembers the last-used source. It includes a "+ New local task" option.
+- An optional **Task** field above "Name". It is a searchable picker across every source, defaults to "None (ad-hoc)" and remembers the last-used source. It includes a "+ New task" option, which creates a local task.
+- Results show the task first, with the source as a small label. Tasks that worktrees already carry are listed first, because adding another worktree to a running task is the common case.
 - Picking a task pre-fills the name from the key and a title slug (`proj-123-split-invoice-export`). The name stays editable.
 
 ### Sidebar
 
 - A **Group by: Repo | Task** setting, placed in **Settings**, not in the sidebar. It is stored through `sidebarPreferences.ts`, and **Repo** (today's view) is the default.
 - In **Task** mode:
-  - One group per task, headed by the task icon, key, title and status. Groups are sorted by status position, then by most recent worktree activity.
+  - One group per task, headed by the task icon, key, title, status and a muted source label. Groups are sorted by status position, then by most recent worktree activity.
   - Worktree rows show a **repo badge**, because a task's worktrees can sit in different repos.
   - An **Ad-hoc** group at the bottom holds every worktree without a task.
   - The existing filter, attention indicators and per-group collapse apply unchanged.
 
 ### Board (`/board`)
 
-- One column per configured status, plus a "No status" column. **Cards are tasks**, and each card lists its worktrees (repo, name, PR pill), which open on click.
-- The board shows tasks that carry at least one non-archived worktree, plus all local tasks.
+- One column per configured status. **Cards are tasks**, and each card lists its worktrees (repo, name, PR pill), which open on click.
+- The board shows every task that worktrees carry. A task whose worktrees are all archived sits in the last column, and that column shows only the 20 most recent tasks, with a "show more" link.
 - You change a task's status by dragging its card or through the task popup. This only ever changes worktree-studio's own status.
 
 ### TUI
@@ -183,19 +190,19 @@ Phase 1 shows the task key in the TUI's worktree list. Group-by-task in the TUI 
 ## API surface (new)
 
 ```
-GET    /api/tasks                             tasks carried by worktrees, plus all local tasks
+GET    /api/tasks                             tasks carried by worktrees
 GET    /api/tasks/search?source=&q=           picker search (local LIKE query, or adapter `list`)
-POST   /api/tasks                             create a local task {title, url?, status_id?}
 PATCH  /api/tasks/{source}/{key}              update {status_id?, url?, title? (local only)}
-DELETE /api/tasks/local/{key}                 delete a local task that no worktree carries
 POST   /api/tasks/refresh                     refresh external titles for carried keys
-PUT    /api/repos/{repoID}/worktrees/{worktreeID}/task   set or clear {source, key, url?}
+PUT    /api/repos/{repoID}/worktrees/{worktreeID}/task   set or clear {source, key, url?} or {new_title, url?}
 GET|POST|PATCH|DELETE /api/task-statuses      list, add, rename or reorder, delete (refused when in use)
 GET|POST|DELETE /api/task-sources             manage adapters
 POST   /api/task-sources/{id}/test            run `list` once (explicit action only)
 ```
 
-The worktree create endpoints, both the UI one and `POST /api/worktrees` for the CLI, accept optional `task_source`, `task_key` and `task_url` fields.
+The worktree create endpoints, both the UI one and `POST /api/worktrees` for the CLI, accept optional `task_source`, `task_key`, `task_url` and `task_new_title` fields. `task_new_title` creates a local task and assigns it.
+
+A task row is created, at the first status, the first time any worktree is labelled with it. Tasks are never deleted, so the history stays on the board.
 
 ## Package layout
 
@@ -214,7 +221,7 @@ The worktree create endpoints, both the UI one and `POST /api/worktrees` for the
 ## Build order (one commit per step)
 
 1. Store: the columns, the three tables, seeded statuses, CRUD and tests.
-2. API: set or clear a worktree's task, local task CRUD, status CRUD, audit entries and tests.
+2. API: set or clear a worktree's task (creating the task row on first use), task updates, status CRUD, moving a task to the last status on archive, audit entries and tests.
 3. CLI: `create-worktree --task/--task-url` and `set-task`.
 4. Settings → Tasks: the group-by setting and the status list editor.
 5. Task popup, and the tab-panel breadcrumb.
@@ -236,8 +243,8 @@ Steps 1–8 are fully useful with local tasks and links alone. Step 9 is where J
 - Task descriptions, comments or attachments.
 - Per-repo sources or per-repo status lists.
 
-## Open questions
+## Decisions
 
-1. **Display when keys collide.** If two sources use the same key shape (Jira and Linear both use `ABC-12`), the breadcrumb already shows `(source)`. Should the sidebar group headers show it too, or only when a key is ambiguous?
-2. **Archiving.** When every worktree of a local task is archived, should the task move to the last status (`Done` by default) automatically, or stay where it is?
-3. **New tasks.** Should a new task start with no status, or with the first status in the list?
+- **Only tasks matter.** The source is a muted label, never a grouping level. The `(source, key)` pair stays the internal identity, so two sources whose keys look alike, such as `ABC-12`, can't clash.
+- **Archive means done.** When every worktree carrying a task is archived, the task moves to the last status.
+- **No backlog.** A task comes into existence when a worktree starts with it, and it starts at the first status.
