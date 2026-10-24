@@ -430,6 +430,20 @@ export interface ClaudeSessionSummary {
   updated_at: string;
   /** Transcript file size in bytes — see format.ts's formatBytes. */
   size_bytes: number;
+  /** The fields below are set only for a session running right now (from
+   * Claude Code's ~/.claude/sessions registry — see
+   * internal/claudehook.MergeRunning). Running sessions come first. */
+  running?: boolean;
+  /** "interactive", or "bg" for a `claude --bg` session. */
+  kind?: string;
+  /** "busy" or "idle". */
+  status?: string;
+  name?: string;
+  pid?: number;
+  /** The id `claude attach` takes. */
+  short_id?: string;
+  /** This worktree's terminal hosting the session, if any. */
+  terminal_id?: string;
 }
 
 /** Every past claude session for this worktree, newest first — the
