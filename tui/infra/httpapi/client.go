@@ -85,6 +85,8 @@ func (c *Client) Worktrees(ctx context.Context, repo domain.RepoID) ([]domain.Wo
 	var raw []struct {
 		ID, Name, Branch, Status string
 		Pinned                   bool
+		TaskSource               string `json:"task_source"`
+		TaskKey                  string `json:"task_key"`
 	}
 	if err := c.do(ctx, "GET", fmt.Sprintf("/api/repos/%s/worktrees/", repo), nil, &raw); err != nil {
 		return nil, err
@@ -94,6 +96,10 @@ func (c *Client) Worktrees(ctx context.Context, repo domain.RepoID) ([]domain.Wo
 		out[i] = domain.Worktree{
 			ID: domain.WorktreeID(w.ID), RepoID: repo, Name: w.Name, Branch: w.Branch,
 			Pinned: w.Pinned, Active: w.Status == "active",
+			TaskKey: w.TaskKey,
+		}
+		if w.TaskSource == "local" {
+			out[i].TaskKey = "#" + w.TaskKey
 		}
 	}
 	return out, nil
