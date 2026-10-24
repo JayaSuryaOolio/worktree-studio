@@ -4,6 +4,8 @@ A small local tool for managing `git worktree`-based parallel development: a Go 
 
 A repo can also point at another tool's own workspace root (its settings page's "External worktrees root" field) — worktree-studio then auto-discovers and registers any worktree that tool creates there on every page load, no manual attach needed. See `docs/architecture.md`'s "External worktree auto-discovery" section.
 
+Worktrees can carry a **task** label (`jira:PROJ-123`, or a local `#12`), so several worktrees group under one task: pick it in the new-worktree dialog or from the task crumb at the top of a worktree, switch the sidebar to group by task in Settings → Tasks (which also holds the status list), and see every task by status on the board at `/board`. See `docs/tasks-plan.md`.
+
 ## Quick launch
 
 `./install/install.sh` builds one binary (`~/.worktree-studio/bin/worktree-studio`, symlinked as `wts` in `~/.local/bin`; on macOS it includes the Wails window and a double-clickable `~/Applications/Worktree Studio.app`). Each piece runs as a detached background process:
