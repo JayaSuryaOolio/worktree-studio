@@ -66,3 +66,76 @@
   color: var(--text-3);
   cursor: pointer;
 }
+
+.task-popup {
+  width: 28rem;
+}
+
+.task-popup select {
+  width: 100%;
+}
+
+.task-popup-url {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.task-popup-url a {
+  white-space: nowrap;
+  font-size: var(--fs-2);
+}
+
+.task-popup-worktrees {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+}
+
+.task-popup-worktrees li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) 0;
+}
+
+/* Breadcrumb in the worktree header: quiet, the branch stays the subject. */
+.task-crumb {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  max-width: 40%;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.task-crumb:hover .task-crumb-title {
+  color: var(--text);
+}
+
+.task-crumb-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-crumb-sep {
+  color: var(--text-3);
+  margin: 0 var(--space-1);
+}
+
+.task-crumb-empty {
+  color: var(--text-3);
+  font-size: var(--fs-1);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.worktree-header:hover .task-crumb-empty,
+.task-crumb-empty:focus-visible {
+  opacity: 1;
+}
