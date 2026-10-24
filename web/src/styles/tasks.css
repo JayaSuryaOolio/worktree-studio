@@ -158,3 +158,48 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Sidebar, grouped by task: the task row reuses .sidebar-repo-row's
+   layout, but reads as a title rather than a repo's uppercase label. */
+.sidebar-task {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--fs-2);
+  color: var(--text-2);
+}
+
+.sidebar-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-task-status,
+.sidebar-worktree-repo {
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.sidebar-task-tree {
+  margin-bottom: var(--space-3);
+}
+
+.sidebar-board-link {
+  margin-left: auto;
+  font-size: var(--fs-1);
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.sidebar-board-link:hover {
+  color: var(--text);
+}
+
+.sidebar-board-link + .sidebar-waiting {
+  margin-left: 0;
+}

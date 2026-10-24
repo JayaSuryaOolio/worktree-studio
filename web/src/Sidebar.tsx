@@ -26,7 +26,10 @@ import { useActiveWorktreeActions } from "./activeWorktreeActions";
 import { useActiveFileTreeActions } from "./activeFileTreeActions";
 import { openShell } from "./worktreeShellActions";
 import { isTextEntryTarget } from "./keyboard";
-import { getCollapsedRepos, setCollapsedRepos } from "./sidebarPreferences";
+import { getCollapsedRepos, setCollapsedRepos, useSidebarGroupBy } from "./sidebarPreferences";
+import { useOpenNewWorktree } from "./newWorktreeRequest";
+import TaskPopup from "./TaskPopup";
+import { sortTasks, taskId, taskKeyLabel } from "./tasks";
 
 interface Props {
   onAddRepo: () => void;
@@ -49,6 +52,9 @@ interface RowProps {
   onArchive: () => void;
   onTogglePin: (nextPinned: boolean) => void;
   onDelete: () => Promise<void>;
+  onSetTask: () => void;
+  // Shown on the row when it's listed under a task rather than its repo.
+  repoName?: string;
   activeWorktreeActions: ReturnType<typeof useActiveWorktreeActions>;
   activeFileTreeActions: ReturnType<typeof useActiveFileTreeActions>;
 }
@@ -78,6 +84,8 @@ function SidebarWorktreeRow({
   onArchive,
   onTogglePin,
   onDelete,
+  onSetTask,
+  repoName,
   activeWorktreeActions,
   activeFileTreeActions,
 }: RowProps) {
@@ -136,6 +144,7 @@ function SidebarWorktreeRow({
             {branchTail !== "" && <span className="sidebar-worktree-branch-tail">{branchTail}</span>}
           </span>
           <span className="sidebar-worktree-meta">
+            {repoName && <span className="sidebar-worktree-repo">{repoName}</span>}
             {status?.has_upstream && (status.ahead > 0 || status.behind > 0) && (
               <span
                 className="sidebar-ticks"
@@ -256,6 +265,9 @@ function SidebarWorktreeRow({
                   <SpotlightIcon size={14} />
                 </button>
               ))}
+            <button type="button" title={wt.task_key ? "Task…" : "Set task…"} onClick={onSetTask}>
+              🏷
+            </button>
             <button type="button" title="View worktree log" onClick={onViewLog}>
               🕐
             </button>
@@ -306,7 +318,12 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
     statusRefreshing,
     refreshSpotlightStatus,
     attentionPending,
+    tasks,
+    taskStatuses,
   } = useRepoContext();
+  const byTask = useSidebarGroupBy() === "task";
+  const openNewWorktree = useOpenNewWorktree();
+  const [taskWorktree, setTaskWorktree] = useState<Worktree | null>(null);
 
   // True for a worktree id from the moment its spotlight start/stop is
   // clicked until that worktree's spotlight status has actually been
@@ -438,6 +455,9 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
       const all = worktreesByRepo[repo.id] ?? [];
       const repoMatches = repo.name.toLowerCase().includes(query);
       out[repo.id] = all.filter((wt) => {
+        // Grouped by task, a labelled worktree is listed under its task
+        // instead (taskGroups below); its repo keeps only the ad-hoc ones.
+        if (byTask && wt.task_key) return false;
         if (attentionOnly && attentionPending[wt.id] === undefined) return false;
         if (query === "" || repoMatches) return true;
         return (
@@ -446,7 +466,32 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
       });
     }
     return out;
-  }, [repos, worktreesByRepo, query, attentionOnly, attentionPending]);
+  }, [repos, worktreesByRepo, query, attentionOnly, attentionPending, byTask]);
+
+  // Group-by-task mode (Settings → Tasks): every task with an active
+  // worktree, in status order, its worktrees from any repo underneath. The
+  // filter matches the task's key/title as well as the worktrees'.
+  const taskGroups = useMemo(() => {
+    if (!byTask) return [];
+    const all = Object.values(worktreesByRepo).flat();
+    return sortTasks(tasks, taskStatuses)
+      .map((t) => {
+        const taskMatches =
+          t.key.toLowerCase().includes(query) || t.title.toLowerCase().includes(query);
+        const wts = all.filter(
+          (wt) =>
+            wt.task_source === t.source &&
+            wt.task_key === t.key &&
+            !(attentionOnly && attentionPending[wt.id] === undefined) &&
+            (query === "" ||
+              taskMatches ||
+              wt.branch.toLowerCase().includes(query) ||
+              wt.name.toLowerCase().includes(query))
+        );
+        return { task: t, worktrees: wts };
+      })
+      .filter((g) => g.worktrees.length > 0);
+  }, [byTask, tasks, taskStatuses, worktreesByRepo, query, attentionOnly, attentionPending]);
 
   // A repo drops out entirely when nothing in it matches — unless its own
   // name is the match, in which case it stays as an (empty) heading you
@@ -457,6 +502,42 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
         (r) => visibleByRepo[r.id].length > 0 || (query !== "" && r.name.toLowerCase().includes(query))
       )
     : repos;
+
+  function renderRow(wt: Worktree, repoName?: string) {
+    return (
+      <SidebarWorktreeRow
+        key={wt.id}
+        repoName={repoName}
+        onSetTask={() => setTaskWorktree(wt)}
+        repoId={wt.repo_id}
+        wt={wt}
+        isActive={wt.id === activeWorktreeId}
+        status={gitStatus[wt.id]}
+        spot={spotlightStatus[wt.id]}
+        spotlightPending={!!spotlightPending[wt.id]}
+        attentionMessage={attentionPending[wt.id]}
+        attentionBlinking={attentionBlinking.has(wt.id)}
+        refreshingPhase={wt.id === activeWorktreeId ? activeStatusRefreshingPhase : "hidden"}
+        onSpotlightStart={() => handleSpotlightStart(wt)}
+        onSpotlightStop={() => handleSpotlightStop(wt)}
+        onViewLog={() => setLogWorktree(wt)}
+        onArchive={() =>
+          archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+        }
+        onTogglePin={(nextPinned) =>
+          toggleWorktreePinSafe(wt, nextPinned, { onDone: refreshWorktrees, onError: setError })
+        }
+        onDelete={() =>
+          deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
+        }
+        activeWorktreeActions={activeWorktreeActions}
+        activeFileTreeActions={activeFileTreeActions}
+      />
+    );
+  }
+
+  const statusName = (id: number) => taskStatuses.find((s) => s.id === id)?.name ?? "";
+  const repoNameOf = (id: string) => repos.find((r) => r.id === id)?.name ?? "";
 
   return (
     <nav className="sidebar" aria-label="Repos and worktrees">
@@ -474,6 +555,11 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
             sessions are waiting on you, anywhere. Renders nothing at zero
             — the normal state of this app is silence. Clicking it narrows
             the list to exactly those worktrees. */}
+        {tasks.length > 0 && (
+          <Link to="/board" className="sidebar-board-link" title="Tasks by status">
+            Board
+          </Link>
+        )}
         {attentionCount > 0 && (
           <button
             type="button"
@@ -552,11 +638,65 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
           <p className="sidebar-empty muted">Loading…</p>
         ) : repos.length === 0 ? (
           <p className="sidebar-empty muted">None registered yet.</p>
-        ) : visibleRepos.length === 0 ? (
+        ) : visibleRepos.length === 0 && taskGroups.length === 0 ? (
           <p className="sidebar-empty muted">
             {attentionOnly ? "Nothing waiting on you." : "No worktree matches that."}
           </p>
         ) : (
+          <>
+          {taskGroups.length > 0 && (
+            <ul className="sidebar-repo-tree sidebar-task-tree">
+              {taskGroups.map(({ task: t, worktrees: wts }) => {
+                const id = "task:" + taskId(t.source, t.key);
+                const isCollapsed = collapsed.has(id) && !narrowing;
+                return (
+                  <li key={id} className="sidebar-repo-group">
+                    <div className="sidebar-repo-row">
+                      {!narrowing && (
+                        <button
+                          type="button"
+                          className="sidebar-repo-collapse"
+                          aria-label={isCollapsed ? `Expand ${t.key}` : `Collapse ${t.key}`}
+                          aria-expanded={!isCollapsed}
+                          onClick={() => toggleCollapsed(id)}
+                        >
+                          <ChevronIcon />
+                        </button>
+                      )}
+                      <span className="sidebar-task" title={t.title || t.key}>
+                        <span className="task-key">{taskKeyLabel(t)}</span>
+                        <span className="sidebar-task-title">{t.title}</span>
+                        {t.source !== "local" && <span className="task-source">{t.source}</span>}
+                      </span>
+                      <span className="sidebar-task-status">{statusName(t.status_id)}</span>
+                      <div className="sidebar-repo-row-actions">
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`New worktree for ${taskKeyLabel(t)}`}
+                          title="New worktree for this task"
+                          onClick={() =>
+                            openNewWorktree(wts[0].repo_id, {
+                              ref: { source: t.source, key: t.key },
+                              key: taskKeyLabel(t),
+                              title: t.title,
+                            })
+                          }
+                        >
+                          <PlusIcon size={15} />
+                        </button>
+                      </div>
+                    </div>
+                    {!isCollapsed && (
+                      <ul className="sidebar-worktree-list">
+                        {wts.map((wt) => renderRow(wt, repoNameOf(wt.repo_id)))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           <ul className="sidebar-repo-tree">
             {visibleRepos.map((r) => (
               <li key={r.id} className="sidebar-repo-group">
@@ -659,34 +799,7 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
                       ticks render only when non-zero. Expands,
                       accordion-style, into a panel with the full name and
                       the per-worktree actions — see SidebarWorktreeRow. */}
-                  {(visibleByRepo[r.id] ?? []).map((wt) => (
-                    <SidebarWorktreeRow
-                      key={wt.id}
-                      repoId={r.id}
-                      wt={wt}
-                      isActive={wt.id === activeWorktreeId}
-                      status={gitStatus[wt.id]}
-                      spot={spotlightStatus[wt.id]}
-                      spotlightPending={!!spotlightPending[wt.id]}
-                      attentionMessage={attentionPending[wt.id]}
-                      attentionBlinking={attentionBlinking.has(wt.id)}
-                      refreshingPhase={wt.id === activeWorktreeId ? activeStatusRefreshingPhase : "hidden"}
-                      onSpotlightStart={() => handleSpotlightStart(wt)}
-                      onSpotlightStop={() => handleSpotlightStop(wt)}
-                      onViewLog={() => setLogWorktree(wt)}
-                      onArchive={() =>
-                        archiveWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
-                      }
-                      onTogglePin={(nextPinned) =>
-                        toggleWorktreePinSafe(wt, nextPinned, { onDone: refreshWorktrees, onError: setError })
-                      }
-                      onDelete={() =>
-                        deleteWorktreeWithConfirm(wt, { onDone: refreshWorktrees, onError: setError })
-                      }
-                      activeWorktreeActions={activeWorktreeActions}
-                      activeFileTreeActions={activeFileTreeActions}
-                    />
-                  ))}
+                  {(visibleByRepo[r.id] ?? []).map((wt) => renderRow(wt))}
                   {worktreesLoading && (worktreesByRepo[r.id]?.length ?? 0) === 0 && (
                     <li className="sidebar-empty muted">Loading…</li>
                   )}
@@ -700,10 +813,13 @@ export default function Sidebar({ onAddRepo, onNewWorktree }: Props) {
               </li>
             ))}
           </ul>
+          </>
         )}
       </div>
 
       {error && <p className="error sidebar-error">{error}</p>}
+
+      {taskWorktree && <TaskPopup worktree={taskWorktree} onClose={() => setTaskWorktree(null)} />}
 
       {logWorktree && (
         <WorktreeAuditLog

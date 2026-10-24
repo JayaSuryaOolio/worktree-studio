@@ -30,6 +30,8 @@ import {
   getWorktreeStatus,
   getWorktreeSummary,
   listRepos,
+  listTasks,
+  listTaskStatuses,
   listWorktrees,
   pinWorktree,
   startSpotlight,
@@ -56,6 +58,8 @@ function Harness({ initialPath = "/repo/r1/worktree/w1" }: { initialPath?: strin
 
 beforeEach(() => {
   localStorage.clear();
+  vi.mocked(listTasks).mockResolvedValue([]);
+  vi.mocked(listTaskStatuses).mockResolvedValue([]);
   vi.mocked(listRepos).mockResolvedValue([{ id: "r1", name: "adelaide", path: "/tmp/adelaide" }]);
   vi.mocked(listWorktrees).mockResolvedValue([
     { id: "w1", repo_id: "r1", name: "feature-worktree", branch: "feature", path: "/tmp/adelaide-wt/feature", created_at: "2026-01-01T00:00:00Z", status: "active" },
@@ -329,5 +333,31 @@ describe("Sidebar worktree delete", () => {
     expect(deleteButton).toBeDisabled();
 
     confirmSpy.mockRestore();
+  });
+});
+
+describe("Sidebar grouped by task", () => {
+  it("lists labelled worktrees under their task, with their repo, and keeps ad-hoc ones under the repo", async () => {
+    localStorage.setItem("worktree-studio-sidebar-group-by", "task");
+    const wt = { repo_id: "r1", path: "/tmp/x", created_at: "2026-01-01T00:00:00Z", status: "active" as const };
+    vi.mocked(listWorktrees).mockResolvedValue([
+      { ...wt, id: "w1", name: "invoice-api", branch: "invoice-api", task_source: "local", task_key: "3" },
+      { ...wt, id: "w2", name: "scratch", branch: "scratch", task_source: "", task_key: "" },
+    ] as never);
+    vi.mocked(listTaskStatuses).mockResolvedValue([{ id: 1, name: "In progress", position: 0 }]);
+    vi.mocked(listTasks).mockResolvedValue([
+      { source: "local", key: "3", title: "Invoice export", url: "", status_id: 1, updated_at: "", worktrees: [] },
+    ]);
+    render(<Harness />);
+
+    const taskRow = (await screen.findByText("Invoice export")).closest(".sidebar-repo-group")!;
+    expect(taskRow.textContent).toContain("#3");
+    expect(taskRow.textContent).toContain("In progress");
+    expect(taskRow.contains(screen.getByTitle("invoice-api"))).toBe(true);
+    expect(taskRow.textContent).toContain("adelaide");
+
+    const repoGroup = screen.getByText("adelaide", { selector: ".sidebar-repo" }).closest(".sidebar-repo-group")!;
+    expect(repoGroup.contains(screen.getByTitle("scratch"))).toBe(true);
+    expect(repoGroup.contains(screen.getByTitle("invoice-api"))).toBe(false);
   });
 });
