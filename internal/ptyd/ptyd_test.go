@@ -28,7 +28,7 @@ func TestScrollbackTrimsAndCutsCleanly(t *testing.T) {
 
 func TestCleanStart(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"31mabc\ndef", "def"},           // mid-CSI: skip to after newline
+		{"31mabc\ndef", "def"},              // mid-CSI: skip to after newline
 		{"5;1Hfoo\x1b[0mbar", "\x1b[0mbar"}, // no newline: start at an ESC
 		{"\xa9caf\xc3\xa9", "caf\xc3\xa9"},  // mid-rune: skip continuation bytes
 		{"plain", "plain"},

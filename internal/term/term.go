@@ -3,16 +3,19 @@
 // worktree-studio's Go process, so a terminal tab survives a server
 // restart: on restart we just attach to the same tmux session again
 // instead of needing to serialize/restore any PTY state ourselves. See
-// PLAN.md section 3 for the full rationale.
+// PLAN.md section 3 for the full rationale. The opt-in ptyd backend
+// (ptyd.go, docs/ptyd.md) gets the same survival from a PTY daemon instead.
 package term
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 
 	"worktree-studio/internal/audit"
+	"worktree-studio/internal/ptyd"
 	"worktree-studio/internal/store"
 )
 
@@ -22,6 +25,8 @@ import (
 type Manager struct {
 	Store *store.Store
 	Audit *audit.Logger
+	// Ptyd reaches the PTY daemon; nil disables the ptyd backend (tests).
+	Ptyd *ptyd.Client
 }
 
 // tmuxNamePrefix namespaces worktree-studio's tmux sessions so Reconcile
@@ -36,6 +41,9 @@ const tmuxNamePrefix = "wts-"
 // through a shell), so there's no shell-injection concern regardless of
 // its content.
 func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialCommand string) (store.TerminalSession, error) {
+	if b, _ := m.Backend(); b == BackendPtyd {
+		return m.createPtydSession(worktreeID, worktreePath, tabLabel, initialCommand)
+	}
 	id := newSessionID()
 	tmuxName := tmuxNamePrefix + id
 
@@ -155,6 +163,7 @@ func (m *Manager) CreateSession(worktreeID, worktreePath, tabLabel, initialComma
 		WorktreeID:      worktreeID,
 		TmuxSessionName: tmuxName,
 		TabLabel:        tabLabel,
+		Backend:         BackendTmux,
 	}
 	if err := m.Store.AddTerminalSession(ts); err != nil {
 		// Don't leak the tmux session we just created if we can't record it.
@@ -183,13 +192,19 @@ func (m *Manager) ListSessions(worktreeID string) ([]store.TerminalSession, erro
 // Killing an already-dead tmux session is not an error — the row is
 // removed regardless, since the goal is "this tab is gone" either way.
 func (m *Manager) CloseSession(ts store.TerminalSession) error {
-	_ = TmuxCmd("kill-session", "-t", ts.TmuxSessionName).Run()
+	if ts.Backend == BackendPtyd {
+		if c, err := m.ptydClient(); err == nil {
+			_ = c.Kill(ts.ID)
+		}
+	} else {
+		_ = TmuxCmd("kill-session", "-t", ts.TmuxSessionName).Run()
+	}
 	if err := m.Store.RemoveTerminalSession(ts.ID); err != nil {
 		return fmt.Errorf("remove terminal session row: %w", err)
 	}
 	if m.Audit != nil {
 		_ = m.Audit.Log(audit.EventTerminalClose, map[string]any{
-			"terminal_id": ts.ID, "worktree_id": ts.WorktreeID, "tmux_session_name": ts.TmuxSessionName,
+			"terminal_id": ts.ID, "worktree_id": ts.WorktreeID, "tmux_session_name": ts.TmuxSessionName, "backend": ts.Backend,
 		})
 	}
 	return nil
@@ -202,7 +217,7 @@ func (m *Manager) CloseSession(ts store.TerminalSession) error {
 func ListLiveTmuxSessionNames() (map[string]bool, error) {
 	out, err := TmuxCmd("list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
-		if isNoServerRunning(err) {
+		if isNoServerRunning(err) || errors.Is(err, exec.ErrNotFound) { // no tmux at all: fine under ptyd
 			return map[string]bool{}, nil
 		}
 		return nil, fmt.Errorf("tmux list-sessions: %w", err)
@@ -234,7 +249,8 @@ func isNoServerRunning(err error) bool {
 
 // Reconcile drops terminal_sessions rows whose backing tmux session no
 // longer exists (e.g. tmux itself was killed, or the session ended on its
-// own). It never kills a live tmux session — only prunes stale DB rows.
+// own). It never kills a live tmux session — only prunes stale DB rows, and
+// only tmux ones (Manager.Reconcile also covers ptyd).
 // Call this once at server startup, before any client can list sessions.
 func Reconcile(st *store.Store) (dropped int, err error) {
 	live, err := ListLiveTmuxSessionNames()
@@ -246,7 +262,7 @@ func Reconcile(st *store.Store) (dropped int, err error) {
 		return 0, fmt.Errorf("list terminal sessions: %w", err)
 	}
 	for _, ts := range all {
-		if !live[ts.TmuxSessionName] {
+		if ts.Backend == BackendTmux && !live[ts.TmuxSessionName] {
 			if err := st.RemoveTerminalSession(ts.ID); err != nil {
 				return dropped, fmt.Errorf("remove stale terminal session %s: %w", ts.ID, err)
 			}

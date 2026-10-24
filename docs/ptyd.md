@@ -86,7 +86,32 @@ the daemon: if it isn't running, ptyd terminal rows are pruned.
 
 ## How to toggle
 
-TODO (next commit).
+The backend applies to **new** terminals only. Every `terminal_sessions` row
+records its `backend` (`tmux` | `ptyd`, existing rows migrate as `tmux`) and
+stays on it, so switching never strands an open tab.
+
+- Settings UI: Settings → Terminal → backend.
+- API: `GET /api/settings/terminal` → `{"backend":"tmux","env_override":false}`;
+  `PUT` the same shape to change it (stored in the `settings` table, key
+  `terminal_backend`).
+- Env: `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd|tmux` pins it for that server
+  run and wins over the stored setting (`env_override: true`).
+
+Default is `tmux`.
+
+### What each piece does per backend
+
+| | tmux | ptyd |
+|---|---|---|
+| create | `tmux new-session` + global options | `ptyd create` of `$SHELL -l` (env: TERM=xterm-256color, COLORTERM=truecolor, no TMUX) |
+| initial command | `send-keys ... Enter` | written to the PTY as `cmd\r` |
+| close | `kill-session` | `kill` (SIGHUP, then SIGKILL) |
+| web attach | `tmux attach` under a server-side pty | ptyd `attach`; replay framed by replay-start/done |
+| title on reattach | synthesized from `#{pane_title}` | carried by the replay |
+| current path | `#{pane_current_path}` | cwd of the tty's foreground pgrp (`ps -o tpgid` → `lsof`/`/proc`) |
+| startup reconcile | rows whose tmux session is gone | rows absent from `ptyd list` (all, if the daemon is down) |
+| orphans | `wts-*` sessions with no row | daemon sessions with no row, listed as `ptyd:<id>`, same 7-day guard |
+| `wts attach <id>` | falls back to `tmux attach -t wts-<id>` | direct to the daemon, Ctrl+\ detaches |
 
 ## Known limitations
 
@@ -109,12 +134,17 @@ TODO.
 
 - [x] Daemon core + socket protocol + client (`internal/ptyd`), unit +
       integration tests
-- [ ] Backend toggle, store column, term seam, reconcile/orphans
+- [x] Backend toggle (settings table + env), `terminal_sessions.backend`,
+      term.Manager seam, backend-aware reconcile/orphans/cwd/ws, settings
+      API, `wts ptyd`, `wts attach`
 - [ ] Web client (replay handling, scrollback, settings toggle)
-- [ ] `wts ptyd`, `wts attach`, TUI
+- [ ] TUI
 - [ ] Docs (README, architecture, PROGRESS, PLAN, SKILL.md)
 
 ## Learnings
 
+- tmux not being installed used to make `ListLiveTmuxSessionNames` fail;
+  under ptyd that's a normal setup, so `exec.ErrNotFound` now reads as "no
+  sessions" (covers reconcile and orphans at once).
 - macOS caps unix socket paths at 104 bytes; `t.TempDir()` paths exceed it,
   so tests use `os.MkdirTemp("", "ptyd")`.

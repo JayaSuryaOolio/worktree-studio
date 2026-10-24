@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -209,7 +210,7 @@ func (s *Server) handleGetTerminalCwd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cwd, err := term.CurrentPath(ts.TmuxSessionName)
+	cwd, err := s.Term.CurrentPath(ts)
 	if err != nil {
 		s.Log.Error("get terminal cwd", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to look up terminal's current directory")
@@ -226,8 +227,8 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// handleTerminalWS upgrades to a websocket, attaches a pty to the terminal
-// session's tmux session, and relays bytes both ways. Protocol: binary ws
+// handleTerminalWS upgrades to a websocket, attaches to the terminal
+// session (tmux or ptyd, see term.Manager.Attach), and relays bytes both ways. Protocol: binary ws
 // messages are raw bytes fed straight into the pty (keystrokes in, tmux's
 // rendered output out); text ws messages are JSON control frames, of which
 // the only one currently defined is {"type":"resize","cols":N,"rows":N}.
@@ -251,7 +252,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	if !term.HasSession(ts.TmuxSessionName) {
+	if !s.Term.Alive(ts) {
 		// The tmux session backing this tab is already gone — it died on
 		// its own (e.g. the pane's only process exited, which kills the
 		// whole session by tmux's own default) or was killed outside the
@@ -269,7 +270,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		// of the existing paths (closing the tab via handleDeleteTerminal,
 		// or the next server restart's Reconcile), so there's still
 		// exactly one way a terminal_sessions row goes away, not two.
-		s.Log.Info("terminal's tmux session no longer exists, refusing to attach", "terminal_id", ts.ID, "tmux_session_name", ts.TmuxSessionName)
+		s.Log.Info("terminal's session no longer exists, refusing to attach", "terminal_id", ts.ID, "backend", ts.Backend, "tmux_session_name", ts.TmuxSessionName)
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(
 			"\r\nThis terminal's session no longer exists (it exited, or was closed outside the app).\r\n"+
 				"Close this tab (×) to remove it — a server restart would also clean it up automatically.\r\n",
@@ -277,25 +278,36 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pf, cmd, err := term.Attach(ts.TmuxSessionName)
+	att, err := s.Term.Attach(ts)
 	if err != nil {
 		s.Log.Error("attach pty", "err", err)
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\nFailed to attach to this terminal: "+err.Error()+"\r\n"))
 		return
 	}
-	defer func() {
-		_ = pf.Close()
-		_ = cmd.Process.Kill() // kills the `tmux attach` client, NOT the tmux session it was attached to
-	}()
+	defer att.Close() // detaches only; the session keeps running
 
-	// Replays tmux's current pane title as a synthetic OSC 0 sequence right
-	// after attaching — see CurrentTitle's doc comment for why this is
-	// needed (tmux only emits the real escape sequence on a title *change*,
-	// not on a fresh client attaching to an already-running session).
-	// Best-effort: a lookup failure just means the tab keeps its default
-	// label until the pane's title next changes on its own, same as before
-	// this fix existed.
-	if title, terr := term.CurrentTitle(ts.TmuxSessionName); terr == nil && title != "" {
+	if ts.Backend == term.BackendPtyd {
+		// The scrollback replay, bracketed by control frames so Terminal.tsx
+		// can drop the replies (cursor reports etc.) xterm.js generates while
+		// parsing it — see docs/ptyd.md. Text frames starting with "{" are
+		// control; everything else stays raw output.
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"replay-start"}`))
+		for p := att.Replay; len(p) > 0; {
+			n := min(len(p), 32*1024)
+			if conn.WriteMessage(websocket.BinaryMessage, p[:n]) != nil {
+				return
+			}
+			p = p[n:]
+		}
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"replay-done"}`))
+	} else if title, terr := term.CurrentTitle(ts.TmuxSessionName); terr == nil && title != "" {
+		// Replays tmux's current pane title as a synthetic OSC 0 sequence
+		// right after attaching — see CurrentTitle's doc comment for why
+		// this is needed (tmux only emits the real escape sequence on a
+		// title *change*, not on a fresh client attaching to an
+		// already-running session). Best-effort: a lookup failure just means
+		// the tab keeps its default label until the pane's title next
+		// changes on its own. (ptyd needs none: the replay carries it.)
 		_ = conn.WriteMessage(websocket.BinaryMessage, []byte("\x1b]0;"+title+"\x07"))
 	}
 
@@ -305,7 +317,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		defer close(done)
 		buf := make([]byte, 32*1024)
 		for {
-			n, err := pf.Read(buf)
+			n, err := att.Read(buf)
 			if n > 0 {
 				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
 					return
@@ -314,6 +326,8 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				if err != io.EOF {
 					s.Log.Debug("pty read ended", "err", err)
+				} else if code := att.ExitCode(); code >= 0 {
+					_ = conn.WriteMessage(websocket.BinaryMessage, []byte(fmt.Sprintf("\r\n[process exited with code %d]\r\n", code)))
 				}
 				return
 			}
@@ -333,13 +347,13 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		}
 		switch msgType {
 		case websocket.BinaryMessage:
-			if _, err := pf.Write(data); err != nil {
+			if _, err := att.Write(data); err != nil {
 				break
 			}
 		case websocket.TextMessage:
 			var m resizeMsg
 			if json.Unmarshal(data, &m) == nil && m.Type == "resize" && m.Cols > 0 && m.Rows > 0 {
-				_ = term.Resize(pf, m.Cols, m.Rows)
+				_ = att.Resize(m.Cols, m.Rows)
 			}
 		}
 	}
