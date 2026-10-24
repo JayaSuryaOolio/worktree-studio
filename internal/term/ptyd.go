@@ -133,6 +133,48 @@ func (m *Manager) Restore(ts store.TerminalSession) error {
 	return nil
 }
 
+// SuspendWorktree ends a worktree's ptyd sessions (archive) but keeps their
+// rows and saved scrollback, for RestoreWorktree. tmux terminals are left
+// running, as before.
+func (m *Manager) SuspendWorktree(worktreeID string) error {
+	c, err := m.ptydClient()
+	if err != nil {
+		return nil
+	}
+	terminals, err := m.Store.ListTerminalSessions(worktreeID)
+	if err != nil {
+		return err
+	}
+	for _, ts := range terminals {
+		if ts.Backend == BackendPtyd {
+			if err := c.Suspend(ts.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// RestoreWorktree restores every ptyd terminal of a worktree whose session
+// is gone (unarchive): with its saved scrollback if there is one, else just
+// a fresh shell.
+func (m *Manager) RestoreWorktree(worktreeID string) (restored int, err error) {
+	terminals, err := m.Store.ListTerminalSessions(worktreeID)
+	if err != nil {
+		return 0, err
+	}
+	for _, ts := range terminals {
+		if ts.Backend != BackendPtyd || m.Alive(ts) {
+			continue
+		}
+		if err := m.Restore(ts); err != nil {
+			return restored, err
+		}
+		restored++
+	}
+	return restored, nil
+}
+
 // ptydEnv is the environment for a ptyd shell: ours with TERM fixed (see
 // attachEnv), tmux's markers dropped (the server may itself run inside
 // tmux), and truecolor advertised since xterm.js renders it.

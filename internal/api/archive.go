@@ -19,6 +19,10 @@ import (
 // the claude.session.create audit event). Archived worktrees are excluded
 // from the normal list (handleListWorktrees) until a future settings-modal
 // view exists to browse them.
+//
+// Its ptyd terminals' shells are ended (they'd otherwise sit in the daemon
+// for as long as it's archived) but their tabs and scrollback are kept, and
+// unarchiving brings them back (term.Manager.SuspendWorktree).
 func (s *Server) handleArchiveWorktree(w http.ResponseWriter, r *http.Request) {
 	wt, ok := s.getRepoAndWorktree(w, r)
 	if !ok {
@@ -28,16 +32,24 @@ func (s *Server) handleArchiveWorktree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "pinned worktrees can't be archived — unpin it first")
 		return
 	}
+	s.RecordClaudeSessions() // so the restored tabs resume their claude
+	if err := s.Term.SuspendWorktree(wt.ID); err != nil {
+		s.Log.Warn("end archived worktree's ptyd terminals", "err", err, "worktree_id", wt.ID)
+	}
 	s.setWorktreeStatus(w, wt, store.WorktreeStatusArchived, audit.EventWorktreeArchive)
 }
 
-// handleUnarchiveWorktree reverses handleArchiveWorktree. No lifecycle
-// rule gates this direction — unpinning isn't required, and a pinned
-// worktree can never have reached "archived" in the first place anyway.
+// handleUnarchiveWorktree reverses handleArchiveWorktree, restoring its ptyd
+// terminals. No lifecycle rule gates this direction — unpinning isn't
+// required, and a pinned worktree can never have reached "archived" in the
+// first place anyway.
 func (s *Server) handleUnarchiveWorktree(w http.ResponseWriter, r *http.Request) {
 	wt, ok := s.getRepoAndWorktree(w, r)
 	if !ok {
 		return
+	}
+	if _, err := s.Term.RestoreWorktree(wt.ID); err != nil {
+		s.Log.Warn("restore unarchived worktree's ptyd terminals", "err", err, "worktree_id", wt.ID)
 	}
 	s.setWorktreeStatus(w, wt, store.WorktreeStatusActive, audit.EventWorktreeUnarchive)
 }
