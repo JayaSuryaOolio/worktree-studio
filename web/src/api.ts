@@ -84,6 +84,17 @@ export interface TerminalSession {
   tmux_session_name: string;
   tab_label: string;
   created_at: string;
+  /** Which backend owns it; fixed at creation. See docs/ptyd.md. */
+  backend: TerminalBackend;
+}
+
+export type TerminalBackend = "tmux" | "ptyd";
+
+/** The backend NEW terminals use. env_override: WORKTREE_STUDIO_TERMINAL_BACKEND
+ * pins it for this server run, so changing it here waits for a restart. */
+export interface TerminalSettings {
+  backend: TerminalBackend;
+  env_override: boolean;
 }
 
 /** A TerminalSession joined with its worktree's branch/name — used by the
@@ -609,6 +620,17 @@ export interface ServerLogs {
    * (currently 200); Path is shown in the UI so a person can open/tail/
    * grep the real file directly for anything this leaves out. */
   lines: string[];
+}
+
+export function getTerminalSettings(): Promise<TerminalSettings> {
+  return request<TerminalSettings>("/api/settings/terminal");
+}
+
+export function setTerminalBackend(backend: TerminalBackend): Promise<TerminalSettings> {
+  return request<TerminalSettings>("/api/settings/terminal", {
+    method: "PUT",
+    body: JSON.stringify({ backend }),
+  });
 }
 
 /** The main settings modal's Logs tab. */

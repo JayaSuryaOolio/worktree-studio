@@ -12,6 +12,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -150,4 +151,31 @@ func (s *Server) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "installed"})
+}
+
+// terminalSettings is the terminal backend for NEW terminals (existing ones
+// stay on the backend they were created with). EnvOverride means
+// WORKTREE_STUDIO_TERMINAL_BACKEND pins it for this server run, so a PUT is
+// stored but has no effect until restart without it. See docs/ptyd.md.
+type terminalSettings struct {
+	Backend     string `json:"backend"`
+	EnvOverride bool   `json:"env_override"`
+}
+
+func (s *Server) handleGetTerminalSettings(w http.ResponseWriter, r *http.Request) {
+	b, fromEnv := s.Term.Backend()
+	writeJSON(w, http.StatusOK, terminalSettings{Backend: b, EnvOverride: fromEnv})
+}
+
+func (s *Server) handlePutTerminalSettings(w http.ResponseWriter, r *http.Request) {
+	var req terminalSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.Term.SetBackend(req.Backend); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.handleGetTerminalSettings(w, r)
 }

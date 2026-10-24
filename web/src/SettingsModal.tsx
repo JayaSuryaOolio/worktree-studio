@@ -6,10 +6,14 @@ import {
   getDependencyStatus,
   getHooks,
   getServerLogs,
+  getTerminalSettings,
   HookStatus,
   installHook,
   installSkill,
   ServerLogs,
+  setTerminalBackend,
+  TerminalBackend,
+  TerminalSettings,
   uninstallHook,
 } from "./api";
 import {
@@ -31,7 +35,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "installation" | "appearance" | "logs";
+type Tab = "installation" | "appearance" | "terminal" | "logs";
 
 // Three tabs: an installation/dependency-status page (tmux/spotlight
 // detection, plus actionable install/uninstall for the claude hook and
@@ -74,6 +78,15 @@ export default function SettingsModal({ onClose }: Props) {
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "terminal"}
+            className={tab === "terminal" ? "active" : ""}
+            onClick={() => setTab("terminal")}
+          >
+            Terminal
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "logs"}
             className={tab === "logs" ? "active" : ""}
             onClick={() => setTab("logs")}
@@ -82,7 +95,15 @@ export default function SettingsModal({ onClose }: Props) {
           </button>
         </div>
         <div className="settings-modal-body">
-          {tab === "installation" ? <InstallationTab /> : tab === "appearance" ? <AppearanceTab /> : <LogsTab />}
+          {tab === "installation" ? (
+            <InstallationTab />
+          ) : tab === "appearance" ? (
+            <AppearanceTab />
+          ) : tab === "terminal" ? (
+            <TerminalTab />
+          ) : (
+            <LogsTab />
+          )}
         </div>
       </div>
     </div>
@@ -453,6 +474,70 @@ function NotificationsSection() {
         </>
       )}
     </>
+  );
+}
+
+// Which backend new terminals use (docs/ptyd.md). Server-side, unlike the
+// appearance settings, since the server is what creates terminals.
+function TerminalTab() {
+  const [settings, setSettings] = useState<TerminalSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTerminalSettings()
+      .then(setSettings)
+      .catch((err) => setError((err as Error).message));
+  }, []);
+
+  function pick(backend: TerminalBackend) {
+    setError(null);
+    setTerminalBackend(backend)
+      .then(setSettings)
+      .catch((err) => setError((err as Error).message));
+  }
+
+  const options: { value: TerminalBackend; label: string }[] = [
+    { value: "tmux", label: "tmux" },
+    { value: "ptyd", label: "ptyd (experimental)" },
+  ];
+
+  return (
+    <section className="settings-section">
+      <h3>Terminal backend</h3>
+      {error && <p className="error">{error}</p>}
+      {settings === null ? (
+        !error && <p className="muted">Loading…</p>
+      ) : (
+        <>
+          <div className="segmented" role="radiogroup" aria-label="Terminal backend">
+            {options.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={settings.backend === opt.value}
+                className={settings.backend === opt.value ? "selected" : ""}
+                disabled={settings.env_override}
+                onClick={() => pick(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="settings-hint">
+            {settings.backend === "ptyd"
+              ? "New terminals run in worktree-studio's own PTY daemon: native scrollback and text selection, no tmux needed."
+              : "New terminals run inside tmux sessions."}{" "}
+            Applies to new terminals only; open ones stay on the backend they started with.
+          </p>
+          {settings.env_override && (
+            <p className="muted">
+              Pinned by WORKTREE_STUDIO_TERMINAL_BACKEND for this server run.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

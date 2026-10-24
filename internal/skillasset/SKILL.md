@@ -21,7 +21,7 @@ There's no installer script today — setup is a few manual commands, and this s
 - Go 1.21+ (`go version`) — the module uses `modernc.org/sqlite`, a pure-Go driver, so no cgo/sqlite3 headers are needed.
 - [Bun](https://bun.sh) (`bun --version`) — used as the frontend package manager/runner instead of npm.
 - `git` on `PATH` (`git --version`) — every worktree operation shells out to the real binary.
-- `tmux` on `PATH` (`tmux -V`) — terminal tabs are real tmux sessions; see "Using terminals" below for why. Without it, terminal creation fails outright (not a soft-degrade like spotlight below).
+- `tmux` on `PATH` (`tmux -V`) — terminal tabs are real tmux sessions; see "Using terminals" below for why. Without it, terminal creation fails outright (not a soft-degrade like spotlight below) — unless the opt-in ptyd backend is selected, see "The opt-in ptyd backend".
 - Optional: the standalone `spotlight` CLI (`command -v spotlight`, `github.com/JayaSuryaOolio/spotlight`) plus its own `fswatch` dependency. worktree-studio runs fine without it — spotlight's endpoints just report `{"available": false}` / `503` until it's installed. See "Using Spotlight" below.
 
 **First-time setup:**
@@ -34,6 +34,8 @@ go build -o worktree-studio ./cmd/worktree-studio
 ```
 
 `go build ./...` alone (before the frontend is ever built) still succeeds — `web/dist/` ships a placeholder so the `go:embed` directive always has something, and the server serves a "run `bun run build`" page instead of crashing. You only need the frontend build for the real UI.
+
+**Desktop window instead of a browser tab:** build with `CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o worktree-studio-desktop ./cmd/worktree-studio` (the `CGO_LDFLAGS` is macOS-only). Same server and CLI subcommands; `install/build-app.sh` builds a double-clickable `build/Worktree Studio.app`. see the README's "Desktop app (Wails)" section.
 
 Verify it worked: `curl http://localhost:8787/api/repos/` should return `[]` (or your existing registered repos, if `~/.worktree-studio/studio.db` already has data from a prior run — this state persists across restarts by design).
 
@@ -283,6 +285,21 @@ tmux list-sessions | grep wts-
 tmux attach -t wts-<terminalId>       # attach from your own real terminal, alongside worktree-studio's ws client
 tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents without attaching
 ```
+
+`wts attach <terminalId>` does the same from any real terminal and works for both backends (below).
+
+### The opt-in ptyd backend
+
+Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does (not reboots or a daemon crash). tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
+
+```bash
+curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux","env_override":false}
+curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"ptyd"}'
+WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd wts start           # pin it for one server run (wins over the setting)
+wts attach <terminalId>                                   # attach from a real terminal; Ctrl+\ detaches
+```
+
+Or Settings → Terminal in the UI. ptyd sessions show up in `orphans` as `ptyd:<id>` under the same activity guard. After upgrading worktree-studio the daemon keeps running the old binary until restarted. Design and limitations: `docs/ptyd.md`.
 
 ### Cleaning up orphaned tmux sessions
 

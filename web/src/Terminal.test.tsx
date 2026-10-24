@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { classifyTerminalKeyEvent, alwaysSystemClipboardProvider } from "./Terminal";
+import { classifyTerminalKeyEvent, alwaysSystemClipboardProvider, isTerminalReply } from "./Terminal";
 
 // Terminal.tsx itself (xterm.js + websocket wiring) isn't unit-tested here
 // — same established practice as elsewhere in this project (WorktreeDetail
@@ -105,5 +105,19 @@ describe("alwaysSystemClipboardProvider", () => {
 
     expect(writeText).toHaveBeenNthCalledWith(1, "system selection");
     expect(writeText).toHaveBeenNthCalledWith(2, "primary selection");
+  });
+});
+
+describe("isTerminalReply", () => {
+  it("matches what xterm.js answers to queries in a ptyd replay", () => {
+    expect(isTerminalReply("\x1b[12;1R")).toBe(true); // CPR
+    expect(isTerminalReply("\x1b[?1;2c\x1b[0n")).toBe(true); // DA + DSR
+    expect(isTerminalReply("\x1b]11;rgb:0000/0000/0000\x1b\\")).toBe(true); // OSC colour
+  });
+
+  it("leaves real typing alone", () => {
+    expect(isTerminalReply("\x1b[A")).toBe(false); // arrow key
+    expect(isTerminalReply("ls\r")).toBe(false);
+    expect(isTerminalReply("c")).toBe(false);
   });
 });
