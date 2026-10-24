@@ -77,3 +77,13 @@ func TestSidebarRowShowsAndFiltersByTaskKey(t *testing.T) {
 		t.Fatalf("row %q lacks the task key", got)
 	}
 }
+
+func TestTabBarLeadsWithTheTask(t *testing.T) {
+	r := Root{wt: &domain.Worktree{TaskKey: "PROJ-7", TaskTitle: "Invoice export"}}
+	if got := r.tabBar(); !strings.Contains(got, "PROJ-7 Invoice export ›") {
+		t.Fatalf("tab bar %q lacks the task", got)
+	}
+	if got := (Root{wt: &domain.Worktree{}}).tabBar(); got != "" {
+		t.Fatalf("ad-hoc worktree tab bar = %q", got)
+	}
+}

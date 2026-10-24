@@ -130,7 +130,7 @@ worktree-studio set-task --clear [path]
 
 HTTP equivalents: `PUT /api/repos/<repoId>/worktrees/<id>/task` with `{source,key,url,new_title}` (empty body clears), `POST /api/worktree-task` with the same plus `path`, `GET /api/tasks`, `PATCH /api/tasks/<source>/<key>` (`title`, `url`, `status_id`), and `/api/task-statuses` (GET, POST `{name}`, PATCH `/<id>` `{name}`, PUT `/order` `{ids}`, DELETE `/<id>`).
 
-In the web UI: the new-worktree dialog has a **Task** picker (search, `jira:PROJ-1`, or "+ New task"); the crumb at the top of a worktree (`#12 Invoice export ›`, or "+ task") opens a popup for status, title, link and "+ Worktree for this task"; Settings → Tasks switches the sidebar to **group by task** and edits the status list; `/board` shows tasks in a column per status (drag to change status). The TUI shows the task key on each worktree row and its filter matches it.
+In the web UI: the new-worktree dialog has a **Task** picker (search, `jira:PROJ-1`, or "+ New task"); the crumb at the top of a worktree (`#12 Invoice export ›`, or "+ task") opens a popup for status, title, link and "+ Worktree for this task"; Settings → Tasks switches the sidebar to **group by task** and edits the status list; `/board` shows tasks in a column per status (drag to change status). The TUI shows the task key on each worktree row (its filter matches it) and the task's key and title at the start of the tab bar.
 
 ## Attaching an existing worktree (no git mutation)
 
