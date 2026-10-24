@@ -267,17 +267,14 @@ func (m *Manager) CurrentPath(ts store.TerminalSession) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pid := s.Pid
 	// The tty's foreground process group (e.g. a `claude` started from the
 	// shell), like tmux's pane_current_path; the shell itself if that fails.
-	if out, err := exec.Command("ps", "-o", "tpgid=", "-p", strconv.Itoa(pid)).Output(); err == nil {
-		if fg, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && fg > 0 {
-			if cwd, err := processCwd(fg); err == nil {
-				return cwd, nil
-			}
+	if fg := foregroundPgrp(s.Pid); fg > 0 {
+		if cwd, err := processCwd(fg); err == nil {
+			return cwd, nil
 		}
 	}
-	return processCwd(pid)
+	return processCwd(s.Pid)
 }
 
 func processCwd(pid int) (string, error) {

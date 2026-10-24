@@ -139,6 +139,19 @@ export type TerminalBackend = "tmux" | "ptyd";
 export interface TerminalSettings {
   backend: TerminalBackend;
   env_override: boolean;
+  /** Close ptyd terminals idle this many days (0 = off). See docs/ptyd.md. */
+  idle_reap_days: number;
+}
+
+/** A ptyd terminal with no client attached and no output for the idle
+ * window. busy names the program in its foreground (not the shell): the
+ * reaper never closes those, only reports them. */
+export interface IdleTerminal {
+  terminal_id: string;
+  worktree_id: string;
+  tab_label: string;
+  last_activity: string;
+  busy?: string;
 }
 
 /** A TerminalSession joined with its worktree's branch/name — used by the
@@ -762,6 +775,21 @@ export function setTerminalBackend(backend: TerminalBackend): Promise<TerminalSe
     method: "PUT",
     body: JSON.stringify({ backend }),
   });
+}
+
+export function setIdleReapDays(days: number): Promise<TerminalSettings> {
+  return request<TerminalSettings>("/api/settings/terminal", {
+    method: "PUT",
+    body: JSON.stringify({ idle_reap_days: days }),
+  });
+}
+
+export function listIdlePtydSessions(days: number): Promise<IdleTerminal[]> {
+  return request<IdleTerminal[]>(`/api/idle-ptyd-sessions?days=${days}`);
+}
+
+export function reapIdlePtydSessions(days: number): Promise<{ reaped: IdleTerminal[]; busy: IdleTerminal[] }> {
+  return request(`/api/idle-ptyd-sessions/reap?days=${days}`, { method: "POST" });
 }
 
 /** The main settings modal's Logs tab. */

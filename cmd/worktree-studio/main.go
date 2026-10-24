@@ -277,6 +277,18 @@ func main() {
 		}
 	}()
 
+	// The opt-in idle reaper for ptyd terminals (off unless set in Settings;
+	// see term.Manager.ReapIdle), re-reading the setting each hour.
+	go func() {
+		for ; ; time.Sleep(time.Hour) {
+			if days := termMgr.IdleReapDays(); days > 0 {
+				if _, _, err := srv.ReapIdlePtyd(days); err != nil {
+					logger.Warn("idle ptyd reaper", "err", err)
+				}
+			}
+		}
+	}()
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)

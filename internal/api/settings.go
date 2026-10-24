@@ -156,26 +156,40 @@ func (s *Server) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 // terminalSettings is the terminal backend for NEW terminals (existing ones
 // stay on the backend they were created with). EnvOverride means
 // WORKTREE_STUDIO_TERMINAL_BACKEND pins it for this server run, so a PUT is
-// stored but has no effect until restart without it. See docs/ptyd.md.
+// stored but has no effect until restart without it. IdleReapDays is the
+// ptyd idle reaper (0 = off; term.IdleReapSettingKey). See docs/ptyd.md.
 type terminalSettings struct {
-	Backend     string `json:"backend"`
-	EnvOverride bool   `json:"env_override"`
+	Backend      string `json:"backend"`
+	EnvOverride  bool   `json:"env_override"`
+	IdleReapDays int    `json:"idle_reap_days"`
 }
 
 func (s *Server) handleGetTerminalSettings(w http.ResponseWriter, r *http.Request) {
 	b, fromEnv := s.Term.Backend()
-	writeJSON(w, http.StatusOK, terminalSettings{Backend: b, EnvOverride: fromEnv})
+	writeJSON(w, http.StatusOK, terminalSettings{Backend: b, EnvOverride: fromEnv, IdleReapDays: s.Term.IdleReapDays()})
 }
 
+// handlePutTerminalSettings updates whichever fields are present.
 func (s *Server) handlePutTerminalSettings(w http.ResponseWriter, r *http.Request) {
-	var req terminalSettings
+	var req struct {
+		Backend      string `json:"backend"`
+		IdleReapDays *int   `json:"idle_reap_days"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := s.Term.SetBackend(req.Backend); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	if req.Backend != "" {
+		if err := s.Term.SetBackend(req.Backend); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.IdleReapDays != nil {
+		if err := s.Term.SetIdleReapDays(*req.IdleReapDays); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	s.handleGetTerminalSettings(w, r)
 }
