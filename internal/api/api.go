@@ -132,6 +132,7 @@ func (s *Server) Routes(r chi.Router) {
 	r.Route("/api/tasks", func(r chi.Router) {
 		r.Get("/", s.handleListTasks)
 		r.Get("/search", s.handleSearchTasks)
+		r.Post("/refresh", s.handleRefreshTasks)
 		r.Patch("/{source}/{key}", s.handleUpdateTask)
 	})
 	r.Route("/api/task-statuses", func(r chi.Router) {
@@ -140,6 +141,12 @@ func (s *Server) Routes(r chi.Router) {
 		r.Put("/order", s.handleReorderTaskStatuses)
 		r.Patch("/{statusID}", s.handleRenameTaskStatus)
 		r.Delete("/{statusID}", s.handleDeleteTaskStatus)
+	})
+	r.Route("/api/task-sources", func(r chi.Router) {
+		r.Get("/", s.handleListTaskSources)
+		r.Post("/", s.handleAddTaskSource)
+		r.Delete("/{sourceID}", s.handleDeleteTaskSource)
+		r.Post("/{sourceID}/test", s.handleTestTaskSource)
 	})
 	r.Route("/api/spotlight", func(r chi.Router) {
 		r.Post("/start", s.handleSpotlightCLIStart)
