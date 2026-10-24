@@ -524,8 +524,8 @@ function TerminalTab() {
   }
 
   const options: { value: TerminalBackend; label: string }[] = [
+    { value: "ptyd", label: "ptyd (default)" },
     { value: "tmux", label: "tmux" },
-    { value: "ptyd", label: "ptyd (experimental)" },
   ];
 
   return (

@@ -53,20 +53,20 @@ func servePtyd(t *testing.T, c *ptyd.Client, version string) {
 
 func TestBackendSettingAndEnvOverride(t *testing.T) {
 	m := newPtydManager(t)
-	if b, _ := m.Backend(); b != BackendTmux {
-		t.Fatalf("default backend = %q, want tmux", b)
+	if b, _ := m.Backend(); b != BackendPtyd {
+		t.Fatalf("default backend = %q, want ptyd", b)
 	}
 	if err := m.SetBackend("screen"); err == nil {
 		t.Fatal("SetBackend accepted an unknown backend")
 	}
-	if err := m.SetBackend(BackendPtyd); err != nil {
+	if err := m.SetBackend(BackendTmux); err != nil {
 		t.Fatal(err)
 	}
-	if b, env := m.Backend(); b != BackendPtyd || env {
-		t.Fatalf("Backend() = %q, %v after setting ptyd", b, env)
+	if b, env := m.Backend(); b != BackendTmux || env {
+		t.Fatalf("Backend() = %q, %v after setting tmux", b, env)
 	}
-	t.Setenv(BackendEnv, BackendTmux)
-	if b, env := m.Backend(); b != BackendTmux || !env {
+	t.Setenv(BackendEnv, BackendPtyd)
+	if b, env := m.Backend(); b != BackendPtyd || !env {
 		t.Fatalf("Backend() = %q, %v, want the env override", b, env)
 	}
 }

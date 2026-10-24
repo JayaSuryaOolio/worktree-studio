@@ -308,14 +308,14 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 `wts attach <terminalId>` does the same from any real terminal and works for both backends (below).
 
-### The opt-in ptyd backend
+### The ptyd backend (default)
 
-Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does; after a reboot or daemon crash each ptyd tab comes back as a fresh shell with its saved scrollback (`~/.worktree-studio/ptyd/<id>.log`), and a claude tab gets `claude --resume <id>`. Archiving a worktree ends its ptyd shells; unarchiving restores them. tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
+Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does; after a reboot or daemon crash each ptyd tab comes back as a fresh shell with its saved scrollback (`~/.worktree-studio/ptyd/<id>.log`), and a claude tab gets `claude --resume <id>`. Archiving a worktree ends its ptyd shells; unarchiving restores them. ptyd is the default (tmux is still selectable); the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
 
 ```bash
-curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux",...,"idle_reap_days":0,"ptyd_outdated":false}
-curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"ptyd"}'
-WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd wts start           # pin it for one server run (wins over the setting)
+curl http://localhost:8787/api/settings/terminal          # {"backend":"ptyd",...,"idle_reap_days":0,"ptyd_outdated":false}
+curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"tmux"}'
+WORKTREE_STUDIO_TERMINAL_BACKEND=tmux wts start           # pin it for one server run (wins over the setting)
 wts attach <terminalId>                                   # attach from a real terminal; Ctrl+\ detaches
 wts ptyd restart                                          # daemon picks up this build; tabs restored (programs stop)
 curl -X PUT http://localhost:8787/api/settings/terminal -d '{"idle_reap_days":14}'  # opt-in idle reaper (0 = off)

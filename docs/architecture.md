@@ -12,7 +12,7 @@ web/embed.go                  go:embed all:dist (must live next to dist/, embed 
 internal/store/                SQLite registry: repos, worktrees (incl. archived_at/source_branch), terminal_sessions
 internal/gitops/                shells out to `git worktree add/remove/list --porcelain`, `git status`, `git status --porcelain` (changed-file list)
 internal/audit/                 JSONL audit logger, append-only
-internal/term/                  terminal session manager over two backends (tmux by default, ptyd opt-in — `ptyd.go` is the seam, see docs/ptyd.md): create/list/close, attach+resize, startup reconciliation, pane title/cwd lookup, orphans
+internal/term/                  terminal session manager over two backends (ptyd by default, tmux selectable — `ptyd.go` is the seam, see docs/ptyd.md): create/list/close, attach+resize, startup reconciliation, pane title/cwd lookup, orphans
 internal/ptyd/                  PTY daemon (`wts ptyd`) + its unix-socket client: owns ptyd-backend shells, keeps a 4 MiB replay buffer per session, saved to `~/.worktree-studio/ptyd/<id>.log` so tabs can be restored after a reboot or daemon restart
 internal/spotlight/             thin os/exec wrapper around the external `spotlight` CLI (worktree->root mirroring)
 internal/gh/                    thin os/exec wrapper around the `gh` CLI — looks up a branch's pull request (or nil if it has none), same "shell out, don't reimplement" call as gitops/spotlight
