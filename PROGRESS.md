@@ -4,6 +4,16 @@ Running log of work on worktree-studio across sessions. Newest entry at the top.
 
 ---
 
+## 2026-10-24 — ptyd lifecycle: restore, archive, idle reaper, upgrades
+
+Branch `ptyd-lifecycle`. Details in `docs/ptyd.md` (Lifecycle).
+
+- **Saved scrollback + restore**: the daemon writes changed buffers to `~/.worktree-studio/ptyd/<id>.log` every 15s and on shutdown/SIGTERM; deliberate close or a normal shell exit deletes it. Startup reconcile (and opening a tab) restores a gone ptyd session that has a log: same id, fresh shell in the worktree, old scrollback + "restored after restart" line. `terminal_sessions.claude_session_id`, recorded every minute from Claude Code's registry, makes restore type `claude --resume <id>`.
+- **Archive/unarchive**: archive suspends ptyd shells (rows + logs kept), unarchive restores them. tmux unchanged.
+- **Idle reaper** (opt-in, `ptyd_idle_reap_days`): hourly closes ptyd terminals with no client, no output for N days and the shell at its prompt; busy ones are only listed. Settings → Terminal, `/api/idle-ptyd-sessions`.
+- **Upgrades**: daemon reports its build id; `ptyd_outdated` in `/api/settings/terminal`, Settings → Restart ptyd, `wts ptyd restart`.
+- **Verified**: `go test ./...` (persist/restore roundtrip, reconcile restore with claude resume, archive/unarchive, idle predicate + real foreground detection, version mismatch), `go vet`, `bun run test`, `bun run build`. Not verified: an actual reboot, Restart ptyd against the live daemon.
+
 ## 2026-10-24 — Running claude sessions in a worktree
 
 Branch `live-claude-sessions` (stacked on `ptyd`). The worktree's empty-state screen now lists claude sessions **running right now** above the past ones you can `--resume`.

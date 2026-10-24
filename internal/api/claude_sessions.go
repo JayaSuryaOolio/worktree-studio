@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"worktree-studio/internal/claudehook"
+	"worktree-studio/internal/store"
 	"worktree-studio/internal/term"
 )
 
@@ -76,5 +77,58 @@ func (s *Server) claudeTerminalFinder(worktreeID string) func(claudehook.Running
 			parents = claudehook.ProcessParents()
 		}
 		return claudehook.AncestorIn(rs.PID, byShell, parents)
+	}
+}
+
+// RecordClaudeSessions notes on each ptyd terminal row the claude session
+// running in it right now ("" if none), so a tab restored after a daemon
+// restart or reboot can `claude --resume` it (see term.Manager.Restore).
+// Run periodically and right before anything that ends ptyd sessions.
+// ponytail: lists the daemon and the process table once per worktree with
+// ptyd terminals; share one lookup across worktrees if that ever gets slow.
+func (s *Server) RecordClaudeSessions() {
+	if s.Term == nil || s.Term.Ptyd == nil {
+		return
+	}
+	dir, err := claudehook.SessionRegistryDir()
+	if err != nil {
+		return
+	}
+	all, err := s.Store.ListAllTerminalSessions()
+	if err != nil {
+		return
+	}
+	sessions, err := s.Term.Ptyd.List()
+	if err != nil {
+		return
+	}
+	live := map[string]bool{}
+	for _, p := range sessions {
+		live[p.ID] = true
+	}
+	byWorktree := map[string][]store.TerminalSession{}
+	for _, ts := range all {
+		// A gone session keeps what was last seen in it, for its restore.
+		if ts.Backend == term.BackendPtyd && live[ts.ID] {
+			byWorktree[ts.WorktreeID] = append(byWorktree[ts.WorktreeID], ts)
+		}
+	}
+	for wtID, terminals := range byWorktree {
+		wt, err := s.Store.GetWorktree(wtID)
+		if err != nil {
+			continue
+		}
+		running := map[string]string{} // terminal id -> claude session id
+		find := s.claudeTerminalFinder(wtID)
+		for _, rs := range claudehook.ListRunning(dir, wt.Path, claudehook.PidAlive) {
+			if id := find(rs); id != "" {
+				running[id] = rs.SessionID
+			}
+		}
+		for _, ts := range terminals {
+			if running[ts.ID] != ts.ClaudeSessionID {
+				_ = s.Store.SetTerminalClaudeSession(ts.ID, running[ts.ID])
+			}
+		}
 	}
 }

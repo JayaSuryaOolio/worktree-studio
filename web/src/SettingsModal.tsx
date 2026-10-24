@@ -12,12 +12,17 @@ import {
   getServerLogs,
   getTerminalSettings,
   HookStatus,
+  IdleTerminal,
   installHook,
   installSkill,
+  listIdlePtydSessions,
   listTaskSources,
+  reapIdlePtydSessions,
   renameTaskStatus,
   reorderTaskStatuses,
   ServerLogs,
+  restartPtyd,
+  setIdleReapDays,
   setTerminalBackend,
   TerminalBackend,
   TerminalSettings,
@@ -557,9 +562,115 @@ function TerminalTab() {
               Pinned by WORKTREE_STUDIO_TERMINAL_BACKEND for this server run.
             </p>
           )}
+          {settings.ptyd_outdated && <PtydRestart onDone={() => getTerminalSettings().then(setSettings)} />}
+          <IdleReaper settings={settings} onChange={setSettings} />
         </>
       )}
     </section>
+  );
+}
+
+// Shown when the ptyd daemon runs an older build than the server (it keeps
+// the binary it started from): restart it, every ptyd tab comes back.
+function PtydRestart({ onDone }: { onDone: () => void }) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function restart() {
+    if (!window.confirm("Restart the PTY daemon? Running programs in ptyd terminals are stopped; tabs come back with their scrollback (claude resumed).")) return;
+    setError(null);
+    restartPtyd()
+      .then((r) => {
+        setMessage(`Restarted; ${r.restored} terminal(s) restored. Reload the page to reconnect open terminals.`);
+        onDone();
+      })
+      .catch((err) => setError((err as Error).message));
+  }
+
+  return (
+    <>
+      <p className="settings-hint">
+        The PTY daemon is running an older build of worktree-studio.{" "}
+        <button type="button" onClick={restart}>
+          Restart ptyd
+        </button>
+      </p>
+      {error && <p className="error">{error}</p>}
+      {message && <p className="muted">{message}</p>}
+    </>
+  );
+}
+
+// The opt-in idle reaper for ptyd terminals (term.Manager.ReapIdle): the
+// days setting, what it would close right now, and the busy ones it won't.
+function IdleReaper({ settings, onChange }: { settings: TerminalSettings; onChange: (s: TerminalSettings) => void }) {
+  const [days, setDays] = useState(String(settings.idle_reap_days || 7));
+  const [idle, setIdle] = useState<IdleTerminal[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const n = Math.max(1, Math.floor(Number(days)) || 1);
+  const enabled = settings.idle_reap_days > 0;
+
+  useEffect(() => {
+    listIdlePtydSessions(n)
+      .then(setIdle)
+      .catch((err) => setError((err as Error).message));
+  }, [n, message]);
+
+  function save(value: number) {
+    setError(null);
+    setIdleReapDays(value)
+      .then(onChange)
+      .catch((err) => setError((err as Error).message));
+  }
+
+  function reapNow() {
+    if (!window.confirm(`Close every idle ptyd terminal (no output for ${n} days, nothing running)?`)) return;
+    setError(null);
+    reapIdlePtydSessions(n)
+      .then((r) => setMessage(`Closed ${r.reaped.length}; left ${r.busy.length} busy.`))
+      .catch((err) => setError((err as Error).message));
+  }
+
+  const reapable = idle?.filter((t) => !t.busy) ?? [];
+  const busy = idle?.filter((t) => t.busy) ?? [];
+  return (
+    <>
+      <h3>Idle ptyd terminals</h3>
+      {error && <p className="error">{error}</p>}
+      <label className="settings-hint">
+        <input type="checkbox" checked={enabled} onChange={(e) => save(e.target.checked ? n : 0)} /> Close ptyd
+        terminals after{" "}
+        <input
+          type="number"
+          min={1}
+          value={days}
+          style={{ width: "4em" }}
+          onChange={(e) => setDays(e.target.value)}
+          onBlur={() => enabled && n !== settings.idle_reap_days && save(n)}
+        />{" "}
+        days with no output and no one attached (checked hourly).
+      </label>
+      <p className="settings-hint">
+        Only a shell sitting at its prompt is closed; a terminal running something (claude, a dev server) is left
+        alone and listed here instead.
+      </p>
+      {idle !== null && (
+        <>
+          <p className="muted">
+            {reapable.length} would be closed now
+            {busy.length > 0 && `; busy, left running: ${busy.map((t) => `${t.tab_label} (${t.busy})`).join(", ")}`}
+            .
+          </p>
+          {reapable.length > 0 && (
+            <button type="button" onClick={reapNow}>
+              Close {reapable.length} now
+            </button>
+          )}
+        </>
+      )}
+      {message && <p className="muted">{message}</p>}
+    </>
   );
 }
 

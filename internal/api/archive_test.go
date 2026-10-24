@@ -1,12 +1,16 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"worktree-studio/internal/ptyd"
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/term"
 )
 
 func TestArchiveWorktreeHidesItFromListButKeepsItOnDisk(t *testing.T) {
@@ -198,5 +202,72 @@ func TestArchiveWorktreeNotFound(t *testing.T) {
 	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/does-not-exist/archive", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("POST archive for missing worktree: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// Archiving ends a worktree's ptyd shells but keeps the tabs (rows) and
+// their saved scrollback; unarchiving brings the shells back.
+func TestArchiveEndsPtydTerminalsAndUnarchiveRestoresThem(t *testing.T) {
+	requireGit(t)
+	ts, srv := newTestServer(t)
+	dir, err := os.MkdirTemp("", "ptyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemon := ptyd.NewServer()
+	daemon.Dir = ptyd.LogDir(sock)
+	go daemon.Serve(ln)
+	c := &ptyd.Client{Socket: sock}
+	t.Cleanup(func() {
+		sessions, _ := c.List()
+		for _, s := range sessions {
+			_ = c.Kill(s.ID)
+		}
+		ln.Close()
+	})
+	srv.Term.Ptyd = c
+	t.Setenv(term.BackendEnv, term.BackendPtyd)
+	t.Setenv("SHELL", "/bin/sh")
+
+	repoPath := newTestGitRepo(t)
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+	tab, err := srv.Term.CreateSession(wt.ID, wt.Path, "shell", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/archive", nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST archive: status = %d", resp.StatusCode)
+	}
+	for i := 0; i < 50 && srv.Term.Alive(tab); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if srv.Term.Alive(tab) {
+		t.Fatal("ptyd session still running after archive")
+	}
+	if _, err := srv.Store.GetTerminalSession(tab.ID); err != nil || !c.HasSaved(tab.ID) {
+		t.Fatalf("archive dropped the tab (row err %v, saved %v)", err, c.HasSaved(tab.ID))
+	}
+	if dropped, _, _ := srv.Term.Reconcile(); dropped != 0 {
+		t.Fatalf("Reconcile pruned %d rows of an archived worktree", dropped)
+	}
+
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/unarchive", nil)
+	resp.Body.Close()
+	if !srv.Term.Alive(tab) {
+		t.Fatal("unarchive did not restore the ptyd session")
 	}
 }

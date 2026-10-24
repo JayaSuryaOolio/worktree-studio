@@ -159,6 +159,8 @@ func (s *Server) Routes(r chi.Router) {
 	r.Get("/api/repos/{repoID}/terminals/all", s.handleListTerminalsForRepo)
 	r.Get("/api/orphan-tmux-sessions", s.handleListOrphanTmuxSessions)
 	r.Post("/api/orphan-tmux-sessions/prune", s.handlePruneOrphanTmuxSessions)
+	r.Get("/api/idle-ptyd-sessions", s.handleListIdlePtydSessions)
+	r.Post("/api/idle-ptyd-sessions/reap", s.handleReapIdlePtydSessions)
 
 	r.Route("/api/settings", func(r chi.Router) {
 		r.Get("/dependencies", s.handleGetDependencyStatus)
@@ -169,6 +171,7 @@ func (s *Server) Routes(r chi.Router) {
 		r.Get("/logs", s.handleGetLogs)
 		r.Get("/terminal", s.handleGetTerminalSettings)
 		r.Put("/terminal", s.handlePutTerminalSettings)
+		r.Post("/terminal/ptyd-restart", s.handleRestartPtyd)
 	})
 }
 

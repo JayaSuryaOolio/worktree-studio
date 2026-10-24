@@ -86,3 +86,55 @@ func (s *Server) handlePruneOrphanTmuxSessions(w http.ResponseWriter, r *http.Re
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"killed": killed, "protected": protected})
 }
+
+// parseIdleDays reads an optional ?days= query param, falling back to the
+// idle reaper setting (0, off, if unset).
+func (s *Server) parseIdleDays(r *http.Request) int {
+	if n, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && n >= 0 {
+		return n
+	}
+	return s.Term.IdleReapDays()
+}
+
+// handleListIdlePtydSessions previews the idle reaper (term.FindIdle): ptyd
+// terminals idle for the window, busy ones marked. Nothing is closed.
+func (s *Server) handleListIdlePtydSessions(w http.ResponseWriter, r *http.Request) {
+	idle, err := s.Term.FindIdle(s.parseIdleDays(r))
+	if err != nil {
+		s.Log.Error("find idle ptyd sessions", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to list idle ptyd sessions")
+		return
+	}
+	if idle == nil {
+		idle = []term.IdleTerminal{}
+	}
+	writeJSON(w, http.StatusOK, idle)
+}
+
+// handleReapIdlePtydSessions runs the idle reaper now (see ReapIdlePtyd).
+func (s *Server) handleReapIdlePtydSessions(w http.ResponseWriter, r *http.Request) {
+	reaped, busy, err := s.ReapIdlePtyd(s.parseIdleDays(r))
+	if err != nil {
+		s.Log.Error("reap idle ptyd sessions", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to reap idle ptyd sessions")
+		return
+	}
+	if reaped == nil {
+		reaped = []term.IdleTerminal{}
+	}
+	if busy == nil {
+		busy = []term.IdleTerminal{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reaped": reaped, "busy": busy})
+}
+
+// ReapIdlePtyd closes ptyd terminals idle for days (term.ReapIdle; each close
+// is audit-logged there) and logs the busy ones it left alone. days 0 is a
+// no-op.
+func (s *Server) ReapIdlePtyd(days int) (reaped, busy []term.IdleTerminal, err error) {
+	reaped, busy, err = s.Term.ReapIdle(days)
+	if err == nil && len(reaped)+len(busy) > 0 {
+		s.Log.Info("idle ptyd reaper", "days", days, "reaped", len(reaped), "busy_left_running", len(busy))
+	}
+	return reaped, busy, err
+}

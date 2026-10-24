@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"worktree-studio/internal/ptyd"
+	"worktree-studio/internal/store"
 )
 
 // newPtydManager is a Manager whose ptyd client talks to an in-process
@@ -22,12 +23,25 @@ func newPtydManager(t *testing.T) *Manager {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	ln, err := net.Listen("unix", filepath.Join(dir, "s"))
+	c := &ptyd.Client{Socket: filepath.Join(dir, "s")}
+	servePtyd(t, c, "")
+	return &Manager{Store: newTestStore(t), Ptyd: c}
+}
+
+// servePtyd runs an in-process daemon for c, reporting version (or the real
+// BuildID if "") and saving scrollback next to the socket.
+func servePtyd(t *testing.T, c *ptyd.Client, version string) {
+	t.Helper()
+	ln, err := net.Listen("unix", c.Socket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	go ptyd.NewServer().Serve(ln)
-	c := &ptyd.Client{Socket: ln.Addr().String()}
+	srv := ptyd.NewServer()
+	srv.Dir = ptyd.LogDir(c.Socket)
+	if version != "" {
+		srv.Version = version
+	}
+	go srv.Serve(ln)
 	t.Cleanup(func() {
 		sessions, _ := c.List()
 		for _, s := range sessions {
@@ -35,7 +49,6 @@ func newPtydManager(t *testing.T) *Manager {
 		}
 		ln.Close()
 	})
-	return &Manager{Store: newTestStore(t), Ptyd: c}
 }
 
 func TestBackendSettingAndEnvOverride(t *testing.T) {
@@ -106,7 +119,7 @@ func TestPtydBackendSessionLifecycle(t *testing.T) {
 		t.Fatalf("CurrentPath = %q, %v; want %q", cwd, err, want)
 	}
 
-	if n, err := m.Reconcile(); err != nil || n != 0 {
+	if n, _, err := m.Reconcile(); err != nil || n != 0 {
 		t.Fatalf("Reconcile dropped %d (%v) with the session alive", n, err)
 	}
 	orphans, err := m.FindOrphans(0)
@@ -126,7 +139,80 @@ func TestPtydBackendSessionLifecycle(t *testing.T) {
 	for i := 0; i < 50 && m.Alive(ts); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if n, err := m.Reconcile(); err != nil || n != 1 {
+	if n, _, err := m.Reconcile(); err != nil || n != 1 {
 		t.Fatalf("Reconcile dropped %d (%v), want the dead ptyd row", n, err)
+	}
+}
+
+// After the daemon goes away with the scrollback saved (restart, reboot),
+// Reconcile brings the tab back under the same id, resuming its claude.
+func TestReconcileRestoresSavedPtydSession(t *testing.T) {
+	m := newPtydManager(t)
+	if err := m.SetBackend(BackendPtyd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", "/bin/sh")
+	wt, _ := m.Store.GetWorktree("wt1")
+	ts, err := m.CreateSession(wt.ID, wt.Path, "shell", "echo before-''restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForOutput(t, m, ts, "before-restart")
+	if err := m.Store.SetTerminalClaudeSession(ts.ID, "abc-123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Ptyd.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+
+	servePtyd(t, m.Ptyd, "")
+	ts, _ = m.Store.GetTerminalSession(ts.ID)
+	if dropped, restored, err := m.Reconcile(); err != nil || dropped != 0 || restored != 1 {
+		t.Fatalf("Reconcile = %d dropped, %d restored, %v", dropped, restored, err)
+	}
+	out := waitForOutput(t, m, ts, "claude --resume abc-123")
+	if !strings.Contains(out, "before-restart") || !strings.Contains(out, "restored after restart") {
+		t.Fatalf("restored terminal output = %q", out)
+	}
+}
+
+// waitForOutput attaches to ts until its replay plus live output contains want.
+func waitForOutput(t *testing.T, m *Manager, ts store.TerminalSession, want string) string {
+	t.Helper()
+	att, err := m.Attach(ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer att.Close()
+	out := append([]byte(nil), att.Replay...)
+	deadline := time.Now().Add(10 * time.Second)
+	buf := make([]byte, 4096)
+	for !bytes.Contains(out, []byte(want)) && time.Now().Before(deadline) {
+		n, err := att.Read(buf)
+		out = append(out, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	if !bytes.Contains(out, []byte(want)) {
+		t.Fatalf("output lacks %q: %q", want, out)
+	}
+	return string(out)
+}
+
+func TestPtydStatusFlagsOldDaemonBuild(t *testing.T) {
+	m := newPtydManager(t)
+	if running, outdated := m.PtydStatus(); !running || outdated {
+		t.Fatalf("same build: running=%v outdated=%v", running, outdated)
+	}
+	dir, err := os.MkdirTemp("", "ptyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	m.Ptyd = &ptyd.Client{Socket: filepath.Join(dir, "s")}
+	servePtyd(t, m.Ptyd, "old-build")
+	if running, outdated := m.PtydStatus(); !running || !outdated {
+		t.Fatalf("old build: running=%v outdated=%v", running, outdated)
 	}
 }

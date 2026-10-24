@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -72,11 +73,7 @@ func (m *Manager) createPtydSession(worktreeID, worktreePath, tabLabel, initialC
 		return store.TerminalSession{}, err
 	}
 	id := newSessionID()
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	if err := c.Create(id, worktreePath, []string{shell, "-l"}, ptydEnv(), 0, 0); err != nil {
+	if err := c.Create(id, worktreePath, loginShell(), ptydEnv(), 0, 0); err != nil {
 		return store.TerminalSession{}, err
 	}
 	if initialCommand != "" {
@@ -98,6 +95,129 @@ func (m *Manager) createPtydSession(worktreeID, worktreePath, tabLabel, initialC
 		_ = m.Audit.Log(audit.EventTerminalCreate, fields)
 	}
 	return ts, nil
+}
+
+func loginShell() []string {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return []string{shell, "-l"}
+}
+
+// claudeSessionIDPattern guards what Restore types into a shell.
+var claudeSessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+// Restore brings back a ptyd terminal whose session is gone (daemon restart,
+// reboot, archive) under the same id: a fresh login shell in the worktree
+// with the saved scrollback shown first, running `claude --resume` if a
+// claude session was last seen in it.
+func (m *Manager) Restore(ts store.TerminalSession) error {
+	c, err := m.ptydClient()
+	if err != nil {
+		return err
+	}
+	wt, err := m.Store.GetWorktree(ts.WorktreeID)
+	if err != nil {
+		return fmt.Errorf("worktree of terminal %s: %w", ts.ID, err)
+	}
+	if err := c.Restore(ts.ID, wt.Path, loginShell(), ptydEnv()); err != nil {
+		return err
+	}
+	fields := map[string]any{"terminal_id": ts.ID, "worktree_id": ts.WorktreeID, "backend": BackendPtyd, "tab_label": ts.TabLabel, "restored": true}
+	if claudeSessionIDPattern.MatchString(ts.ClaudeSessionID) {
+		cmd := "claude --resume " + ts.ClaudeSessionID
+		if c.Write(ts.ID, []byte(cmd+"\r")) == nil {
+			fields["initial_command"] = cmd
+		}
+	}
+	if m.Audit != nil {
+		_ = m.Audit.Log(audit.EventTerminalCreate, fields)
+	}
+	return nil
+}
+
+// SuspendWorktree ends a worktree's ptyd sessions (archive) but keeps their
+// rows and saved scrollback, for RestoreWorktree. tmux terminals are left
+// running, as before.
+func (m *Manager) SuspendWorktree(worktreeID string) error {
+	c, err := m.ptydClient()
+	if err != nil {
+		return nil
+	}
+	terminals, err := m.Store.ListTerminalSessions(worktreeID)
+	if err != nil {
+		return err
+	}
+	for _, ts := range terminals {
+		if ts.Backend == BackendPtyd {
+			if err := c.Suspend(ts.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// RestoreWorktree restores every ptyd terminal of a worktree whose session
+// is gone (unarchive): with its saved scrollback if there is one, else just
+// a fresh shell.
+func (m *Manager) RestoreWorktree(worktreeID string) (restored int, err error) {
+	terminals, err := m.Store.ListTerminalSessions(worktreeID)
+	if err != nil {
+		return 0, err
+	}
+	for _, ts := range terminals {
+		if ts.Backend != BackendPtyd || m.Alive(ts) {
+			continue
+		}
+		if err := m.Restore(ts); err != nil {
+			return restored, err
+		}
+		restored++
+	}
+	return restored, nil
+}
+
+// PtydStatus reports whether the ptyd daemon is running and, if so, whether
+// it runs a different build than this server (an upgrade it hasn't picked
+// up: the daemon keeps the binary it was started from until RestartPtyd).
+func (m *Manager) PtydStatus() (running, outdated bool) {
+	c, err := m.ptydClient()
+	if err != nil || !c.Running() {
+		return false, false
+	}
+	v, err := c.Version()
+	return true, err == nil && v != ptyd.BuildID()
+}
+
+// RestartPtyd restarts the daemon on the current build: it saves every
+// session's scrollback and exits, then each ptyd tab that was live comes
+// back on a fresh daemon via Restore (scrollback, claude --resume).
+func (m *Manager) RestartPtyd() (restored int, err error) {
+	c, err := m.ptydClient()
+	if err != nil {
+		return 0, err
+	}
+	sessions, err := c.List()
+	if err != nil {
+		return 0, err
+	}
+	if err := c.Shutdown(); err != nil {
+		return 0, err
+	}
+	for _, s := range sessions {
+		ts, err := m.Store.GetTerminalSession(s.ID)
+		if err != nil || ts.Backend != BackendPtyd {
+			_ = c.Kill(s.ID) // an orphan: drop its saved log
+			continue
+		}
+		if err := m.Restore(ts); err != nil {
+			return restored, err
+		}
+		restored++
+	}
+	return restored, nil
 }
 
 // ptydEnv is the environment for a ptyd shell: ours with TERM fixed (see
@@ -192,17 +312,14 @@ func (m *Manager) CurrentPath(ts store.TerminalSession) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pid := s.Pid
 	// The tty's foreground process group (e.g. a `claude` started from the
 	// shell), like tmux's pane_current_path; the shell itself if that fails.
-	if out, err := exec.Command("ps", "-o", "tpgid=", "-p", strconv.Itoa(pid)).Output(); err == nil {
-		if fg, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && fg > 0 {
-			if cwd, err := processCwd(fg); err == nil {
-				return cwd, nil
-			}
+	if fg := foregroundPgrp(s.Pid); fg > 0 {
+		if cwd, err := processCwd(fg); err == nil {
+			return cwd, nil
 		}
 	}
-	return processCwd(pid)
+	return processCwd(s.Pid)
 }
 
 func processCwd(pid int) (string, error) {
@@ -223,33 +340,44 @@ func processCwd(pid int) (string, error) {
 }
 
 // Reconcile prunes terminal rows whose backing session is gone, on both
-// backends. Never starts the ptyd daemon: if it isn't running, every ptyd
-// row is stale (its shells died with it).
-func (m *Manager) Reconcile() (dropped int, err error) {
+// backends. A ptyd row whose session is gone but whose scrollback was saved
+// (daemon restart, reboot) is restored instead, and one in an archived
+// worktree is left for unarchive to restore. Starts the daemon only to
+// restore.
+func (m *Manager) Reconcile() (dropped, restored int, err error) {
 	if c, cerr := m.ptydClient(); cerr == nil {
 		live := map[string]bool{}
 		sessions, lerr := c.List()
 		if lerr != nil {
-			return 0, lerr
+			return 0, 0, lerr
 		}
 		for _, s := range sessions {
 			live[s.ID] = true
 		}
 		all, lerr := m.Store.ListAllTerminalSessions()
 		if lerr != nil {
-			return 0, lerr
+			return 0, 0, lerr
 		}
 		for _, ts := range all {
-			if ts.Backend == BackendPtyd && !live[ts.ID] {
-				if err := m.Store.RemoveTerminalSession(ts.ID); err != nil {
-					return dropped, err
-				}
-				dropped++
+			if ts.Backend != BackendPtyd || live[ts.ID] {
+				continue
 			}
+			if wt, err := m.Store.GetWorktree(ts.WorktreeID); err == nil && wt.Status == store.WorktreeStatusArchived {
+				continue
+			}
+			if c.HasSaved(ts.ID) && m.Restore(ts) == nil {
+				restored++
+				continue
+			}
+			_ = c.Kill(ts.ID) // drops a saved log that failed to restore
+			if err := m.Store.RemoveTerminalSession(ts.ID); err != nil {
+				return dropped, restored, err
+			}
+			dropped++
 		}
 	}
 	n, err := Reconcile(m.Store)
-	return dropped + n, err
+	return dropped + n, restored, err
 }
 
 // ptydOrphanPrefix marks ptyd sessions in the orphan listing, whose names

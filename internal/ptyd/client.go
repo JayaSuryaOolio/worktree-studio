@@ -2,6 +2,8 @@ package ptyd
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +31,31 @@ func DefaultSocket() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".worktree-studio", "ptyd.sock")
 }
+
+// LogDir is where the daemon on socket saves scrollback: a "ptyd" directory
+// next to the socket (~/.worktree-studio/ptyd/<id>.log by default).
+func LogDir(socket string) string { return filepath.Join(filepath.Dir(socket), "ptyd") }
+
+// BuildID identifies this executable (a hash of its file), computed on first
+// use. The daemon reports its own in list, so the API server can tell it
+// runs an older build. Call it early in a long-lived process, before the
+// binary on disk can be replaced underneath it.
+var BuildID = sync.OnceValue(func() string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(self)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+})
 
 // ErrNoSession means the daemon has no session by that id (it exited, was
 // killed, or the daemon itself isn't running).
@@ -129,15 +157,31 @@ func (c *Client) do(req Request) (response, error) {
 	return resp, nil
 }
 
-// Create starts argv in a new PTY under id.
-func (c *Client) Create(id, cwd string, argv, env []string, cols, rows uint16) error {
+func (c *Client) create(req Request) error {
 	if c.AutoStart && !c.Running() {
 		if err := c.start(); err != nil {
 			return err
 		}
 	}
-	_, err := c.do(Request{Op: "create", ID: id, Cwd: cwd, Argv: argv, Env: env, Cols: cols, Rows: rows})
+	_, err := c.do(req)
 	return err
+}
+
+// Create starts argv in a new PTY under id.
+func (c *Client) Create(id, cwd string, argv, env []string, cols, rows uint16) error {
+	return c.create(Request{Op: "create", ID: id, Cwd: cwd, Argv: argv, Env: env, Cols: cols, Rows: rows})
+}
+
+// Restore is Create for a session that existed before (same id): its new
+// scrollback starts with what was saved of the old one, if anything.
+func (c *Client) Restore(id, cwd string, argv, env []string) error {
+	return c.create(Request{Op: "create", ID: id, Cwd: cwd, Argv: argv, Env: env, Restore: true})
+}
+
+// HasSaved reports whether a saved scrollback log exists for id.
+func (c *Client) HasSaved(id string) bool {
+	_, err := os.Stat(filepath.Join(LogDir(c.Socket), id+".log"))
+	return err == nil
 }
 
 // List returns the live sessions; none (not an error) if no daemon runs.
@@ -147,6 +191,45 @@ func (c *Client) List() ([]Session, error) {
 	}
 	resp, err := c.do(Request{Op: "list"})
 	return resp.Sessions, err
+}
+
+// Version is the running daemon's BuildID; "" if no daemon runs.
+func (c *Client) Version() (string, error) {
+	if !c.Running() {
+		return "", nil
+	}
+	resp, err := c.do(Request{Op: "list"})
+	return resp.Version, err
+}
+
+// Shutdown makes the daemon save every session's scrollback, end the
+// sessions and exit, and waits for it to stop answering. Nothing running is
+// not an error.
+func (c *Client) Shutdown() error {
+	if !c.Running() {
+		return nil
+	}
+	if _, err := c.do(Request{Op: "shutdown"}); err != nil {
+		// A daemon from before the shutdown op (it can't save anything
+		// either): SIGTERM whoever holds its lock file.
+		// ponytail: drop once no such daemons are left running.
+		out, lerr := exec.Command("lsof", "-t", c.Socket+".lock").Output()
+		if lerr != nil {
+			return err
+		}
+		for _, f := range strings.Fields(string(out)) {
+			if pid, _ := strconv.Atoi(f); pid > 0 && pid != os.Getpid() {
+				_ = syscall.Kill(pid, syscall.SIGTERM)
+			}
+		}
+	}
+	for i := 0; i < 50 && c.Running(); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if c.Running() {
+		return errors.New("ptyd: still running after shutdown")
+	}
+	return nil
 }
 
 // Get returns one live session, or ErrNoSession.
@@ -173,9 +256,25 @@ func (c *Client) Resize(id string, cols, rows uint16) error {
 	return err
 }
 
-// Kill hangs up the session. A missing session or daemon is not an error.
+// Kill hangs up the session and deletes its saved scrollback. A missing
+// session or daemon is not an error.
 func (c *Client) Kill(id string) error {
 	_, err := c.do(Request{Op: "kill", ID: id})
+	if !c.Running() {
+		_ = os.Remove(filepath.Join(LogDir(c.Socket), id+".log"))
+		return nil
+	}
+	if errors.Is(err, ErrNoSession) {
+		return nil
+	}
+	return err
+}
+
+// Suspend hangs up the session but saves its scrollback first and keeps it,
+// so a later Restore brings the tab back. A missing session or daemon is not
+// an error.
+func (c *Client) Suspend(id string) error {
+	_, err := c.do(Request{Op: "kill", ID: id, Keep: true})
 	if errors.Is(err, ErrNoSession) || !c.Running() {
 		return nil
 	}

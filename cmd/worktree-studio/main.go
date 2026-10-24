@@ -176,12 +176,14 @@ func main() {
 	}
 
 	// The PTY daemon behind the opt-in ptyd terminal backend (docs/ptyd.md).
-	// Started on first use, never here, and left running when we exit.
+	// Started on first use (or to restore tabs saved by a daemon that went
+	// away), and left running when we exit.
+	_ = ptyd.BuildID() // pin it before the binary on disk can be replaced
 	termMgr := &term.Manager{Store: st, Audit: al, Ptyd: &ptyd.Client{Socket: ptyd.DefaultSocket(), AutoStart: true}}
-	if dropped, err := termMgr.Reconcile(); err != nil {
+	if dropped, restored, err := termMgr.Reconcile(); err != nil {
 		logger.Warn("reconcile terminal sessions against live tmux/ptyd sessions", "err", err)
-	} else if dropped > 0 {
-		logger.Info("pruned stale terminal session rows (backing session no longer live)", "count", dropped)
+	} else if dropped+restored > 0 {
+		logger.Info("reconciled terminal session rows (pruned: backing session no longer live; restored: ptyd scrollback saved)", "pruned", dropped, "restored", restored)
 	}
 
 	// One-time correction for an installation that already ran an earlier,
@@ -264,6 +266,26 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			srv.SweepExpiredArchivedWorktrees()
+		}
+	}()
+
+	// Which claude runs in which ptyd tab, so a tab restored after a reboot
+	// or daemon crash can resume it (see api.Server.RecordClaudeSessions).
+	go func() {
+		for range time.Tick(time.Minute) {
+			srv.RecordClaudeSessions()
+		}
+	}()
+
+	// The opt-in idle reaper for ptyd terminals (off unless set in Settings;
+	// see term.Manager.ReapIdle), re-reading the setting each hour.
+	go func() {
+		for ; ; time.Sleep(time.Hour) {
+			if days := termMgr.IdleReapDays(); days > 0 {
+				if _, _, err := srv.ReapIdlePtyd(days); err != nil {
+					logger.Warn("idle ptyd reaper", "err", err)
+				}
+			}
 		}
 	}()
 

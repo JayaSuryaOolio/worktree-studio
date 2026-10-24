@@ -174,3 +174,79 @@ func TestKillEndsSession(t *testing.T) {
 		t.Fatalf("Kill of a gone session should be a no-op, got %v", err)
 	}
 }
+
+// Daemon restart (or reboot): shutdown saves the scrollback, a new daemon
+// restores the session under the same id with it shown first, and closing
+// the tab for good deletes the log.
+func TestShutdownSavesAndRestoreReplays(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ptyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s")
+	serve := func() {
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := NewServer()
+		srv.Dir = LogDir(sock)
+		go srv.Serve(ln)
+		t.Cleanup(srv.shutdown)
+	}
+	serve()
+	c := &Client{Socket: sock}
+	env := []string{"PS1=$ ", "PATH=/usr/bin:/bin"}
+	if err := c.Create("r1", t.TempDir(), []string{"/bin/sh"}, env, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	_, st, err := c.Attach("r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Write([]byte("echo before-''restart\n"))
+	readUntil(t, st, "before-restart")
+	st.Close()
+
+	if err := c.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.HasSaved("r1") {
+		t.Fatal("no saved log after shutdown")
+	}
+
+	serve()
+	if v, _ := c.Version(); v != BuildID() {
+		t.Fatalf("Version = %q, want %q", v, BuildID())
+	}
+	if err := c.Restore("r1", t.TempDir(), []string{"/bin/sh"}, env); err != nil {
+		t.Fatal(err)
+	}
+	replay, st2, err := c.Attach("r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st2.Close()
+	if !strings.Contains(string(replay), "before-restart") || !strings.Contains(string(replay), "restored after restart") {
+		t.Fatalf("restored replay = %q", replay)
+	}
+	s, _ := c.Get("r1")
+	for i := 0; i < 50 && s.Clients != 0; i++ { // the daemon notices the detach asynchronously
+		time.Sleep(100 * time.Millisecond)
+		s, _ = c.Get("r1")
+	}
+	if s.Clients != 0 {
+		t.Fatalf("Clients = %d after detach", s.Clients)
+	}
+
+	if err := c.Kill("r1"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50 && c.HasSaved("r1"); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if c.HasSaved("r1") {
+		t.Fatal("log survived a deliberate kill")
+	}
+}
