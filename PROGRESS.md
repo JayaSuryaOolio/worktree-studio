@@ -17,7 +17,7 @@ Branch `live-claude-sessions` (stacked on `ptyd`). The worktree's empty-state sc
 
 ## 2026-10-24 — ptyd: opt-in PTY-daemon terminal backend
 
-Branch `ptyd`. A second terminal backend next to tmux, toggled per new terminal; tmux stays the default and its code path is unchanged. Full design, toggle, limitations and the criteria for making it the default live in `docs/ptyd.md` (living doc with a Progress checklist).
+Branch `ptyd`. A second terminal backend next to tmux, toggled per new terminal; tmux was the default and its code path is unchanged; ptyd became the default on 2026-10-24 (tmux still selectable). Full design, toggle, limitations and the criteria for making it the default live in `docs/ptyd.md` (living doc with a Progress checklist).
 
 - **Daemon** (`internal/ptyd`, `wts ptyd`): owns PTYs via creack/pty on `~/.worktree-studio/ptyd.sock`; JSON request line + framed streaming on attach; 4 MiB scrollback per session replayed on attach from a clean boundary, then live. The API server auto-starts it detached (Setsid), so it outlives the server.
 - **Toggle**: `settings` table (`terminal_backend`) + `WORKTREE_STUDIO_TERMINAL_BACKEND` override, `GET/PUT /api/settings/terminal`, Settings → Terminal tab. `terminal_sessions.backend` records each row's backend (existing rows migrate as `tmux`); ws attach, cwd, reconcile and orphans (`ptyd:<id>`) all follow the row.

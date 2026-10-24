@@ -91,13 +91,15 @@ records its `backend` (`tmux` | `ptyd`, existing rows migrate as `tmux`) and
 stays on it, so switching never strands an open tab.
 
 - Settings UI: Settings → Terminal → backend.
-- API: `GET /api/settings/terminal` → `{"backend":"tmux","env_override":false}`;
+- API: `GET /api/settings/terminal` → `{"backend":"ptyd","env_override":false}`;
   `PUT` the same shape to change it (stored in the `settings` table, key
   `terminal_backend`).
 - Env: `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd|tmux` pins it for that server
   run and wins over the stored setting (`env_override: true`).
 
-Default is `tmux`.
+Default is `ptyd` (since 2026-10-24) when nothing is stored or pinned; pick
+`tmux` in Settings to go back. The setting is read on every create, so it
+takes effect for the next new terminal without a restart.
 
 ### What each piece does per backend
 
@@ -131,6 +133,11 @@ Default is `tmux`.
 
 ## Criteria for making ptyd the default
 
+Flipped on 2026-10-24 after daily use on ptyd since it merged; the
+remaining items below are tracked in the ptyd lifecycle PR (persisted
+buffers, reboot restore, idle reaping, restart-on-upgrade) rather than
+blocking the default.
+
 - Daily use on ptyd for a couple of weeks (web, desktop and TUI) with no
   lost sessions or stray input from replayed queries.
 - Reattach of a long-running `claude` session renders correctly: if trimmed
@@ -155,6 +162,7 @@ Default is `tmux`.
       fed into the vt emulator, its replies dropped up to a marker
 - [x] Docs (README, architecture, session-persistence, PROGRESS, PLAN,
       SKILL.md)
+- [x] Default flipped to ptyd (tmux still selectable in Settings / env)
 
 ## Learnings
 

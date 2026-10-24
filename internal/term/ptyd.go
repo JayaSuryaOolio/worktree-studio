@@ -34,7 +34,8 @@ const (
 func validBackend(b string) bool { return b == BackendTmux || b == BackendPtyd }
 
 // Backend returns the backend new terminals are created with: BackendEnv if
-// set to a valid value (fromEnv true), else the stored setting, else tmux.
+// set to a valid value (fromEnv true), else the stored setting, else ptyd
+// (tmux for a Manager with no ptyd client, e.g. tmux-only tests).
 func (m *Manager) Backend() (backend string, fromEnv bool) {
 	if v := os.Getenv(BackendEnv); validBackend(v) {
 		return v, true
@@ -42,7 +43,10 @@ func (m *Manager) Backend() (backend string, fromEnv bool) {
 	if v, err := m.Store.GetSetting(BackendSettingKey); err == nil && validBackend(v) {
 		return v, false
 	}
-	return BackendTmux, false
+	if m.Ptyd == nil {
+		return BackendTmux, false
+	}
+	return BackendPtyd, false
 }
 
 // SetBackend stores the backend setting for new terminals.

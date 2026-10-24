@@ -308,14 +308,14 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 `wts attach <terminalId>` does the same from any real terminal and works for both backends (below).
 
-### The opt-in ptyd backend
+### The ptyd backend (default)
 
-Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does (not reboots or a daemon crash). tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
+Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does (not reboots or a daemon crash). ptyd is the default (tmux is still selectable); the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
 
 ```bash
-curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux","env_override":false}
-curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"ptyd"}'
-WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd wts start           # pin it for one server run (wins over the setting)
+curl http://localhost:8787/api/settings/terminal          # {"backend":"ptyd","env_override":false}
+curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"tmux"}'
+WORKTREE_STUDIO_TERMINAL_BACKEND=tmux wts start           # pin it for one server run (wins over the setting)
 wts attach <terminalId>                                   # attach from a real terminal; Ctrl+\ detaches
 ```
 
