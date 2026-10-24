@@ -146,15 +146,23 @@
 }
 
 .task-status-list li,
-.task-status-add {
+.task-status-add,
+.task-source-add {
   display: flex;
   gap: var(--space-1);
   align-items: center;
   margin-bottom: var(--space-1);
 }
 
+/* .dialog form stacks its children; these forms are one row. */
+.dialog .task-status-add,
+.dialog .task-source-add {
+  flex-direction: row;
+}
+
 .task-status-list input,
-.task-status-add input {
+.task-status-add input,
+.task-source-add input {
   flex: 1;
   min-width: 0;
 }
@@ -315,4 +323,36 @@
 .task-popup-worktrees a,
 .board-card-worktrees a {
   color: var(--text);
+}
+
+.task-source-list {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+
+.task-source-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.task-source-list code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.task-source-add input:last-of-type {
+  flex: 3;
+}
+
+.task-source-list .settings-hint {
+  flex-basis: 100%;
+  margin: 0;
 }

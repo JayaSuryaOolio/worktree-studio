@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Example worktree-studio task source for Jira, built on Atlassian's `acli`
+# (must be logged in: `acli jira auth login`). Read-only. Contract, from
+# docs/tasks-plan.md:
+#   jira list [--query <text>]   → JSON [{key,title,url}], for the picker
+#   jira get <key>...            → the same, for title refresh
+# Without --query, list shows your open work items. Set JIRA_SITE
+# (e.g. acme.atlassian.net) to skip asking `acli` for it.
+set -euo pipefail
+
+site=${JIRA_SITE:-$(acli jira auth status 2>/dev/null | awk '/Site:/ {print $2; exit}')}
+
+search() {
+	acli jira workitem search --jql "$1" --fields key,summary --limit 20 --json |
+		jq --arg site "$site" '[.[] | {key, title: .fields.summary, url: "https://\($site)/browse/\(.key)"}]'
+}
+
+case "${1:-}" in
+list)
+	q=""
+	[[ "${2:-}" == "--query" ]] && q=${3:-}
+	q=${q//\"/}
+	if [[ -z "$q" ]]; then
+		search 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC'
+	elif [[ "$q" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]]; then
+		# JQL rejects a key that doesn't exist, so fall back to text search.
+		search "key = \"$q\"" 2>/dev/null || search "text ~ \"$q\" ORDER BY updated DESC"
+	else
+		search "text ~ \"$q\" ORDER BY updated DESC"
+	fi
+	;;
+get)
+	shift
+	[[ $# -eq 0 ]] && { echo '[]'; exit 0; }
+	keys=$(printf '"%s",' "${@//\"/}")
+	search "key in (${keys%,})"
+	;;
+*)
+	echo "usage: $0 list [--query <text>] | get <key>..." >&2
+	exit 2
+	;;
+esac

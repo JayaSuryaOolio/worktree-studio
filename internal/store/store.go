@@ -103,6 +103,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate terminal_sessions.backend: %w", err)
 	}
+	if err := s.migrateTaskSources(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate task_sources: %w", err)
+	}
 	return s, nil
 }
 

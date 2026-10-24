@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
 	"worktree-studio/internal/audit"
 	"worktree-studio/internal/store"
+	"worktree-studio/internal/tasksrc"
 )
 
 // Tasks are a label on worktrees (see docs/tasks-plan.md and
@@ -26,6 +28,9 @@ type taskRef struct {
 	Key      string `json:"key"`
 	URL      string `json:"url"`
 	NewTitle string `json:"new_title"`
+	// Title is what a source adapter said when the task was picked; it's
+	// stored only if the task has no title yet.
+	Title string `json:"title"`
 }
 
 // errInvalidTask marks taskRef problems the caller should see as a 400.
@@ -81,8 +86,14 @@ func (s *Server) assignTask(wt store.Worktree, ref taskRef) (store.Worktree, err
 		}
 		source, key = t.Source, t.Key
 	case ref.Key != "":
-		if _, err := s.Store.EnsureTask(ref.Source, ref.Key, ref.URL); err != nil {
+		t, err := s.Store.EnsureTask(ref.Source, ref.Key, ref.URL)
+		if err != nil {
 			return wt, fmt.Errorf("save task: %w", err)
+		}
+		if t.Title == "" && strings.TrimSpace(ref.Title) != "" {
+			if err := s.Store.RefreshTask(t.Source, t.Key, strings.TrimSpace(ref.Title), ""); err != nil {
+				return wt, fmt.Errorf("save task title: %w", err)
+			}
 		}
 		source, key = ref.Source, ref.Key
 	}
@@ -207,12 +218,48 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSearchTasks: GET /api/tasks/search?q= — the new-worktree picker.
+// Tasks worktrees already carry come first (another worktree on a running
+// task is the common case), then each configured source's `list --query`.
+// A failing source is logged and skipped; Settings → Tasks → Test shows why.
 func (s *Server) handleSearchTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.Store.SearchTasks(r.URL.Query().Get("q"), 20)
+	q := r.URL.Query().Get("q")
+	tasks, err := s.Store.SearchTasks(q, 20)
 	if err != nil {
 		s.Log.Error("search tasks", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to search tasks")
 		return
+	}
+	srcs, err := s.Store.ListTaskSources()
+	if err != nil {
+		s.Log.Error("list task sources", "err", err)
+	}
+
+	found := make([][]tasksrc.Item, len(srcs))
+	var wg sync.WaitGroup
+	for i, src := range srcs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			items, err := tasksrc.List(src.Command, q)
+			if err != nil {
+				s.Log.Warn("task source search", "source", src.ID, "err", err)
+			}
+			found[i] = items
+		}()
+	}
+	wg.Wait()
+
+	seen := map[[2]string]bool{}
+	for _, t := range tasks {
+		seen[[2]string{t.Source, t.Key}] = true
+	}
+	for i, items := range found {
+		for _, it := range items {
+			if k := [2]string{srcs[i].ID, it.Key}; !seen[k] {
+				seen[k] = true
+				tasks = append(tasks, store.Task{Source: srcs[i].ID, Key: it.Key, Title: it.Title, URL: it.URL})
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, tasks)
 }

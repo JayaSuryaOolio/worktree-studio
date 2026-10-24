@@ -16,13 +16,13 @@ interface Props {
   autoFocus?: boolean;
 }
 
-// "jira:PROJ-123" — an external key typed in directly. Any source label
-// works; until adapters exist (docs/tasks-plan.md, PR3) it's just a label.
+// "jira:PROJ-123" — an external key typed in directly, for when no adapter
+// is configured for that source (any label works) or search misses it.
 const EXTERNAL_KEY = /^([a-z][\w-]*):(\S+)$/i;
 
 // The task field in the new-worktree dialog and the task popup. Searches
 // tasks worktrees already carry (the common case: another worktree on a
-// running task), and offers "+ New task" and "Use jira:PROJ-1" for the rest.
+// running task), then each configured source's adapter, and offers "+ New task" and "Use jira:PROJ-1" for the rest.
 export default function TaskPicker({ value, onChange, autoFocus }: Props) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Task[]>([]);
@@ -81,7 +81,11 @@ export default function TaskPicker({ value, onChange, autoFocus }: Props) {
               role="option"
               aria-selected={false}
               onClick={() =>
-                onChange({ ref: { source: t.source, key: t.key }, key: taskKeyLabel(t), title: t.title })
+                onChange({
+                  ref: { source: t.source, key: t.key, title: t.title, url: t.url },
+                  key: taskKeyLabel(t),
+                  title: t.title,
+                })
               }
             >
               <span className="task-key">{taskKeyLabel(t)}</span>

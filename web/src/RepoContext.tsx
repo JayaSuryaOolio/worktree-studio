@@ -15,6 +15,7 @@ import {
   listRepos,
   listTasks,
   listTaskStatuses,
+  refreshTaskTitles,
   listWorktrees,
   Repo,
   SpotlightStatus,
@@ -216,6 +217,15 @@ export function RepoProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(refreshRepos, []);
+  // External task titles: refreshed from their sources once per page load
+  // (the server rate-limits it), then re-read.
+  useEffect(() => {
+    refreshTaskTitles()
+      .then((r) => {
+        if (r.refreshed > 0) listTasks().then(setTasks);
+      })
+      .catch(() => {});
+  }, []);
 
   function refreshWorktrees() {
     refreshTasks();

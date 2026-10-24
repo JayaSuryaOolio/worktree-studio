@@ -35,6 +35,10 @@ const (
 	// changed or cleared (task_key "" means cleared) — see
 	// internal/api/tasks.go.
 	EventWorktreeTaskSet Event = "worktree.task_set"
+	// EventTaskSourceAdd/Remove record a task-source adapter being
+	// configured or removed: it's a command worktree-studio will run.
+	EventTaskSourceAdd    Event = "task_source.add"
+	EventTaskSourceRemove Event = "task_source.remove"
 
 	// Pinning (internal/api/pin.go) is deliberately NOT an audit event:
 	// tried briefly, but per direct feedback it's noise rather than a

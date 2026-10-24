@@ -82,6 +82,16 @@ export interface TaskRef {
   key?: string;
   url?: string;
   new_title?: string;
+  /** A source adapter's title, stored only if the task has none yet. */
+  title?: string;
+}
+
+/** A configured external task source: an adapter command (see
+ * docs/tasks-plan.md); id is the label worktrees carry, e.g. "jira". */
+export interface TaskSource {
+  id: string;
+  name: string;
+  command: string;
 }
 
 /** A `git worktree` that exists on disk for a repo but isn't tracked in
@@ -269,6 +279,28 @@ export function updateTask(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+/** Re-fetch external task titles from their sources; the server skips it
+ * when the last refresh is recent. */
+export function refreshTaskTitles(): Promise<{ refreshed: number; errors: Record<string, string> }> {
+  return request("/api/tasks/refresh", { method: "POST" });
+}
+
+export function listTaskSources(): Promise<TaskSource[]> {
+  return request<TaskSource[]>("/api/task-sources");
+}
+
+export function addTaskSource(src: TaskSource): Promise<TaskSource> {
+  return request<TaskSource>("/api/task-sources", { method: "POST", body: JSON.stringify(src) });
+}
+
+export function deleteTaskSource(id: string): Promise<void> {
+  return request<void>(`/api/task-sources/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function testTaskSource(id: string): Promise<{ count: number; sample: { key: string; title: string }[] }> {
+  return request(`/api/task-sources/${encodeURIComponent(id)}/test`, { method: "POST" });
 }
 
 export function listTaskStatuses(): Promise<TaskStatus[]> {
