@@ -305,3 +305,14 @@
 .board-more {
   margin-top: var(--space-2);
 }
+
+.task-picker-chosen,
+.task-popup input,
+.task-picker input {
+  box-sizing: border-box;
+}
+
+.task-popup-worktrees a,
+.board-card-worktrees a {
+  color: var(--text);
+}
