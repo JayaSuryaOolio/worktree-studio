@@ -198,7 +198,7 @@ keys, so they can't drift from what the keys actually do.
 
 | Layer | New |
 |---|---|
-| `domain` | `layout.go`: `Pane`, an immutable split tree (`Split`, `Close`, `Replace`, `Rects`, `Neighbor`; `Resize`, `DividerAt`, `DragTo`), and `Workbench`, one worktree's tabs reconciled against the server's session list (`Reconcile`, `Split`, `Place`, `ClosePane`, `Move`, `Zoom`, `Hidden`). This holds all the geometry logic and is fully unit-tested with no UI. |
+| `domain` | `layout.go`: `Pane`, an immutable split tree (`Split`, `Close`, `Replace`, `Rects`, `Neighbor`; `Resize`, `DividerAt`, `DragTo`), and `Workbench`, one worktree's tabs reconciled against the server's session list (`Reconcile`, `Split`, `Place`, `ClosePane`, `Move`, `Zoom`, `Hidden`). This holds all the geometry logic and is fully unit-tested with no UI. `Neighbor` picks the nearest pane, then the most shared edge, then the top-most, then the left-most. |
 | `app` | `Terminals` (list/create/attach sessions); a `LayoutStore` port arrives with persistence in step 5. |
 | `infra` | `layoutfile` adapter (JSON); `ptyterm` unchanged (one attach per visible pane). |
 | `ui` | `theme.go` (the tokens above, the only place colors exist), `keymap.go` (one table that drives dispatch, status-bar hints and the leader menu), `panes.go`, `tabbar.go`, `statusbar.go`, `palette.go`; the sidebar becomes a tree. |
