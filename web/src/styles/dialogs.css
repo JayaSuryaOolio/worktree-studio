@@ -48,9 +48,12 @@
   align-items: stretch;
 }
 
+/* border-box so width: 100% includes the padding and border instead of
+   overflowing the dialog by them. */
 .dialog input[type="text"] {
   width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .dialog .actions {

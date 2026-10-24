@@ -99,6 +99,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate tasks: %w", err)
 	}
+	if err := s.migrateAddTerminalSessionBackend(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate terminal_sessions.backend: %w", err)
+	}
 	if err := s.migrateTaskSources(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate task_sources: %w", err)
@@ -169,6 +173,12 @@ CREATE TABLE IF NOT EXISTS worktree_layouts (
 -- internal/api.handleClaudeSessionTitle for the read-through logic: live
 -- transcript read first (most up to date), falling back to this cache only
 -- when that fails.
+-- Server-side app settings (key/value), e.g. terminal_backend.
+CREATE TABLE IF NOT EXISTS settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS claude_session_titles (
 	session_id TEXT PRIMARY KEY,
 	title      TEXT NOT NULL,
@@ -347,6 +357,33 @@ func (s *Store) migrateAddWorktreePinned() error {
 		return nil
 	}
 	_, err = s.db.Exec(`ALTER TABLE worktrees ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
+	return err
+}
+
+// migrateAddTerminalSessionBackend adds terminal_sessions.backend; every row
+// that predates it is a tmux session.
+func (s *Store) migrateAddTerminalSessionBackend() error {
+	hasColumn, err := s.hasColumn("terminal_sessions", "backend")
+	if err != nil || hasColumn {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE terminal_sessions ADD COLUMN backend TEXT NOT NULL DEFAULT 'tmux'`)
+	return err
+}
+
+// GetSetting returns a settings value, or "" if unset.
+func (s *Store) GetSetting(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetSetting upserts a settings value.
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
 }
 
@@ -710,15 +747,16 @@ func (s *Store) RemoveWorktree(id string) error {
 	return err
 }
 
-// TerminalSession is a terminal tab backed by a tmux session, scoped to a
-// worktree. The tmux session itself outlives the worktree-studio server
+// TerminalSession is a terminal tab backed by a tmux session or a ptyd PTY
+// (Backend), scoped to a worktree. Either outlives the worktree-studio server
 // process, which is what makes a server restart safe to reattach after.
 type TerminalSession struct {
 	ID              string `json:"id"`
 	WorktreeID      string `json:"worktree_id"`
-	TmuxSessionName string `json:"tmux_session_name"`
+	TmuxSessionName string `json:"tmux_session_name"` // "" for ptyd
 	TabLabel        string `json:"tab_label"`
 	CreatedAt       string `json:"created_at"`
+	Backend         string `json:"backend"` // "tmux" or "ptyd"; see internal/term
 }
 
 // AddTerminalSession inserts a new terminal session row, stamping CreatedAt
@@ -727,9 +765,12 @@ func (s *Store) AddTerminalSession(t TerminalSession) error {
 	if t.CreatedAt == "" {
 		t.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	if t.Backend == "" {
+		t.Backend = "tmux"
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO terminal_sessions (id, worktree_id, tmux_session_name, tab_label, created_at) VALUES (?, ?, ?, ?, ?)`,
-		t.ID, t.WorktreeID, t.TmuxSessionName, t.TabLabel, t.CreatedAt,
+		`INSERT INTO terminal_sessions (id, worktree_id, tmux_session_name, tab_label, created_at, backend) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, t.WorktreeID, t.TmuxSessionName, t.TabLabel, t.CreatedAt, t.Backend,
 	)
 	return err
 }
@@ -737,7 +778,7 @@ func (s *Store) AddTerminalSession(t TerminalSession) error {
 // ListTerminalSessions returns all terminal sessions for a given worktree.
 func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, error) {
 	rows, err := s.db.Query(
-		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions WHERE worktree_id = ?`,
+		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at, backend FROM terminal_sessions WHERE worktree_id = ?`,
 		worktreeID,
 	)
 	if err != nil {
@@ -748,7 +789,7 @@ func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, erro
 	var out []TerminalSession
 	for rows.Next() {
 		var t TerminalSession
-		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.Backend); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -759,7 +800,7 @@ func (s *Store) ListTerminalSessions(worktreeID string) ([]TerminalSession, erro
 // ListAllTerminalSessions returns every terminal session row, used at
 // server startup to reconcile against tmux's actual live sessions.
 func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
-	rows, err := s.db.Query(`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions`)
+	rows, err := s.db.Query(`SELECT id, worktree_id, tmux_session_name, tab_label, created_at, backend FROM terminal_sessions`)
 	if err != nil {
 		return nil, err
 	}
@@ -768,7 +809,7 @@ func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
 	var out []TerminalSession
 	for rows.Next() {
 		var t TerminalSession
-		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.Backend); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -781,8 +822,8 @@ func (s *Store) ListAllTerminalSessions() ([]TerminalSession, error) {
 func (s *Store) GetTerminalSession(id string) (TerminalSession, error) {
 	var t TerminalSession
 	err := s.db.QueryRow(
-		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at FROM terminal_sessions WHERE id = ?`, id,
-	).Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt)
+		`SELECT id, worktree_id, tmux_session_name, tab_label, created_at, backend FROM terminal_sessions WHERE id = ?`, id,
+	).Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.Backend)
 	return t, err
 }
 
@@ -800,7 +841,7 @@ type TerminalSessionWithWorktree struct {
 // branch/name for display.
 func (s *Store) ListTerminalSessionsForRepo(repoID string) ([]TerminalSessionWithWorktree, error) {
 	rows, err := s.db.Query(`
-		SELECT t.id, t.worktree_id, t.tmux_session_name, t.tab_label, t.created_at, w.branch, w.name
+		SELECT t.id, t.worktree_id, t.tmux_session_name, t.tab_label, t.created_at, t.backend, w.branch, w.name
 		FROM terminal_sessions t JOIN worktrees w ON t.worktree_id = w.id
 		WHERE w.repo_id = ?
 		ORDER BY t.created_at DESC`, repoID)
@@ -812,7 +853,7 @@ func (s *Store) ListTerminalSessionsForRepo(repoID string) ([]TerminalSessionWit
 	var out []TerminalSessionWithWorktree
 	for rows.Next() {
 		var t TerminalSessionWithWorktree
-		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.WorktreeBranch, &t.WorktreeName); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorktreeID, &t.TmuxSessionName, &t.TabLabel, &t.CreatedAt, &t.Backend, &t.WorktreeBranch, &t.WorktreeName); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

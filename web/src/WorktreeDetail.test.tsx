@@ -483,6 +483,68 @@ describe("WorktreeDetail", () => {
     );
   });
 
+  describe("running claude sessions", () => {
+    const now = new Date().toISOString();
+    const running = [
+      { session_id: "s-here", preview: "", updated_at: now, size_bytes: 0, running: true, kind: "interactive", status: "busy", name: "in-our-tab", short_id: "s-here", terminal_id: "t9" },
+      { session_id: "s-bg", preview: "", updated_at: now, size_bytes: 0, running: true, kind: "bg", status: "idle", name: "bg-job", short_id: "abcd1234" },
+      { session_id: "s-else", preview: "", updated_at: now, size_bytes: 0, running: true, kind: "interactive", status: "idle", name: "vscode-one", short_id: "s-else" },
+      { session_id: "s-past", preview: "old thread", updated_at: now, size_bytes: 10 },
+    ];
+
+    beforeEach(() => {
+      vi.mocked(listTerminals).mockResolvedValue([]);
+      vi.mocked(getWorktreeClaudeSessions).mockResolvedValue(running);
+    });
+
+    it("lists running sessions in a Running section above past ones", async () => {
+      renderPage();
+      const heading = await screen.findByText("Running");
+      const pastHeading = screen.getByText("Past claude sessions");
+      expect(heading.compareDocumentPosition(pastHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getByText("in-our-tab")).toBeInTheDocument();
+      expect(screen.getByText("busy")).toBeInTheDocument();
+      expect(screen.getByText("old thread")).toBeInTheDocument();
+    });
+
+    it("clicking a session in one of our terminals shows that terminal instead of starting a new one", async () => {
+      // Not in the page's initial (empty) list — e.g. started from the CLI
+      // since — so clicking fetches it and adds its panel.
+      vi.mocked(listTerminals)
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{ id: "t9", worktree_id: "w1", tmux_session_name: "wts-t9", tab_label: "claude" }]);
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByText("in-our-tab"));
+      expect(await screen.findByTestId("terminal-t9")).toBeInTheDocument();
+      expect(createTerminal).not.toHaveBeenCalled();
+    });
+
+    it("clicking a background session attaches to it in a new terminal", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByText("bg-job"));
+      await waitFor(() =>
+        expect(createTerminal).toHaveBeenCalledWith("r1", "w1", "claude (attached)", "claude attach abcd1234")
+      );
+    });
+
+    it("a session in another terminal app is not clickable but can be forked", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      const card = (await screen.findByText("vscode-one")).closest(".claude-session-card")!;
+      expect(card.tagName).not.toBe("BUTTON");
+      expect(card).toHaveAttribute("aria-disabled", "true");
+      expect(card.getAttribute("title")).toMatch(/another terminal/);
+      await user.click(screen.getByText("vscode-one"));
+      expect(createTerminal).not.toHaveBeenCalled();
+      await user.click(screen.getByRole("button", { name: "Fork" }));
+      await waitFor(() =>
+        expect(createTerminal).toHaveBeenCalledWith("r1", "w1", "claude (fork)", "claude --resume s-else --fork-session")
+      );
+    });
+  });
+
   it("shows no past-sessions section when there are none", async () => {
     vi.mocked(listTerminals).mockResolvedValue([]);
     vi.mocked(getWorktreeClaudeSessions).mockResolvedValue([]);

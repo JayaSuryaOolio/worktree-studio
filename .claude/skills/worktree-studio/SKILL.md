@@ -21,7 +21,7 @@ There's no installer script today — setup is a few manual commands, and this s
 - Go 1.21+ (`go version`) — the module uses `modernc.org/sqlite`, a pure-Go driver, so no cgo/sqlite3 headers are needed.
 - [Bun](https://bun.sh) (`bun --version`) — used as the frontend package manager/runner instead of npm.
 - `git` on `PATH` (`git --version`) — every worktree operation shells out to the real binary.
-- `tmux` on `PATH` (`tmux -V`) — terminal tabs are real tmux sessions; see "Using terminals" below for why. Without it, terminal creation fails outright (not a soft-degrade like spotlight below).
+- `tmux` on `PATH` (`tmux -V`) — terminal tabs are real tmux sessions; see "Using terminals" below for why. Without it, terminal creation fails outright (not a soft-degrade like spotlight below) — unless the opt-in ptyd backend is selected, see "The opt-in ptyd backend".
 - Optional: the standalone `spotlight` CLI (`command -v spotlight`, `github.com/JayaSuryaOolio/spotlight`) plus its own `fswatch` dependency. worktree-studio runs fine without it — spotlight's endpoints just report `{"available": false}` / `503` until it's installed. See "Using Spotlight" below.
 
 **First-time setup:**
@@ -57,7 +57,7 @@ go run ./cmd/worktree-studio          # dev, or:
 go build -o worktree-studio ./cmd/worktree-studio && ./worktree-studio   # built binary
 ```
 
-Listens on `http://localhost:8787` by default (`WORKTREE_STUDIO_ADDR` env var overrides). The frontend must be built at least once for the real UI to render (`cd web && bun install && bun run build`) — see `docs/running-locally.md`. Until then the server still starts fine and serves a placeholder page telling you to build the frontend.
+Listens on `http://localhost:8787` by default (`WORKTREE_STUDIO_ADDR` env var sets the starting port; if it is busy the server logs it and tries the next ports up, so read the `worktree-studio listening` log line for the real address). The frontend must be built at least once for the real UI to render (`cd web && bun install && bun run build`) — see `docs/running-locally.md`. Until then the server still starts fine and serves a placeholder page telling you to build the frontend.
 
 ## Registering a repo
 
@@ -306,6 +306,21 @@ tmux attach -t wts-<terminalId>       # attach from your own real terminal, alon
 tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents without attaching
 ```
 
+`wts attach <terminalId>` does the same from any real terminal and works for both backends (below).
+
+### The opt-in ptyd backend
+
+Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does (not reboots or a daemon crash). tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
+
+```bash
+curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux","env_override":false}
+curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"ptyd"}'
+WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd wts start           # pin it for one server run (wins over the setting)
+wts attach <terminalId>                                   # attach from a real terminal; Ctrl+\ detaches
+```
+
+Or Settings → Terminal in the UI. ptyd sessions show up in `orphans` as `ptyd:<id>` under the same activity guard. After upgrading worktree-studio the daemon keeps running the old binary until restarted. Design and limitations: `docs/ptyd.md`.
+
 ### Cleaning up orphaned tmux sessions
 
 A `wts-`-prefixed tmux session with no matching terminal_sessions row (a leaked test session, or one made by hand) is an **orphan** — don't hand-kill these with `tmux kill-session` based on eyeballing `tmux list-sessions`. That was tried exactly once, informally, and it killed real, still-in-use sessions along with the actual leaks, because "looks unattached" and "actually abandoned" aren't the same thing.
@@ -477,6 +492,10 @@ curl -X POST http://localhost:8787/api/settings/dependencies/claude-hook/uninsta
 This is the one action in this whole tool that edits a file outside `~/.worktree-studio/` — your real, global `~/.claude/settings.json`, shared with every other tool that registers a Claude Code hook. It's safe to run: it only ever merges one clearly-marked entry into each of `hooks.SessionStart` and `hooks.Notification` (never touches any other key or any other tool's hooks), backs the file up to `~/.worktree-studio/backups/claude-settings-<timestamp>.json` before every write, and is idempotent (installing twice doesn't duplicate either entry; a partial install — e.g. only one of the two survived a hand-edit — self-heals the missing half on the next install rather than needing an uninstall first).
 
 Once installed, a `claude.session.create` entry with `"source": "hook"` appears in a worktree's audit log automatically the next time a claude session starts with that worktree's path as its cwd — no title is logged up front for these (unlike the launch-time ones), but the audit log viewer fetches one live from the session's own transcript (see `GET /api/claude-sessions/:id/title`, backed by `~/.claude/projects/`). That endpoint reads through to a small SQLite-backed cache: a successful live read is stored, and if a later lookup's transcript is gone (Claude Code prunes old session transcripts on its own schedule, unrelated to anything worktree-studio does) the cached title is served instead of the request silently falling back to a bare session id.
+
+### Listing a worktree's claude sessions (running and past)
+
+`GET /api/repos/:repoId/worktrees/:worktreeId/claude-sessions` returns the worktree's sessions, running ones first. Every item has `session_id`, `preview`, `updated_at`, `size_bytes`; a session running right now (from Claude Code's internal `~/.claude/sessions/<pid>.json` registry, cwd at or under the worktree, pid alive) also has `running: true`, `kind` (`interactive` or `bg`), `status` (`busy`/`idle`), `name`, `pid`, `short_id` and, when it runs in one of this worktree's terminals, `terminal_id`. To join a `bg` session run `claude attach <short_id>` (the full session id is rejected); for an interactive one running elsewhere, `claude --resume <session_id> --fork-session` forks it instead of running a second copy. If the registry format changes or can't be read, the endpoint returns past sessions only. The worktree's empty-state screen shows these under "Running" and "Past claude sessions".
 
 ## Branch-tracking git hook
 

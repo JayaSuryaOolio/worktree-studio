@@ -15,9 +15,14 @@ wts start              # backend (API + UI); prints its URL and log path
 wts web start          # standalone web server (proxies to the backend); errors if the backend isn't up
 wts desktop start      # native window (macOS)
 wts tui                # terminal UI, foreground
+wts attach <id>        # attach this terminal to a terminal session (tmux or ptyd)
 wts status             # backend / web / desktop: state, URL, pid, log folder
 wts web stop | desktop stop | stop    # `stop` stops everything
 ```
+
+Terminals are tmux sessions by default. An opt-in `ptyd` backend (a small PTY daemon, `wts ptyd`, started on demand) gives xterm.js real scrollback and native selection instead: Settings → Terminal, or `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd`. See `docs/ptyd.md`.
+
+A worktree with nothing open lists its claude sessions: the ones **running right now** (open the tab it's in, `claude attach` a background one, or fork one running in another terminal app) above past ones you can `claude --resume`. Running sessions come from Claude Code's internal `~/.claude/sessions/` registry; if that format changes, the list just falls back to past sessions. See `docs/architecture.md`'s "Running claude sessions" section.
 
 Every piece finds the backend through `~/.worktree-studio/server.addr`, so a non-default port never matters. Pids are in `~/.worktree-studio/run/`, logs in `~/.worktree-studio/{server,web,desktop}.log`.
 
