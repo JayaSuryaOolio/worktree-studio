@@ -30,12 +30,13 @@ line and one JSON response line (`{"error": "..."}` on failure):
 
 | op | fields | effect |
 |----|--------|--------|
-| `create` | id, cwd, argv, env, cols, rows | start argv in a new PTY |
-| `list` | | `{"sessions":[{id,pid,cwd,created,last_activity}]}` |
+| `create` | id, cwd, argv, env, cols, rows, restore | start argv in a new PTY; `restore` seeds its buffer from the saved log |
+| `list` | | `{"version":"<build>","sessions":[{id,pid,cwd,created,last_activity,clients}]}` |
 | `write` | id, data (base64) | write to the PTY |
 | `resize` | id, cols, rows | TIOCSWINSZ |
-| `kill` | id | SIGHUP the process group, SIGKILL after 2s |
+| `kill` | id, keep | SIGHUP the process group, SIGKILL after 2s; deletes the saved log unless `keep` (then saves it first) |
 | `attach` | id | switch to framed streaming (below) |
+| `shutdown` | | save every buffer, kill every session, exit |
 
 After an `attach` response the connection carries frames
 `[type byte][uint32 BE length][payload]`:
@@ -81,8 +82,42 @@ would be typed into the shell. Each client drops them while replaying:
 The API server auto-starts the daemon on the first ptyd `create` (spawns
 `<own executable> ptyd` with `Setsid`, no inherited stdio, log at
 `~/.worktree-studio/ptyd.log`), so it outlives the server. A `flock` on
-`ptyd.sock.lock` makes concurrent starts safe. Startup reconcile never starts
-the daemon: if it isn't running, ptyd terminal rows are pruned.
+`ptyd.sock.lock` makes concurrent starts safe.
+
+**Saved scrollback.** Every 15s, and on `shutdown`/SIGTERM/SIGINT, the daemon
+writes each changed buffer to `<socket dir>/ptyd/<id>.log`
+(`~/.worktree-studio/ptyd/`, atomic temp+rename). The log is deleted when a
+session is killed deliberately or its shell exits normally; a shell killed
+by a signal (reboot, daemon crash) keeps it.
+
+**Restore.** Startup reconcile never starts the daemon. A ptyd row whose
+session is gone is restored if it has a saved log — a fresh `$SHELL -l` in
+the worktree, same terminal id, buffer seeded with the old scrollback plus a
+dim `— restored after restart —` line — and pruned otherwise. Opening a tab
+whose session is gone but saved does the same. If the row has a claude
+session id, `claude --resume <id>` is typed into the new shell: the server
+records it every minute (and before archive/restart) from Claude Code's
+session registry, matched to the terminal by process ancestry
+(`terminal_sessions.claude_session_id`).
+
+**Archive** suspends a worktree's ptyd terminals (`kill` with `keep`: shells
+end, rows and logs stay); **unarchive** restores them all. Reconcile leaves
+archived worktrees' rows alone. tmux terminals are untouched by archive.
+
+**Idle reaper** (opt-in): Settings → Terminal → "Idle ptyd terminals", stored
+as `ptyd_idle_reap_days` (0 = off). Hourly, it closes ptyd terminals with no
+attached client and no output for N days whose shell is at its prompt (the
+tty's foreground pgrp is the shell). One running something (claude, a dev
+server) is never killed, only listed as busy. API:
+`GET /api/idle-ptyd-sessions?days=N`, `POST /api/idle-ptyd-sessions/reap`.
+
+**Upgrades.** The daemon keeps the binary it started from. Its build id
+(sha256 of the executable) is in `list`; when it differs from the server's,
+`GET /api/settings/terminal` reports `ptyd_outdated: true` and Settings →
+Terminal shows **Restart ptyd** (`POST /api/settings/terminal/ptyd-restart`,
+or `wts ptyd restart`). Restart = `shutdown` (everything saved), then each
+ptyd tab is restored on a new daemon. Running programs stop (claude is
+resumed); open web tabs reconnect on reload.
 
 ## How to toggle
 
@@ -91,9 +126,10 @@ records its `backend` (`tmux` | `ptyd`, existing rows migrate as `tmux`) and
 stays on it, so switching never strands an open tab.
 
 - Settings UI: Settings → Terminal → backend.
-- API: `GET /api/settings/terminal` → `{"backend":"tmux","env_override":false}`;
-  `PUT` the same shape to change it (stored in the `settings` table, key
-  `terminal_backend`).
+- API: `GET /api/settings/terminal` →
+  `{"backend":"tmux","env_override":false,"idle_reap_days":0,"ptyd_running":true,"ptyd_outdated":false}`;
+  `PUT` `{"backend":...}` and/or `{"idle_reap_days":N}` to change them (stored
+  in the `settings` table, keys `terminal_backend`, `ptyd_idle_reap_days`).
 - Env: `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd|tmux` pins it for that server
   run and wins over the stored setting (`env_override: true`).
 
@@ -109,7 +145,8 @@ Default is `tmux`.
 | web attach | `tmux attach` under a server-side pty | ptyd `attach`; replay framed by replay-start/done |
 | title on reattach | synthesized from `#{pane_title}` | carried by the replay |
 | current path | `#{pane_current_path}` | cwd of the tty's foreground pgrp (`ps -o tpgid` → `lsof`/`/proc`) |
-| startup reconcile | rows whose tmux session is gone | rows absent from `ptyd list` (all, if the daemon is down) |
+| startup reconcile | rows whose tmux session is gone | rows absent from `ptyd list`: restored if a log is saved, else pruned |
+| archive / unarchive | nothing | shells suspended (rows + logs kept) / restored |
 | orphans | `wts-*` sessions with no row | daemon sessions with no row, listed as `ptyd:<id>`, same 7-day guard |
 | `wts attach <id>` | falls back to `tmux attach -t wts-<id>` | direct to the daemon, Ctrl+\ detaches |
 
@@ -117,10 +154,14 @@ Default is `tmux`.
 
 - A shared session has one PTY size; the last client to resize wins (same as
   tmux `window-size latest`).
-- Buffers live in daemon memory: they don't survive a reboot or a ptyd crash.
-  Claude sessions fall back to `claude --resume`.
-- The daemon keeps running the binary it was started from; after upgrading
-  worktree-studio, restart it (`pkill -f 'wts ptyd'` kills every ptyd shell).
+- Restore brings back scrollback and a fresh shell in the worktree root, not
+  running programs, the shell's cwd or its history. Saves are every 15s, so a
+  hard crash loses up to that much output. Only claude is resumed, and only
+  if it was running at the last once-a-minute check.
+- The TUI and `wts attach` don't restore a gone session themselves; server
+  startup, opening the tab in the web UI, unarchive and restart do.
+- Restarting a daemon from before build ids (no `shutdown` op) SIGTERMs it:
+  its shells are lost without scrollback, tabs come back as fresh shells.
 - Replay is raw bytes, not a screen snapshot: if the 4 MiB window has
   trimmed away a mode switch (alternate screen, bracketed paste, mouse
   tracking) or the last title, the reattached client won't know it. A
@@ -136,8 +177,9 @@ Default is `tmux`.
 - Reattach of a long-running `claude` session renders correctly: if trimmed
   replay loses alternate-screen/mouse modes in practice, add the vt snapshot
   first (see Known limitations).
-- A story for daemon upgrades (restart prompt, or re-exec with fd handoff),
-  so a new binary doesn't keep serving old ptyd code indefinitely.
+- ~~A story for daemon upgrades~~: outdated-build detection + Restart ptyd
+  (saves and restores tabs). Re-exec with fd handoff would keep programs
+  running, if that matters.
 - Everything that still says tmux (attention hook, copy/paste docs, the
   Settings dependency check for tmux) re-checked
   against ptyd.
@@ -155,6 +197,9 @@ Default is `tmux`.
       fed into the vt emulator, its replies dropped up to a marker
 - [x] Docs (README, architecture, session-persistence, PROGRESS, PLAN,
       SKILL.md)
+- [x] Lifecycle: saved scrollback + restore after reboot/daemon loss (claude
+      resumed), archive suspends / unarchive restores, opt-in idle reaper,
+      outdated-daemon detection + Restart ptyd (`wts ptyd restart`)
 
 ## Learnings
 
@@ -167,3 +212,12 @@ Default is `tmux`.
   replay marker always comes out as one exact chunk — no parsing needed.
 - `go test -race ./tui/infra/ptyterm` already fails on main: vt's
   `Emulator.Close` and `Read` race on an unguarded `closed` flag.
+- A shell killed by SIGHUP/SIGKILL reports `ProcessState.Exited() == false`,
+  which is what tells "the machine went away" (keep the log) from "the user
+  typed exit" (delete it).
+- `ps -o tpgid= -p <shell pid>` gives the tty's foreground pgrp on macOS and
+  Linux: equal to the shell pid means it's at its prompt. Used for both the
+  current path and the idle reaper.
+- Claude Code's `~/.claude/sessions/<pid>.json` registry plus process
+  ancestry is enough to map a ptyd terminal to its claude session; no hook
+  change needed.

@@ -20,7 +20,7 @@ wts status             # backend / web / desktop: state, URL, pid, log folder
 wts web stop | desktop stop | stop    # `stop` stops everything
 ```
 
-Terminals are tmux sessions by default. An opt-in `ptyd` backend (a small PTY daemon, `wts ptyd`, started on demand) gives xterm.js real scrollback and native selection instead: Settings → Terminal, or `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd`. See `docs/ptyd.md`.
+Terminals are tmux sessions by default. An opt-in `ptyd` backend (a small PTY daemon, `wts ptyd`, started on demand) gives xterm.js real scrollback and native selection instead: Settings → Terminal, or `WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd`. ptyd tabs come back with their scrollback after a reboot (claude tabs resumed), archive/unarchive suspends and restores them, an opt-in idle reaper closes shells nobody uses, and `wts ptyd restart` (or Settings → Terminal → Restart ptyd) moves the daemon onto a new build. See `docs/ptyd.md`.
 
 A worktree with nothing open lists its claude sessions: the ones **running right now** (open the tab it's in, `claude attach` a background one, or fork one running in another terminal app) above past ones you can `claude --resume`. Running sessions come from Claude Code's internal `~/.claude/sessions/` registry; if that format changes, the list just falls back to past sessions. See `docs/architecture.md`'s "Running claude sessions" section.
 

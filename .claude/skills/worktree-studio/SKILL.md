@@ -310,16 +310,19 @@ tmux capture-pane -p -t wts-<terminalId>   # dump the current pane contents with
 
 ### The opt-in ptyd backend
 
-Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does (not reboots or a daemon crash). tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
+Terminals can instead be backed by **ptyd**, a small PTY daemon (`wts ptyd`, auto-started by the server, socket `~/.worktree-studio/ptyd.sock`, log `~/.worktree-studio/ptyd.log`) that owns the shells and replays the last 4 MiB of output on attach — real xterm.js scrollback and native selection, no tmux mouse/copy-mode in the way. It survives server restarts the same way tmux does; after a reboot or daemon crash each ptyd tab comes back as a fresh shell with its saved scrollback (`~/.worktree-studio/ptyd/<id>.log`), and a claude tab gets `claude --resume <id>`. Archiving a worktree ends its ptyd shells; unarchiving restores them. tmux stays the default; the choice applies to **new** terminals only, each `terminal_sessions` row keeps its own `backend`:
 
 ```bash
-curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux","env_override":false}
+curl http://localhost:8787/api/settings/terminal          # {"backend":"tmux",...,"idle_reap_days":0,"ptyd_outdated":false}
 curl -X PUT http://localhost:8787/api/settings/terminal -d '{"backend":"ptyd"}'
 WORKTREE_STUDIO_TERMINAL_BACKEND=ptyd wts start           # pin it for one server run (wins over the setting)
 wts attach <terminalId>                                   # attach from a real terminal; Ctrl+\ detaches
+wts ptyd restart                                          # daemon picks up this build; tabs restored (programs stop)
+curl -X PUT http://localhost:8787/api/settings/terminal -d '{"idle_reap_days":14}'  # opt-in idle reaper (0 = off)
+curl http://localhost:8787/api/idle-ptyd-sessions?days=14  # what it would close; busy ones (claude etc.) are never closed
 ```
 
-Or Settings → Terminal in the UI. ptyd sessions show up in `orphans` as `ptyd:<id>` under the same activity guard. After upgrading worktree-studio the daemon keeps running the old binary until restarted. Design and limitations: `docs/ptyd.md`.
+Or Settings → Terminal in the UI. ptyd sessions show up in `orphans` as `ptyd:<id>` under the same activity guard. After upgrading worktree-studio the daemon keeps running the old binary: `ptyd_outdated` turns true and Settings → Terminal offers **Restart ptyd** (same as `wts ptyd restart`). Design and limitations: `docs/ptyd.md`.
 
 ### Cleaning up orphaned tmux sessions
 
