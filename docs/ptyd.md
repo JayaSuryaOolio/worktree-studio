@@ -125,6 +125,9 @@ Default is `tmux`.
   trimmed away a mode switch (alternate screen, bracketed paste, mouse
   tracking) or the last title, the reattached client won't know it. A
   `charmbracelet/x/vt` snapshot is the upgrade if this bites.
+- Copying a mouse selection works in a plain shell but not inside `claude`:
+  claude turns on mouse tracking, so the drag goes to claude instead of
+  xterm.js's selection. Accepted for now (reported in manual testing).
 
 ## Criteria for making ptyd the default
 

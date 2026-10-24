@@ -73,6 +73,31 @@ export function openShellWithClaudeResume(
   openTerminal(navigate, repoId, worktreeId, "claude (resumed)", `claude --resume ${sessionId}`);
 }
 
+/** Opens a shell running `claude attach <shortId>` — joins a running
+ * background (`claude --bg`) session. Same SESSION_ID_PATTERN guard. */
+export function openShellWithClaudeAttach(
+  navigate: NavigateFunction,
+  repoId: string,
+  worktreeId: string,
+  shortId: string
+) {
+  if (!SESSION_ID_PATTERN.test(shortId)) return;
+  openTerminal(navigate, repoId, worktreeId, "claude (attached)", `claude attach ${shortId}`);
+}
+
+/** Opens a shell that forks a session (`claude --resume <id>
+ * --fork-session`) — a new conversation from the same history, for one
+ * that's still running in another terminal app. */
+export function openShellWithClaudeFork(
+  navigate: NavigateFunction,
+  repoId: string,
+  worktreeId: string,
+  sessionId: string
+) {
+  if (!SESSION_ID_PATTERN.test(sessionId)) return;
+  openTerminal(navigate, repoId, worktreeId, "claude (fork)", `claude --resume ${sessionId} --fork-session`);
+}
+
 /** Switches to an already-open terminal panel by id — e.g. a
  * claude.session.create entry whose session was started via
  * worktree-studio's own launch-time path and is confirmed still running
