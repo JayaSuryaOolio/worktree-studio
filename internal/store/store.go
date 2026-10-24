@@ -670,7 +670,7 @@ func (s *Store) SetWorktreeArchivedAt(id, archivedAt string) error {
 // unlike ListWorktrees, this is a maintenance query over the whole DB.
 func (s *Store) ListArchivedWorktreesOlderThan(cutoff string) ([]Worktree, error) {
 	rows, err := s.db.Query(
-		`SELECT ` + worktreeColumns + ` FROM worktrees
+		`SELECT `+worktreeColumns+` FROM worktrees
 		 WHERE status = ? AND archived_at != '' AND archived_at < ?`,
 		WorktreeStatusArchived, cutoff,
 	)

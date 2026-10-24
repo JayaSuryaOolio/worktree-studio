@@ -90,6 +90,7 @@ func (s *Server) Routes(r chi.Router) {
 				r.Post("/unarchive", s.handleUnarchiveWorktree)
 				r.Post("/pin", s.handlePinWorktree)
 				r.Post("/unpin", s.handleUnpinWorktree)
+				r.Put("/task", s.handleSetWorktreeTask)
 				r.Post("/attention/clear", s.handleClearAttention)
 
 				r.Route("/terminals", func(r chi.Router) {
@@ -127,6 +128,19 @@ func (s *Server) Routes(r chi.Router) {
 	r.Post("/api/claude-hook", s.handleClaudeHook)
 	r.Post("/api/open-file", s.handleOpenFile)
 	r.Post("/api/worktrees", s.handleCreateWorktreeCLI)
+	r.Post("/api/worktree-task", s.handleSetWorktreeTaskCLI)
+	r.Route("/api/tasks", func(r chi.Router) {
+		r.Get("/", s.handleListTasks)
+		r.Get("/search", s.handleSearchTasks)
+		r.Patch("/{source}/{key}", s.handleUpdateTask)
+	})
+	r.Route("/api/task-statuses", func(r chi.Router) {
+		r.Get("/", s.handleListTaskStatuses)
+		r.Post("/", s.handleAddTaskStatus)
+		r.Put("/order", s.handleReorderTaskStatuses)
+		r.Patch("/{statusID}", s.handleRenameTaskStatus)
+		r.Delete("/{statusID}", s.handleDeleteTaskStatus)
+	})
 	r.Route("/api/spotlight", func(r chi.Router) {
 		r.Post("/start", s.handleSpotlightCLIStart)
 		r.Post("/stop", s.handleSpotlightCLIStop)
@@ -439,6 +453,9 @@ type createWorktreeRequest struct {
 	// same name. "" falls back to repo.BaseBranch, then auto-detection,
 	// same as before this field existed.
 	SourceBranch string `json:"source_branch"`
+	// Task optionally labels the new worktree with a task (see
+	// assignTask). Validated before `git worktree add` runs.
+	Task taskRef `json:"task"`
 }
 
 // errWorktreeNameRequired is a sentinel so every caller of createWorktree
@@ -455,6 +472,10 @@ var errWorktreeNameRequired = errors.New("name is required")
 func (s *Server) createWorktree(repo store.Repo, req createWorktreeRequest) (store.Worktree, error) {
 	if req.Name == "" {
 		return store.Worktree{}, errWorktreeNameRequired
+	}
+	req.Task.normalize()
+	if err := s.validateTaskRef(req.Task); err != nil {
+		return store.Worktree{}, err
 	}
 
 	slug := slugify(req.Name)
@@ -534,6 +555,17 @@ func (s *Server) createWorktree(repo store.Repo, req createWorktreeRequest) (sto
 		"base_branch": baseBranch,
 	})
 
+	if !req.Task.empty() {
+		// The ref was validated up front, so this only fails on a store
+		// error. The worktree exists either way; it just stays ad-hoc.
+		labelled, err := s.assignTask(wt, req.Task)
+		if err != nil {
+			s.Log.Warn("label new worktree with task", "err", err, "worktree_id", wt.ID)
+		} else {
+			wt = labelled
+		}
+	}
+
 	return wt, nil
 }
 
@@ -563,6 +595,10 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "name is required")
 			return
 		}
+		if errors.Is(err, errInvalidTask) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -579,9 +615,10 @@ type createWorktreeCLIRequest struct {
 	// backfill) — so a caller sitting anywhere in the repo (root checkout or
 	// any existing worktree) can create a sibling worktree of that same repo
 	// without ever knowing its id.
-	Path         string `json:"path"`
-	Name         string `json:"name"`
-	SourceBranch string `json:"source_branch"`
+	Path         string  `json:"path"`
+	Name         string  `json:"name"`
+	SourceBranch string  `json:"source_branch"`
+	Task         taskRef `json:"task"`
 }
 
 // handleCreateWorktreeCLI backs the `worktree-studio create-worktree <name>
@@ -609,10 +646,14 @@ func (s *Server) handleCreateWorktreeCLI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	newWt, err := s.createWorktree(repo, createWorktreeRequest{Name: req.Name, SourceBranch: req.SourceBranch})
+	newWt, err := s.createWorktree(repo, createWorktreeRequest{Name: req.Name, SourceBranch: req.SourceBranch, Task: req.Task})
 	if err != nil {
 		if errors.Is(err, errWorktreeNameRequired) {
 			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if errors.Is(err, errInvalidTask) {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -766,6 +807,7 @@ func (s *Server) hardRemoveWorktree(repo store.Repo, wt store.Worktree, force bo
 	if err := s.Store.RemoveWorktree(wt.ID); err != nil {
 		return fmt.Errorf("delete worktree record: %w", err)
 	}
+	s.settleTask(wt.TaskSource, wt.TaskKey)
 
 	s.auditLog(audit.EventWorktreeRemove, map[string]any{
 		"repo_id":     repo.ID,
