@@ -30,6 +30,7 @@ const EVENT_LABELS: Record<AuditEventType, { icon: string; label: string }> = {
   "worktree.remove": { icon: "🗑️", label: "Worktree removed" },
   "worktree.archive": { icon: "📦", label: "Worktree archived" },
   "worktree.unarchive": { icon: "📤", label: "Worktree unarchived" },
+  "worktree.task_set": { icon: "🏷️", label: "Task set" },
   "worktree.branch_change": { icon: "⎇", label: "Branch checked out" },
   "terminal.create": { icon: "🖥️", label: "Terminal opened" },
   "terminal.close": { icon: "⏹️", label: "Terminal closed" },

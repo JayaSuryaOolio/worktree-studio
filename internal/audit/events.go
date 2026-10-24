@@ -31,6 +31,10 @@ const (
 	EventWorktreeRemove       Event = "worktree.remove"
 	EventWorktreeArchive      Event = "worktree.archive"
 	EventWorktreeUnarchive    Event = "worktree.unarchive"
+	// EventWorktreeTaskSet records a worktree's task label being set,
+	// changed or cleared (task_key "" means cleared) — see
+	// internal/api/tasks.go.
+	EventWorktreeTaskSet Event = "worktree.task_set"
 
 	// Pinning (internal/api/pin.go) is deliberately NOT an audit event:
 	// tried briefly, but per direct feedback it's noise rather than a

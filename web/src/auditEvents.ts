@@ -18,6 +18,7 @@ export const AUDIT_EVENTS = [
   "worktree.remove",
   "worktree.archive",
   "worktree.unarchive",
+  "worktree.task_set",
   "worktree.branch_change",
   "terminal.create",
   "terminal.close",

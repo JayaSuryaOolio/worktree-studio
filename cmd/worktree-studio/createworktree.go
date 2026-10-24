@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 // createWorktreeLogPrefix namespaces this subcommand's own error output the
@@ -16,7 +12,7 @@ import (
 // theirs.
 const createWorktreeLogPrefix = "worktree-studio__create-worktree: "
 
-const createWorktreeUsage = "usage: worktree-studio create-worktree <name> [--branch <source-branch>] [path]"
+const createWorktreeUsage = "usage: worktree-studio create-worktree <name> [--branch <source-branch>] [--task <source>:<key> | --new-task <title>] [--task-url <url>] [path]"
 
 // runCreateWorktreeCommand handles the `create-worktree <name> [--branch
 // <source-branch>] [path]` subcommand: tells the running worktree-studio
@@ -43,19 +39,27 @@ func runCreateWorktreeCommand(args []string) bool {
 	}
 
 	var name, branch, path string
+	var task taskFlags
 	rest := args[1:]
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
+		if v, ok := takeFlag(rest, &i, "--branch", createWorktreeLogPrefix); ok {
+			branch = v
+			continue
+		}
+		if v, ok := takeFlag(rest, &i, "--task", createWorktreeLogPrefix); ok {
+			task.setRef(v)
+			continue
+		}
+		if v, ok := takeFlag(rest, &i, "--new-task", createWorktreeLogPrefix); ok {
+			task.NewTitle = v
+			continue
+		}
+		if v, ok := takeFlag(rest, &i, "--task-url", createWorktreeLogPrefix); ok {
+			task.URL = v
+			continue
+		}
 		switch {
-		case a == "--branch":
-			if i+1 >= len(rest) {
-				fmt.Fprintln(os.Stderr, createWorktreeLogPrefix+"--branch requires a value")
-				os.Exit(1)
-			}
-			i++
-			branch = rest[i]
-		case strings.HasPrefix(a, "--branch="):
-			branch = strings.TrimPrefix(a, "--branch=")
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(os.Stderr, createWorktreeLogPrefix+"unrecognized flag %q\n%s\n", a, createWorktreeUsage)
 			os.Exit(1)
@@ -82,41 +86,15 @@ func runCreateWorktreeCommand(args []string) bool {
 		path = cwd
 	}
 
-	os.Exit(createWorktreeAction(path, name, branch))
+	os.Exit(createWorktreeAction(path, name, branch, task))
 	return true
 }
 
-func createWorktreeAction(path, name, branch string) int {
-	selfBaseURL := serverBaseURL()
-
-	body, err := json.Marshal(map[string]string{"path": path, "name": name, "source_branch": branch})
+func createWorktreeAction(path, name, branch string, task taskFlags) int {
+	body, err := json.Marshal(map[string]any{"path": path, "name": name, "source_branch": branch, "task": task})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, createWorktreeLogPrefix+"encode request: %v\n", err)
 		return 1
 	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(selfBaseURL+"/api/worktrees", "application/json", bytes.NewReader(body))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, createWorktreeLogPrefix+"is worktree-studio running? request failed: %v\n", err)
-		return 1
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		fmt.Fprintf(os.Stderr, createWorktreeLogPrefix+"server returned %d: %s\n", resp.StatusCode, respBody)
-		return 1
-	}
-
-	var result struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(respBody, &result); err == nil && result.Status == "no matching worktree" {
-		fmt.Fprintf(os.Stderr, createWorktreeLogPrefix+"%q isn't inside any worktree-studio-tracked repo\n", path)
-		return 1
-	}
-
-	fmt.Fprintln(os.Stdout, string(respBody))
-	return 0
+	return postCLI("/api/worktrees", body, path, createWorktreeLogPrefix)
 }

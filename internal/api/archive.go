@@ -78,6 +78,7 @@ func (s *Server) setWorktreeStatus(w http.ResponseWriter, wt store.Worktree, sta
 		writeError(w, http.StatusInternalServerError, "failed to update worktree status")
 		return
 	}
+	s.settleTask(wt.TaskSource, wt.TaskKey)
 
 	s.auditLog(event, map[string]any{
 		"repo_id":     wt.RepoID,
