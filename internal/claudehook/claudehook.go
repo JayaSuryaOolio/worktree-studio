@@ -277,6 +277,18 @@ type SessionSummary struct {
 	// e.g. "19 MB" the way the user would recognize from Finder/`ls -lh`,
 	// not a token or message count this package doesn't track.
 	SizeBytes int64 `json:"size_bytes"`
+
+	// The fields below are set only for a session that is running right
+	// now, from Claude Code's live-session registry (see MergeRunning).
+	Running bool   `json:"running,omitempty"`
+	Kind    string `json:"kind,omitempty"`   // "interactive" or "bg"
+	Status  string `json:"status,omitempty"` // "busy" or "idle"
+	Name    string `json:"name,omitempty"`
+	PID     int    `json:"pid,omitempty"`
+	// ShortID is what `claude attach <id>` takes for a bg session.
+	ShortID string `json:"short_id,omitempty"`
+	// TerminalID is the worktree-studio terminal hosting the session, if any.
+	TerminalID string `json:"terminal_id,omitempty"`
 }
 
 // ListSessionsForCwd returns every past claude session recorded for cwd's

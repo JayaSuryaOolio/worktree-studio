@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -78,6 +79,39 @@ func TestListWorktreeClaudeSessionsFindsRealTranscripts(t *testing.T) {
 	}
 	if sizeBytes, ok := sessions[0]["size_bytes"].(float64); !ok || sizeBytes != float64(len(line)) {
 		t.Errorf("size_bytes = %v, want %d", sessions[0]["size_bytes"], len(line))
+	}
+}
+
+func TestListWorktreeClaudeSessionsIncludesRunning(t *testing.T) {
+	requireGit(t)
+	ts, _ := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repoPath := newTestGitRepo(t)
+
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/repos/", map[string]string{"name": "test", "path": repoPath})
+	var repo store.Repo
+	decodeInto(t, resp, &repo)
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/repos/"+repo.ID+"/worktrees/", map[string]string{"name": "feature"})
+	var wt store.Worktree
+	decodeInto(t, resp, &wt)
+
+	// A registry entry for a live pid (this test process) with no transcript.
+	reg := filepath.Join(home, ".claude", "sessions")
+	if err := os.MkdirAll(reg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"pid":%d,"sessionId":"live-1","cwd":%q,"kind":"bg","jobId":"live1234","status":"busy","name":"n"}`, os.Getpid(), wt.Path)
+	if err := os.WriteFile(filepath.Join(reg, "1.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp = doJSON(t, http.MethodGet, ts.URL+"/api/repos/"+repo.ID+"/worktrees/"+wt.ID+"/claude-sessions", nil)
+	var sessions []map[string]any
+	decodeInto(t, resp, &sessions)
+	if len(sessions) != 1 || sessions[0]["session_id"] != "live-1" || sessions[0]["running"] != true ||
+		sessions[0]["short_id"] != "live1234" || sessions[0]["status"] != "busy" {
+		t.Fatalf("sessions = %+v, want one running live-1", sessions)
 	}
 }
 
