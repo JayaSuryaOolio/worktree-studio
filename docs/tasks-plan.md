@@ -185,7 +185,7 @@ The worktree detail view (`WorktreeDetail.tsx`) gets a breadcrumb above its dock
 
 ### TUI
 
-Phase 1 shows the task key in the TUI's worktree list. Group-by-task in the TUI is a follow-up, and must work through ctrl+space like every other TUI action.
+The TUI shows the task key on worktree rows (the filter matches it) and the task's key and title at the start of the tab bar, like the web crumb. It doesn't group by task, and won't.
 
 ## API surface (new)
 

@@ -714,11 +714,16 @@ func (r Root) tabLabels() []string {
 	return out
 }
 
+// tabBar is the line above the panes: the worktree's task, if it has one
+// (`PROJ-123 Title ›`, like the web UI's crumb), then the tabs.
 func (r Root) tabBar() string {
-	if !r.ready() {
-		return ""
-	}
 	var b strings.Builder
+	if r.wt != nil && r.wt.TaskKey != "" {
+		b.WriteString(dimStyle.Render(" " + strings.TrimSpace(r.wt.TaskKey+" "+r.wt.TaskTitle) + " ›"))
+	}
+	if !r.ready() {
+		return b.String()
+	}
 	for i, l := range r.tabLabels() {
 		if i == r.bench.Active {
 			b.WriteString(selectedStyle.Render(l))
