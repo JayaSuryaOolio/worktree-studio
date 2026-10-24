@@ -166,6 +166,10 @@ func TestGitHookPostCheckoutIgnoresMissingFields(t *testing.T) {
 
 func TestGitHookInstallActuallyFiresOnRealCheckout(t *testing.T) {
 	requireGit(t)
+	// The installed hook reads $HOME/.worktree-studio/server.addr at run
+	// time; an empty HOME keeps it from finding (and posting to) a real
+	// running instance, so it falls back to SelfBaseURL below.
+	t.Setenv("HOME", t.TempDir())
 	ts, srv := newTestServer(t)
 	// newTestServer doesn't know its own httptest URL ahead of time, so
 	// SelfBaseURL (what the generated hook script POSTs back to) needs
