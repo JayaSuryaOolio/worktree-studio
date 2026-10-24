@@ -139,7 +139,8 @@ TODO.
       API, `wts ptyd`, `wts attach`
 - [x] Web client: replay-frame handling + reply dropping, 10k-line
       scrollback, Settings → Terminal toggle
-- [ ] TUI
+- [x] TUI (`tui/infra/ptyterm`): attaches to ptyd sessions directly, replay
+      fed into the vt emulator, its replies dropped up to a marker
 - [ ] Docs (README, architecture, PROGRESS, PLAN, SKILL.md)
 
 ## Learnings
@@ -149,3 +150,7 @@ TODO.
   sessions" (covers reconcile and orphans at once).
 - macOS caps unix socket paths at 104 bytes; `t.TempDir()` paths exceed it,
   so tests use `os.MkdirTemp("", "ptyd")`.
+- vt's reply pipe is an `io.Pipe`: a Read never spans two Writes, so the TUI's
+  replay marker always comes out as one exact chunk — no parsing needed.
+- `go test -race ./tui/infra/ptyterm` already fails on main: vt's
+  `Emulator.Close` and `Read` race on an unguarded `closed` flag.
