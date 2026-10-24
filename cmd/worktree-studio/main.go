@@ -118,6 +118,9 @@ func main() {
 	if runCreateWorktreeCommand(os.Args[1:]) {
 		return
 	}
+	if runSetTaskCommand(os.Args[1:]) {
+		return
+	}
 	if runWtsCommand(os.Args[1:]) {
 		return
 	}
