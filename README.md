@@ -55,7 +55,7 @@ CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,productio
 
 ## CLI subcommands (need the binary on `PATH`)
 
-`./worktree-studio` also doubles as a small CLI for one-off actions against an already-running server (`install-hooks`/`uninstall-hooks`, `open-file <path>`, `spotlight --start|--stop|--status [path]`, `orphans [--kill] [--min-age=<duration>]`, `create-worktree <name> [--branch <source-branch>] [path]` — see the skill file for the full list). These only work if `worktree-studio` resolves as a command from wherever you run them (e.g. a tmux pane sitting in some worktree's directory, not this checkout) — a plain `go build -o worktree-studio ./cmd/worktree-studio` only produces a binary in the current directory, so a zsh `command not found` from anywhere else is expected until it's actually installed somewhere on `PATH`:
+`./worktree-studio` also doubles as a small CLI for one-off actions against an already-running server (`install-hooks`/`uninstall-hooks`, `open-file <path>`, `spotlight --start|--stop|--status [path]`, `orphans [--kill] [--min-age=<duration>]`, `create-worktree <name> [--branch <source-branch>] [--task <source>:<key>] [path]`, `set-task <source>:<key> | --new <title> | --clear [path]` — see the skill file for the full list). These only work if `worktree-studio` resolves as a command from wherever you run them (e.g. a tmux pane sitting in some worktree's directory, not this checkout) — a plain `go build -o worktree-studio ./cmd/worktree-studio` only produces a binary in the current directory, so a zsh `command not found` from anywhere else is expected until it's actually installed somewhere on `PATH`:
 
 ```bash
 go build -o worktree-studio ./cmd/worktree-studio

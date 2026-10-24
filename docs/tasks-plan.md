@@ -145,7 +145,7 @@ A small popover that opens when you click the **task icon**. The icon appears in
 
 - **Status**: a dropdown of the statuses defined in Settings.
 - **Link**: an editable URL field, with an "open" button.
-- **Title**: editable for local tasks, read-only for external ones.
+- **Title**: editable. For external tasks the next refresh overwrites it, so it mostly matters for local ones and for external keys no adapter knows.
 - **Worktrees**: the worktrees that carry this task, with an "add worktree" action that opens the new-worktree dialog with this task already selected.
 - **Clear task from this worktree**, when the popup was opened from a worktree.
 
@@ -192,15 +192,18 @@ Phase 1 shows the task key in the TUI's worktree list. Group-by-task in the TUI 
 ```
 GET    /api/tasks                             tasks carried by worktrees
 GET    /api/tasks/search?source=&q=           picker search (local LIKE query, or adapter `list`)
-PATCH  /api/tasks/{source}/{key}              update {status_id?, url?, title? (local only)}
+PATCH  /api/tasks/{source}/{key}              update {status_id?, url?, title?}
 POST   /api/tasks/refresh                     refresh external titles for carried keys
 PUT    /api/repos/{repoID}/worktrees/{worktreeID}/task   set or clear {source, key, url?} or {new_title, url?}
-GET|POST|PATCH|DELETE /api/task-statuses      list, add, rename or reorder, delete (refused when in use)
+POST   /api/worktree-task                     same, plus {path}; resolves the worktree like open-file (backs `set-task`)
+GET|POST /api/task-statuses                  list, add {name}
+PATCH|DELETE /api/task-statuses/{id}         rename {name}, delete (409 when in use or the last one)
+PUT    /api/task-statuses/order               reorder [ids]
 GET|POST|DELETE /api/task-sources             manage adapters
 POST   /api/task-sources/{id}/test            run `list` once (explicit action only)
 ```
 
-The worktree create endpoints, both the UI one and `POST /api/worktrees` for the CLI, accept optional `task_source`, `task_key`, `task_url` and `task_new_title` fields. `task_new_title` creates a local task and assigns it.
+The worktree create endpoints, both the UI one and `POST /api/worktrees` for the CLI, accept an optional `task` object, `{source, key, url, new_title}`. `new_title` creates a local task and assigns it. A key without a source means `local`, and an unknown local key is a 400 before any git command runs.
 
 A task row is created, at the first status, the first time any worktree is labelled with it. Tasks are never deleted, so the history stays on the board.
 

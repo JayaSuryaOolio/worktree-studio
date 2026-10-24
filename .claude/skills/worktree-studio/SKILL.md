@@ -106,7 +106,7 @@ This same endpoint also holds `external_worktrees_root` (see "Auto-discovering w
 
 ### Creating a worktree from a shell command (e.g. as Claude, without touching the UI)
 
-`worktree-studio create-worktree <name> [--branch <source-branch>] [path]` creates a worktree *through* worktree-studio's own server (same audit logging, same UI list) instead of requiring the repo's id — the same "resolve from a filesystem path" idiom `open-file`/`spotlight` already use:
+`worktree-studio create-worktree <name> [--branch <source-branch>] [--task <source>:<key> | --new-task <title>] [--task-url <url>] [path]` creates a worktree *through* worktree-studio's own server (same audit logging, same UI list) instead of requiring the repo's id — the same "resolve from a filesystem path" idiom `open-file`/`spotlight` already use:
 
 ```bash
 worktree-studio create-worktree amber-ridge                   # repo = whichever one cwd is inside
@@ -115,6 +115,22 @@ worktree-studio create-worktree amber-ridge --branch develop   # branch off some
 ```
 
 `path` is optional and defaults to the current working directory (same implicit-cwd convention as `open-file`/`spotlight`); when given, it can be the repo's own root checkout *or* any of its existing worktrees — both are resolvable, since every repo's root checkout is itself tracked as a synthetic worktree row (see `EnsureRootWorktree`). This is what lets an agent already working inside one worktree spin up a sibling worktree of the same repo just by running this from where it already is. Same tolerance as `open-file`/`spotlight`: a path outside every repo/worktree `worktree-studio` tracks is a silent no-op (exit 1, nothing happens), not an error.
+
+### Grouping worktrees under a task
+
+A worktree can carry one **task** label, `(source, key)`: several worktrees with the same label are one task (e.g. an API and a web worktree for `PROJ-123`). `source` is just a label (`jira`, `linear`, …); `local` tasks live in worktree-studio's own SQLite with sequential keys (`#1`, `#2`). Tasks only exist once a worktree carries them, and their status settles on its own: a task with an active worktree is at least at the first status, and once every worktree is archived/deleted it moves to the last ("archived means done"). See `docs/tasks-plan.md`.
+
+```bash
+worktree-studio create-worktree api --task jira:PROJ-123 --task-url https://acme.atlassian.net/browse/PROJ-123
+worktree-studio create-worktree web --task jira:PROJ-123      # second worktree on the same task
+worktree-studio create-worktree spike --new-task "Try sqlc"   # new local task
+worktree-studio set-task jira:PROJ-124 [path]   # relabel the worktree containing path (default cwd)
+worktree-studio set-task 3 [path]               # local task #3
+worktree-studio set-task --new "Invoice export" [path]
+worktree-studio set-task --clear [path]
+```
+
+HTTP equivalents: `PUT /api/repos/<repoId>/worktrees/<id>/task` with `{source,key,url,new_title}` (empty body clears), `POST /api/worktree-task` with the same plus `path`, `GET /api/tasks`, `PATCH /api/tasks/<source>/<key>` (`title`, `url`, `status_id`), and `/api/task-statuses` (GET, POST `{name}`, PATCH `/<id>` `{name}`, PUT `/order` `[ids]`, DELETE `/<id>`).
 
 ## Attaching an existing worktree (no git mutation)
 
