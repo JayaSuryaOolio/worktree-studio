@@ -6,6 +6,8 @@ import Sidebar from "./Sidebar";
 import { RepoProvider } from "./RepoContext";
 
 vi.mock("./api", () => ({
+  listTasks: vi.fn(() => Promise.resolve([])),
+  listTaskStatuses: vi.fn(() => Promise.resolve([])),
   listRepos: vi.fn(),
   listWorktrees: vi.fn(),
   discoverExternalWorktrees: vi.fn(() => Promise.resolve([])),

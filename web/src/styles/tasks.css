@@ -1,0 +1,68 @@
+/* The task label on worktrees (docs/tasks-plan.md): the task picker, the
+   task popup, the breadcrumb, the sidebar's group-by-task mode and the
+   board. */
+
+.task-key {
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.task-source {
+  font-size: var(--fs-1);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.task-picker-results {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.task-picker-results button,
+.task-picker-chosen {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+}
+
+.task-picker-results button {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.task-picker-results button:hover,
+.task-picker-results button:focus-visible {
+  background: var(--surface-2);
+}
+
+.task-picker-chosen {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.task-picker-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-picker-chosen button {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
